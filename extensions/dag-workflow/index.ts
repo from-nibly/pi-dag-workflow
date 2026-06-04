@@ -113,7 +113,10 @@ export default function dagWorkflow(pi: ExtensionAPI) {
     handler: async (args: string, ctx: CommandContext) => {
       const { command, rest, options } = parseArgs(args);
       if (["brainstorm", "plan", "chunk", "run", "review", "retro"].includes(command)) {
-        if (command === "grillme") return;
+        if (command === "run" && !pi.getAllTools().some((tool) => tool.name === "subagent")) {
+          ctx.ui.notify("/dag run requires the pi-subagents package to be loaded. Install/enable npm:pi-subagents@0.25.0, then reload Pi.", "error");
+          return;
+        }
         await sendPrompt(pi, ctx, command, rest);
         return;
       }

@@ -8,7 +8,13 @@ Standalone Pi package for DAG-oriented project discovery, planning, chunking, an
 pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.1.0
 ```
 
-The package bundles the `pi-subagents` runtime extension. Full `pi-subagents` prompts/skills remain optional for general use outside DAG runs.
+DAG execution uses the `subagent` tool from `pi-subagents`. Install or enable `pi-subagents` once, separately:
+
+```nu
+pi install npm:pi-subagents@0.25.0
+```
+
+`pi-dag-workflow` intentionally does not auto-load its dependency copy of the `pi-subagents` extension, because many users already have `pi-subagents` installed globally and duplicate loading causes tool registration conflicts.
 
 ## Commands
 

@@ -19,7 +19,6 @@
   },
   "pi": {
     "extensions": [
-      "node_modules/pi-subagents/src/extension/index.ts",
       "./extensions/dag-workflow/index.ts"
     ]
   },
