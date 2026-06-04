@@ -1,6 +1,6 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { appendProjectUnderstanding, currentQuestion, getActiveGrillMe, grillMeAnswers, loadGrillMe, loadLatestGrillMe, saveGrillMe, setActiveGrillMe, type GrillMeQuestion } from "./state.ts";
+import { appendProjectUnderstanding, currentQuestion, getActiveGrillMe, grillMeAnswers, loadGrillMe, loadLatestGrillMe, saveGrillMe, setActiveGrillMe, type GrillMeQuestion, type GrillMeSession } from "./state.ts";
 import { requestGrillMeRender } from "./editor.ts";
 
 const OptionSchema = Type.Object({ id: Type.String(), label: Type.String(), text: Type.String() });
@@ -16,7 +16,19 @@ function normalizeQuestion(raw: any): GrillMeQuestion {
   return { ...raw, status: raw.status ?? "unanswered", updatedAt: new Date().toISOString() };
 }
 
-export function registerGrillMeTools(pi: ExtensionAPI) {
+const reopenedCompletedSessions = new WeakSet<GrillMeSession>();
+
+export function allowCompletedGrillMeMutation(session: GrillMeSession) {
+  reopenedCompletedSessions.add(session);
+}
+
+function assertWritableSession(session: GrillMeSession) {
+  if (session.completedAt && !reopenedCompletedSessions.has(session)) {
+    throw new Error(`GrillMe ${session.fileNumber} is complete. Run /dag grillme to create a new GrillMe, or explicitly reopen this one before changing its questions.`);
+  }
+}
+
+export function registerGrillMeTools(pi: ExtensionAPI, onQuestionsSaved?: (ctx: ExtensionContext, session: GrillMeSession) => void) {
   pi.registerTool({
     name: "dag_grillme_set_questions",
     label: "Set GrillMe Questions",
@@ -27,13 +39,16 @@ export function registerGrillMeTools(pi: ExtensionAPI) {
       if (!session) {
         throw new Error("No active GrillMe session. Run /dag grillme before calling dag_grillme_set_questions.");
       }
+      assertWritableSession(session);
       const questions = params.questions.slice(0, 100).map(normalizeQuestion);
       session.questions = questions;
       session.currentIndex = 0;
       session.selectedOptionIndex = 0;
       session.mode = "nav";
+      if (session.completedAt) delete session.completedAt;
       setActiveGrillMe(session);
       await saveGrillMe(ctx, session);
+      onQuestionsSaved?.(ctx, session);
       requestGrillMeRender();
       return { content: [{ type: "text", text: `Loaded ${questions.length} GrillMe questions.` }], details: { count: questions.length } };
     },
@@ -49,12 +64,16 @@ export function registerGrillMeTools(pi: ExtensionAPI) {
       if (!session) {
         throw new Error("No active GrillMe session. Run /dag grillme before calling dag_grillme_update_questions.");
       }
+      assertWritableSession(session);
       const answered = session.questions.filter((q) => q.status === "answered" && !params.includeAnswered);
       session.questions = [...answered, ...params.questions.slice(0, 100 - answered.length).map(normalizeQuestion)];
       session.currentIndex = 0;
       session.selectedOptionIndex = 0;
+      session.mode = "nav";
+      if (session.completedAt) delete session.completedAt;
       setActiveGrillMe(session);
       await saveGrillMe(ctx, session);
+      onQuestionsSaved?.(ctx, session);
       requestGrillMeRender();
       return { content: [{ type: "text", text: `Updated GrillMe questions (${session.questions.length} total).` }], details: { count: session.questions.length } };
     },

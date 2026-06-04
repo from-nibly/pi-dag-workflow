@@ -191,6 +191,12 @@ export class GrillMeEditor extends CustomEditor {
   }
 }
 
+export function closeGrillMeEditor(ctx: ExtensionContext) {
+  ctx.ui.setEditorComponent(undefined);
+  activeTui?.requestRender();
+  activeTui = undefined;
+}
+
 export function installGrillMeEditor(ctx: ExtensionContext, onComplete: (session: GrillMeSession) => void) {
   ctx.ui.setEditorComponent((tui, theme, keybindings) => new GrillMeEditor(tui, theme, keybindings, ctx, onComplete));
 }

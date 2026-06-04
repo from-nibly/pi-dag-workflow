@@ -23,9 +23,9 @@ import { ensureNodeWorktree, mergeNode } from "./worktrees.ts";
 import { buildSubagentParams, extractVerdict } from "./subagents.ts";
 import { listWorkerRecords, readLogTail, writeMetricsArtifact, writeWorkerRecord } from "./sessions.ts";
 import { DEFAULT_DAG_PATH, type DagStep } from "./types.ts";
-import { createGrillMe, currentQuestion, getActiveGrillMe, loadLatestGrillMe, saveGrillMe, setActiveGrillMe } from "./grillme/state.ts";
-import { installGrillMeEditor, requestGrillMeRender } from "./grillme/editor.ts";
-import { registerGrillMeTools } from "./grillme/tools.ts";
+import { createGrillMe, currentQuestion, getActiveGrillMe, loadGrillMe, loadLatestGrillMe, loadLatestIncompleteGrillMe, setActiveGrillMe, type GrillMeSession } from "./grillme/state.ts";
+import { closeGrillMeEditor, installGrillMeEditor, requestGrillMeRender } from "./grillme/editor.ts";
+import { allowCompletedGrillMeMutation, registerGrillMeTools } from "./grillme/tools.ts";
 import { registerDagSubagentTool } from "./dag-subagent.ts";
 
 const extensionDir = dirname(fileURLToPath(import.meta.url));
@@ -78,6 +78,12 @@ function ok(content: string, details: Record<string, unknown> = {}) {
 
 function err(message: string) { throw new Error(message); }
 
+function positiveNumberOption(value: string | boolean | undefined): number | undefined {
+  if (typeof value !== "string") return undefined;
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
 async function latestOrProvidedRun(cwd: string, runId?: string): Promise<string> {
   const id = runId ?? await findLatestRun(cwd);
   if (!id) throw new Error("No runId provided and no latest run found");
@@ -107,7 +113,18 @@ async function nextAction(cwd: string, dagPath: string, runId: string) {
 }
 
 export default function dagWorkflow(pi: ExtensionAPI) {
-  registerGrillMeTools(pi);
+  const onGrillMeComplete = (completedSession: GrillMeSession) => {
+    pi.sendUserMessage(
+      `GrillMe ${completedSession.fileNumber} is complete. Use the dag_grillme_get_answers tool to read the filtered answered questions from the GrillMe JSON state (id, title, body, answer only; discarded questions excluded). Inspect answers for explicit or implied research requests, follow up on that research when possible, then synthesize answers, findings, remaining uncertainty, and conflicts into .ai/project.md using dag_grillme_record_understanding.`,
+      { deliverAs: "followUp" },
+    );
+  };
+  registerGrillMeTools(pi, (ctx, session) => {
+    setActiveGrillMe(session);
+    installGrillMeEditor(ctx, onGrillMeComplete);
+    requestGrillMeRender();
+    ctx.ui.notify(`GrillMe ${session.fileNumber} questions ready.`, "info");
+  });
   registerDagSubagentTool(pi);
 
   pi.registerCommand("dag", {
@@ -119,18 +136,38 @@ export default function dagWorkflow(pi: ExtensionAPI) {
         return;
       }
       if (command === "grillme") {
-        let session = await loadLatestGrillMe(ctx.cwd);
+        const continueLatest = options.continue === true;
+        const reopenCompleted = options.reopen === true;
+        const fileNumber = positiveNumberOption(options.file);
+        if (options.file !== undefined && fileNumber === undefined) {
+          ctx.ui.notify("Usage: /dag grillme [--continue] [--file <number>] [--reopen]", "error");
+          return;
+        }
+        if (continueLatest && fileNumber !== undefined) {
+          ctx.ui.notify("Use either --continue or --file <number>, not both.", "error");
+          return;
+        }
+
+        let session: GrillMeSession | undefined;
+        if (fileNumber !== undefined) {
+          session = await loadGrillMe(ctx.cwd, fileNumber);
+          if (!session) { ctx.ui.notify(`No GrillMe ${fileNumber} found.`, "error"); return; }
+        } else if (continueLatest) {
+          session = reopenCompleted ? await loadLatestGrillMe(ctx.cwd) : await loadLatestIncompleteGrillMe(ctx.cwd);
+          if (!session) { ctx.ui.notify("No previous GrillMe found to continue; starting a new one instead.", "warning"); }
+        }
         if (!session) session = await createGrillMe(ctx.cwd);
+        if (session.completedAt) {
+          if (!reopenCompleted) {
+            ctx.ui.notify(`GrillMe ${session.fileNumber} is complete. Run /dag grillme for a new GrillMe, or pass --reopen with --continue/--file to modify it.`, "error");
+            return;
+          }
+          allowCompletedGrillMeMutation(session);
+        }
+        session.mode = "nav";
         setActiveGrillMe(session);
-        installGrillMeEditor(ctx, (completedSession) => {
-          pi.sendUserMessage(
-            `GrillMe ${completedSession.fileNumber} is complete. Use the dag_grillme_get_answers tool to read the filtered answered questions from the GrillMe JSON state (id, title, body, answer only; discarded questions excluded). Inspect answers for explicit or implied research requests, follow up on that research when possible, then synthesize answers, findings, remaining uncertainty, and conflicts into .ai/project.md using dag_grillme_record_understanding.`,
-            { deliverAs: "followUp" },
-          );
-        });
-        await saveGrillMe(ctx, session);
-        requestGrillMeRender();
-        ctx.ui.notify("GrillMe mode started. Press c in nav mode to chat; the agent can populate questions with dag_grillme_set_questions.", "info");
+        closeGrillMeEditor(ctx);
+        ctx.ui.notify(`Preparing GrillMe ${session.fileNumber} questions. The UI will open after the agent saves them with a dag_grillme_* questions tool.`, "info");
         await sendPrompt(pi, ctx, "grillme", rest);
         return;
       }

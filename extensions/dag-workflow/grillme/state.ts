@@ -62,6 +62,18 @@ export async function loadLatestGrillMe(cwd: string): Promise<GrillMeSession | u
   } catch { return undefined; }
 }
 
+export async function loadLatestIncompleteGrillMe(cwd: string): Promise<GrillMeSession | undefined> {
+  try {
+    const files = await readdir(grillmeDir(cwd));
+    const nums = files.map((f) => f.match(/^grillme-(\d+)\.json$/)?.[1]).filter(Boolean).map(Number).sort((a,b)=>b-a);
+    for (const n of nums) {
+      const session = await loadGrillMe(cwd, n);
+      if (session && !session.completedAt) return session;
+    }
+    return undefined;
+  } catch { return undefined; }
+}
+
 export async function saveGrillMe(ctx: ExtensionContext, session = active): Promise<void> {
   if (!session) return;
   session.updatedAt = new Date().toISOString();
