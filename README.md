@@ -76,6 +76,24 @@ flowchart TD
 
 During `/dag run`, you steer the **top-level conductor agent**, not each worker directly. You can provide additional instructions in chat, ask it to inspect status, choose recovery actions, or stop and revise chunks/config before continuing.
 
+After `/dag chunk` writes `.ai/chunks/*` and `.ai/dag.json`, it prints a compact text dependency diagram generated from `nodes[].dependsOn`, including first-ready chunks and `maxConcurrency` when available:
+
+```text
+DAG valid: .ai/dag.json
+
+chunk-1  Add renderer helper             deps: -
+chunk-2  Update chunk prompt             deps: -
+chunk-3  Document diagram output         deps: chunk-1, chunk-2
+
+Dependency sketch:
+chunk-1 ─┐
+         ├─> chunk-3
+chunk-2 ─┘
+
+First ready: chunk-1, chunk-2
+maxConcurrency: 2
+```
+
 After a run or planning cycle, `/dag archive` writes a durable history file such as `.ai/history/YYYY-MM-DD-HH-MM-<type>-<slug>.md` first, then asks whether you want to clean up old DAG artifacts. Cleanup is never automatic; files are deleted or moved only after explicit confirmation after the history file has been created.
 
 ## Config
