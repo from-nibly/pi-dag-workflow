@@ -1,0 +1,32 @@
+{
+  "name": "pi-dag-workflow",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pi DAG workflow extension with project discovery, chunking, and ordered subagent flows.",
+  "keywords": ["pi-package", "pi-extension", "dag-workflow"],
+  "license": "MIT",
+  "scripts": {
+    "smoke": "node scripts/smoke-test.mjs",
+    "pack:dry": "npm pack --dry-run"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "dependencies": {
+    "pi-subagents": "^0.25.0"
+  },
+  "pi": {
+    "extensions": [
+      "node_modules/pi-subagents/src/extension/index.ts",
+      "./extensions/dag-workflow/index.ts"
+    ]
+  },
+  "files": [
+    "extensions/",
+    "scripts/smoke-test.mjs",
+    "README.md",
+    "LICENSE"
+  ]
+}
