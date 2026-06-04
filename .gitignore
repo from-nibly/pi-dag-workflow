@@ -1,7 +1,5 @@
 # Track the handoff plan even though Jordan's global gitignore ignores .ai/.
-!.ai/
-.ai/*
-!.ai/plan.md
+.ai
 
 node_modules/
 dist/

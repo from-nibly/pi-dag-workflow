@@ -69,6 +69,7 @@ export async function buildSubagentParams(args: {
     sessionDir: `${parentCwd}/.ai/runs/${runId}/subagent-sessions/${key}`,
     output: `${parentCwd}/.ai/runs/${runId}/artifacts/${key}.md`,
     outputMode: "file-only",
+    progress: false,
     reads,
   };
   if (step.model) params.model = step.model;
