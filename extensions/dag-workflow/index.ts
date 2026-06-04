@@ -109,10 +109,10 @@ export default function dagWorkflow(pi: ExtensionAPI) {
   registerGrillMeTools(pi);
 
   pi.registerCommand("dag", {
-    description: "DAG workflow commands: brainstorm, grillme, plan, chunk, validate, run, status, workers, inspect, tail, review, retro",
+    description: "DAG workflow commands: brainstorm, grillme, plan, chunk, validate, run, status, workers, inspect, tail, review, retro, archive",
     handler: async (args: string, ctx: CommandContext) => {
       const { command, rest, options } = parseArgs(args);
-      if (["brainstorm", "plan", "chunk", "run", "review", "retro"].includes(command)) {
+      if (["brainstorm", "plan", "chunk", "run", "review", "retro", "archive"].includes(command)) {
         if (command === "run" && !pi.getAllTools().some((tool) => tool.name === "subagent")) {
           ctx.ui.notify("/dag run requires the pi-subagents package to be loaded. Install/enable npm:pi-subagents@0.25.0, then reload Pi.", "error");
           return;
@@ -126,7 +126,7 @@ export default function dagWorkflow(pi: ExtensionAPI) {
         setActiveGrillMe(session);
         installGrillMeEditor(ctx, (completedSession) => {
           pi.sendUserMessage(
-            `GrillMe ${completedSession.fileNumber} is complete. Use the dag_grillme_get_answers tool to read the filtered answered questions from the GrillMe JSON state (id, title, body, answer only; discarded questions excluded), then synthesize the answers into .ai/project.md using dag_grillme_record_understanding.`,
+            `GrillMe ${completedSession.fileNumber} is complete. Use the dag_grillme_get_answers tool to read the filtered answered questions from the GrillMe JSON state (id, title, body, answer only; discarded questions excluded). Inspect answers for explicit or implied research requests, follow up on that research when possible, then synthesize answers, findings, remaining uncertainty, and conflicts into .ai/project.md using dag_grillme_record_understanding.`,
             { deliverAs: "followUp" },
           );
         });
@@ -172,7 +172,7 @@ export default function dagWorkflow(pi: ExtensionAPI) {
         ctx.ui.notify((await readLogTail(path, 40)).slice(-4000) || "No log output", "info");
         return;
       }
-      ctx.ui.notify("Usage: /dag brainstorm|grillme|plan|chunk|validate|run|status|workers|inspect|tail|review|retro", "info");
+      ctx.ui.notify("Usage: /dag brainstorm|grillme|plan|chunk|validate|run|status|workers|inspect|tail|review|retro|archive", "info");
     },
   });
 
