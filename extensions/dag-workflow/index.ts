@@ -121,7 +121,12 @@ export default function dagWorkflow(pi: ExtensionAPI) {
         let session = await loadLatestGrillMe(ctx.cwd);
         if (!session) session = await createGrillMe(ctx.cwd);
         setActiveGrillMe(session);
-        installGrillMeEditor(ctx);
+        installGrillMeEditor(ctx, (completedSession) => {
+          pi.sendUserMessage(
+            `GrillMe ${completedSession.fileNumber} is complete. Use the dag_grillme_get_answers tool to read the filtered answered questions from the GrillMe JSON state (id, title, body, answer only; discarded questions excluded), then synthesize the answers into .ai/project.md using dag_grillme_record_understanding.`,
+            { deliverAs: "followUp" },
+          );
+        });
         await saveGrillMe(ctx, session);
         requestGrillMeRender();
         ctx.ui.notify("GrillMe mode started. Press c in nav mode to chat; the agent can populate questions with dag_grillme_set_questions.", "info");

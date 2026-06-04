@@ -120,8 +120,10 @@ Project/chunk-specific setup, implementation, and validation details belong on n
 `/dag grillme` installs a vim-like Pi TUI editor:
 
 - `Esc`: nav mode
-- nav: `h` previous, `l` next, `j/k` option, `Enter` answer selected option, `a` freeform answer, `c` chat
+- nav: `h` previous, `l` next, `j/k` option, `Enter` answer selected option, `a` freeform answer, `c` chat, `x` complete
 - answer: `Enter` save, `Shift+Enter` newline
 - chat: `Enter` asks the top-level agent
 
-Durable state lives in `.ai/grillme/grillme-N.json`; a markdown transcript is written to `.ai/grillme/grillme-N.md`. Research summaries and source links should be recorded in `.ai/project.md`.
+Pressing `x` completes and closes the GrillMe session, discards unanswered questions, and asks the agent to call `dag_grillme_get_answers` to read only `{ id, title, body, answer }` for answered/non-discarded questions. The agent should synthesize those answers into `.ai/project.md`.
+
+Durable state lives in `.ai/grillme/grillme-N.json`. Research summaries and source links should be recorded in `.ai/project.md`.

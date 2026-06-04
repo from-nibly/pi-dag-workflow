@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { appendProjectUnderstanding, currentQuestion, getActiveGrillMe, saveGrillMe, setActiveGrillMe, type GrillMeQuestion } from "./state.ts";
+import { appendProjectUnderstanding, currentQuestion, getActiveGrillMe, grillMeAnswers, loadGrillMe, loadLatestGrillMe, saveGrillMe, setActiveGrillMe, type GrillMeQuestion } from "./state.ts";
 import { requestGrillMeRender } from "./editor.ts";
 
 const OptionSchema = Type.Object({ id: Type.String(), label: Type.String(), text: Type.String() });
@@ -57,6 +57,26 @@ export function registerGrillMeTools(pi: ExtensionAPI) {
       await saveGrillMe(ctx, session);
       requestGrillMeRender();
       return { content: [{ type: "text", text: `Updated GrillMe questions (${session.questions.length} total).` }], details: { count: session.questions.length } };
+    },
+  });
+
+  pi.registerTool({
+    name: "dag_grillme_get_answers",
+    label: "Get GrillMe Answers",
+    description: "Read GrillMe JSON state from disk and return answered questions only, filtered to id/title/body/answer and excluding discarded questions.",
+    parameters: Type.Object({ fileNumber: Type.Optional(Type.Number()) }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const active = getActiveGrillMe();
+      const session = params.fileNumber !== undefined
+        ? await loadGrillMe(ctx.cwd, params.fileNumber)
+        : active
+          ? await loadGrillMe(ctx.cwd, active.fileNumber)
+          : await loadLatestGrillMe(ctx.cwd);
+      if (!session) {
+        throw new Error("No GrillMe session found.");
+      }
+      const answers = grillMeAnswers(session);
+      return { content: [{ type: "text", text: JSON.stringify(answers, null, 2) }], details: { answers, sessionId: session.id, fileNumber: session.fileNumber } };
     },
   });
 

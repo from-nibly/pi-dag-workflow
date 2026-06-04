@@ -27,6 +27,7 @@ export interface GrillMeSession {
   selectedOptionIndex: number;
   mode: GrillMeMode;
   questions: GrillMeQuestion[];
+  completedAt?: string;
 }
 
 let active: GrillMeSession | undefined;
@@ -36,7 +37,6 @@ export function setActiveGrillMe(session: GrillMeSession | undefined) { active =
 
 export function grillmeDir(cwd: string): string { return join(cwd, ".ai", "grillme"); }
 export function jsonPath(cwd: string, n: number): string { return join(grillmeDir(cwd), `grillme-${n}.json`); }
-export function mdPath(cwd: string, n: number): string { return join(grillmeDir(cwd), `grillme-${n}.md`); }
 
 export async function nextGrillMeNumber(cwd: string): Promise<number> {
   try {
@@ -46,13 +46,19 @@ export async function nextGrillMeNumber(cwd: string): Promise<number> {
   } catch { return 1; }
 }
 
+export async function loadGrillMe(cwd: string, fileNumber: number): Promise<GrillMeSession | undefined> {
+  try {
+    return JSON.parse(await readFile(jsonPath(cwd, fileNumber), "utf8")) as GrillMeSession;
+  } catch { return undefined; }
+}
+
 export async function loadLatestGrillMe(cwd: string): Promise<GrillMeSession | undefined> {
   try {
     const files = await readdir(grillmeDir(cwd));
     const nums = files.map((f) => f.match(/^grillme-(\d+)\.json$/)?.[1]).filter(Boolean).map(Number).sort((a,b)=>a-b);
     const n = nums.at(-1);
     if (!n) return undefined;
-    return JSON.parse(await readFile(jsonPath(cwd, n), "utf8")) as GrillMeSession;
+    return await loadGrillMe(cwd, n);
   } catch { return undefined; }
 }
 
@@ -61,7 +67,6 @@ export async function saveGrillMe(ctx: ExtensionContext, session = active): Prom
   session.updatedAt = new Date().toISOString();
   await mkdir(grillmeDir(ctx.cwd), { recursive: true });
   await writeFile(jsonPath(ctx.cwd, session.fileNumber), `${JSON.stringify(session, null, 2)}\n`, "utf8");
-  await writeFile(mdPath(ctx.cwd, session.fileNumber), renderGrillMeMarkdown(session), "utf8");
 }
 
 export async function createGrillMe(cwd: string, questions: GrillMeQuestion[] = []): Promise<GrillMeSession> {
@@ -87,16 +92,10 @@ export function currentQuestion(session = active): GrillMeQuestion | undefined {
   return session.questions[session.currentIndex];
 }
 
-export function renderGrillMeMarkdown(session: GrillMeSession): string {
-  const lines = [`# GrillMe ${session.fileNumber}`, ""];
-  for (const [index, q] of session.questions.entries()) {
-    lines.push(`## Q${index + 1} - ${q.title}`, "", `Status: ${q.status}`, "", q.body, "");
-    if (q.why) lines.push(`Why this matters: ${q.why}`, "");
-    for (const option of q.options ?? []) lines.push(`${option.id.toUpperCase()}. ${option.label} — ${option.text}`);
-    if (q.options?.length) lines.push("");
-    lines.push(`> ${q.answer ?? ""}`, "");
-  }
-  return lines.join("\n");
+export function grillMeAnswers(session: GrillMeSession): Array<{ id: string; title: string; body: string; answer: string }> {
+  return session.questions
+    .filter((q) => q.status !== "discarded" && typeof q.answer === "string" && q.answer.trim().length > 0)
+    .map((q) => ({ id: q.id, title: q.title, body: q.body, answer: q.answer!.trim() }));
 }
 
 export async function appendProjectUnderstanding(ctx: ExtensionContext, text: string): Promise<void> {
