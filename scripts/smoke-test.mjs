@@ -3,6 +3,7 @@ import { access } from "node:fs/promises";
 const files = [
   "package.json",
   "extensions/dag-workflow/index.ts",
+  "extensions/dag-workflow/dag-subagent.ts",
   "extensions/dag-workflow/types.ts",
   "extensions/dag-workflow/dag.ts",
   "extensions/dag-workflow/config.ts",

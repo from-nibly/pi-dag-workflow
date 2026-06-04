@@ -12,13 +12,9 @@ The packaged prompts guide project discovery, decision interrogation, planning, 
 pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.1.0
 ```
 
-DAG execution uses the `subagent` tool from `pi-subagents`. Install or enable `pi-subagents` once, separately:
+DAG execution uses the bundled `pi-subagents` runtime through a DAG-owned `dag_subagent` tool. You do **not** need to install `pi-subagents` separately for `/dag run`.
 
-```nu
-pi install npm:pi-subagents@0.25.0
-```
-
-`pi-dag-workflow` intentionally does not auto-load its dependency copy of the `pi-subagents` extension, because many users already have `pi-subagents` installed globally and duplicate loading causes tool registration conflicts.
+Install `pi-subagents` separately only if you also want its general-purpose `subagent` tool, slash commands, skills, or prompt templates outside the DAG workflow.
 
 ## Commands
 

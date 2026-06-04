@@ -15,7 +15,7 @@
     "typebox": "*"
   },
   "dependencies": {
-    "pi-subagents": "^0.25.0"
+    "pi-subagents": "0.25.0"
   },
   "pi": {
     "extensions": [

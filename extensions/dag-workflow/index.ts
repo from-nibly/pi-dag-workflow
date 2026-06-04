@@ -26,6 +26,7 @@ import { DEFAULT_DAG_PATH, type DagStep } from "./types.ts";
 import { createGrillMe, currentQuestion, getActiveGrillMe, loadLatestGrillMe, saveGrillMe, setActiveGrillMe } from "./grillme/state.ts";
 import { installGrillMeEditor, requestGrillMeRender } from "./grillme/editor.ts";
 import { registerGrillMeTools } from "./grillme/tools.ts";
+import { registerDagSubagentTool } from "./dag-subagent.ts";
 
 const extensionDir = dirname(fileURLToPath(import.meta.url));
 
@@ -107,16 +108,13 @@ async function nextAction(cwd: string, dagPath: string, runId: string) {
 
 export default function dagWorkflow(pi: ExtensionAPI) {
   registerGrillMeTools(pi);
+  registerDagSubagentTool(pi);
 
   pi.registerCommand("dag", {
     description: "DAG workflow commands: brainstorm, grillme, plan, chunk, validate, run, status, workers, inspect, tail, review, retro, archive",
     handler: async (args: string, ctx: CommandContext) => {
       const { command, rest, options } = parseArgs(args);
       if (["brainstorm", "plan", "chunk", "run", "review", "retro", "archive"].includes(command)) {
-        if (command === "run" && !pi.getAllTools().some((tool) => tool.name === "subagent")) {
-          ctx.ui.notify("/dag run requires the pi-subagents package to be loaded. Install/enable npm:pi-subagents@0.25.0, then reload Pi.", "error");
-          return;
-        }
         await sendPrompt(pi, ctx, command, rest);
         return;
       }
