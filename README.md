@@ -2,6 +2,10 @@
 
 Standalone Pi package for DAG-oriented project discovery, planning, chunking, and ordered subagent execution.
 
+## Default behavior
+
+The packaged prompts guide project discovery, decision interrogation, planning, chunking, worker discipline, and validation while preserving the default `setup -> execute -> validate` node flow. Project-specific setup, implementation, and validation details still belong in `.ai/project.md`, `.ai/plan.md`, chunks, and node instructions.
+
 ## Install
 
 ```nu
@@ -31,6 +35,7 @@ All user commands are under `/dag`:
 /dag workers      # summarize worker records
 /dag review       # reviewer prompt
 /dag retro        # retrospective prompt
+/dag archive      # write .ai/history entry, then ask about cleanup
 ```
 
 ## Usage flow
@@ -67,12 +72,15 @@ flowchart TD
   UserInput --> NextAction
   Decide -->|all merged| Finalize["dag_finalize"]
   Finalize --> Done([Done])
+  Done --> Archive["/dag archive\nwrite .ai/history entry\nthen ask about cleanup"]
 
   Status["/dag status / workers / inspect / tail\nobserve progress anytime"] -.-> Run
   Status -.-> UserInput
 ```
 
 During `/dag run`, you steer the **top-level conductor agent**, not each worker directly. You can provide additional instructions in chat, ask it to inspect status, choose recovery actions, or stop and revise chunks/config before continuing.
+
+After a run or planning cycle, `/dag archive` writes a durable history file such as `.ai/history/YYYY-MM-DD-HH-MM-<type>-<slug>.md` first, then asks whether you want to clean up old DAG artifacts. Cleanup is never automatic; files are deleted or moved only after explicit confirmation after the history file has been created.
 
 ## Config
 
