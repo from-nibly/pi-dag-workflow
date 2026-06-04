@@ -42,4 +42,13 @@ DAG shape requirements:
 - Do not include `merge` inside any flow.
 - Keep project/chunk-specific setup and validation details on nodes, not in builtin prompt markdown.
 
+After writing `.ai/chunks/*` and `.ai/dag.json`, call the `dag_diagram` tool. It validates the DAG and renders the compact Style C dependency diagram from the saved `.ai/dag.json`; you may call `dag_validate` separately if you need an additional validation check, but `dag_diagram` output is the source of truth for the final diagram.
+
+In your final response:
+
+- Include the validation status and rendered text returned by `dag_diagram`.
+- Report any validation errors, validation warnings, or renderer warnings, including hard-edge mismatch warnings.
+- Do not hand-draw or rewrite a separate dependency diagram when `dag_diagram` succeeds.
+- If `dag_diagram` is unavailable or errors, say diagram rendering failed and include validation status instead of inventing a confident diagram.
+
 Before finishing, self-review for missing dependencies, overlapping ownership, vague validation, invalid paths, invalid flow references, and any accidental `merge` entries inside flows.

@@ -27,6 +27,7 @@ import { createGrillMe, currentQuestion, getActiveGrillMe, loadGrillMe, loadLate
 import { closeGrillMeEditor, installGrillMeEditor, requestGrillMeRender } from "./grillme/editor.ts";
 import { allowCompletedGrillMeMutation, registerGrillMeTools } from "./grillme/tools.ts";
 import { registerDagSubagentTool } from "./dag-subagent.ts";
+import { renderDagDiagram } from "./diagram.ts";
 
 const extensionDir = dirname(fileURLToPath(import.meta.url));
 
@@ -229,6 +230,40 @@ export default function dagWorkflow(pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const result = await validateDag(ctx.cwd, params.dagPath ?? DEFAULT_DAG_PATH);
       return ok(result.valid ? "DAG valid" : `DAG invalid\n${result.errors.join("\n")}`, result as any);
+    },
+  });
+
+  pi.registerTool({
+    name: "dag_diagram",
+    label: "DAG Diagram",
+    description: "Render a compact text dependency diagram for a .ai/dag.json DAG file.",
+    parameters: Type.Object({
+      dagPath: Type.Optional(Type.String()),
+      width: Type.Optional(Type.Number()),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const dagPath = params.dagPath ?? DEFAULT_DAG_PATH;
+      const dag = await readDag(ctx.cwd, dagPath);
+      const validation = await validateDag(ctx.cwd, dagPath);
+      const diagram = renderDagDiagram(dag, { width: params.width });
+      const warnings = [...validation.warnings, ...diagram.warnings];
+
+      const lines = [validation.valid ? `DAG valid: ${dagPath}` : `DAG invalid: ${dagPath}`];
+      if (validation.errors.length > 0) {
+        lines.push("", "Validation errors:", ...validation.errors.map((error) => `- ${error}`));
+      }
+      lines.push("", diagram.text);
+      if (warnings.length > 0) {
+        lines.push("", "Warnings:", ...warnings.map((warning) => `- ${warning}`));
+      }
+
+      return ok(lines.join("\n"), {
+        dagPath,
+        valid: validation.valid,
+        errors: validation.errors,
+        warnings,
+        diagram: diagram.text,
+      });
     },
   });
 
