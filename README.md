@@ -76,7 +76,7 @@ flowchart TD
 
 During `/dag run`, you steer the **top-level conductor agent**, not each worker directly. You can provide additional instructions in chat, ask it to inspect status, choose recovery actions, or stop and revise chunks/config before continuing.
 
-After `/dag chunk` writes `.ai/chunks/*` and `.ai/dag.json`, it prints a compact text dependency diagram generated from `nodes[].dependsOn`, including first-ready chunks and `maxConcurrency` when available:
+After `/dag chunk` writes `.ai/chunks/*` and `.ai/dag.json`, it prints a compact text dependency diagram directly in the terminal output. The diagram is generated from `nodes[].dependsOn` and includes first-ready chunks and `maxConcurrency` when available:
 
 ```text
 DAG valid: .ai/dag.json

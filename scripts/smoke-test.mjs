@@ -70,10 +70,13 @@ assert(mismatch.warnings.some((warning) => warning.includes("hard edge mismatch:
 
 const chunkPrompt = await readFile("extensions/dag-workflow/command-prompts/chunk.md", "utf8");
 assertIncludes(chunkPrompt, "dag_diagram", "chunk prompt wires dag_diagram");
+assertIncludes(chunkPrompt, "without adding a heading", "chunk prompt avoids diagram headings");
+assertIncludes(chunkPrompt, "Do not wrap the diagram in Markdown code fences", "chunk prompt avoids diagram code fences");
 
 const readme = await readFile("README.md", "utf8");
 assertIncludes(readme, "Dependency sketch:", "README documents diagram sample");
 assertIncludes(readme, "/dag chunk", "README documents /dag chunk diagram output");
+assertIncludes(readme, "directly in the terminal output", "README documents direct terminal output");
 
 console.log(`Smoke OK: ${files.length} required files exist and DAG diagram checks passed`);
 

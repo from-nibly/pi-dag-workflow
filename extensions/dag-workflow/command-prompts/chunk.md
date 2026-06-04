@@ -46,8 +46,9 @@ After writing `.ai/chunks/*` and `.ai/dag.json`, call the `dag_diagram` tool. It
 
 In your final response:
 
-- Include the validation status and rendered text returned by `dag_diagram`.
-- Report any validation errors, validation warnings, or renderer warnings, including hard-edge mismatch warnings.
+- Print the `dag_diagram` text directly as the primary output, without adding a heading such as `dag_diagram output:`.
+- Do not wrap the diagram in Markdown code fences; Pi's terminal output is already monospaced, and the diagram should feel like command output.
+- Include validation errors, validation warnings, or renderer warnings after the diagram when present, including hard-edge mismatch warnings.
 - Do not hand-draw or rewrite a separate dependency diagram when `dag_diagram` succeeds.
 - If `dag_diagram` is unavailable or errors, say diagram rendering failed and include validation status instead of inventing a confident diagram.
 
