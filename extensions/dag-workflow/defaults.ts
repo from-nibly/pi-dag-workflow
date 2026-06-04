@@ -4,7 +4,7 @@ export const PACKAGE_DEFAULT_CONFIG: DagWorkflowConfig = {
   defaults: {
     flow: "default",
     stashDirtyParent: true,
-    mergeStrategy: "merge-no-ff",
+    mergeStrategy: "rebase-ff",
   },
   steps: [
     {
@@ -26,9 +26,9 @@ export const PACKAGE_DEFAULT_CONFIG: DagWorkflowConfig = {
       agent: "builtin:worker",
       prompt: "builtin:executor",
       input: "Implement the chunk described by node.implementationInstructions and the chunk file.",
-      output: "Summarize changed files, validation attempted, blockers, and commit hash.",
+      output: "Summarize changed files, validation attempted, blockers, worktree cleanliness, commit hash(es), and Conventional Commit subject(s).",
       requires: [
-        "Implementation changes are committed.",
+        "Implementation changes are committed with Conventional Commit messages.",
         "Worktree is clean or remaining dirty files are explained.",
       ],
       onFail: "needs-decision",

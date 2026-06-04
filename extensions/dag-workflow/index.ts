@@ -365,7 +365,7 @@ export default function dagWorkflow(pi: ExtensionAPI) {
   pi.registerTool({
     name: "dag_merge_node",
     label: "DAG Merge Node",
-    description: "Merge one merge-ready node into the parent branch.",
+    description: "Rebase one merge-ready node and fast-forward it into the parent branch.",
     parameters: Type.Object({ runId: Type.String(), nodeId: Type.String(), dagPath: Type.Optional(Type.String()) }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const dag = await readDag(ctx.cwd, params.dagPath ?? DEFAULT_DAG_PATH);
@@ -376,7 +376,7 @@ export default function dagWorkflow(pi: ExtensionAPI) {
       state.nodes[node.id].status = "merged";
       state.nodes[node.id].mergedAt = new Date().toISOString();
       await saveRunState(ctx.cwd, state);
-      return ok(`Merged ${node.id}`, { output });
+      return ok(`Rebased and fast-forwarded ${node.id}`, { output });
     },
   });
 

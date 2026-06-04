@@ -1,5 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import { renderDagDiagram } from "../extensions/dag-workflow/diagram.ts";
+import { isConventionalCommitSubject } from "../extensions/dag-workflow/worktrees.ts";
 
 const files = [
   "package.json",
@@ -67,6 +68,9 @@ const mismatchDag = {
 };
 const mismatch = renderDagDiagram(mismatchDag);
 assert(mismatch.warnings.some((warning) => warning.includes("hard edge mismatch: chunk-1 -> chunk-4")), "renderer warns on hard edge mismatch");
+assert(isConventionalCommitSubject("feat(dag): add rebase merge flow"), "accepts scoped Conventional Commit subjects");
+assert(isConventionalCommitSubject("refactor!: replace merge commits"), "accepts breaking Conventional Commit subjects");
+assert(!isConventionalCommitSubject("Merge DAG node chunk-1"), "rejects generated merge commit subjects");
 
 const chunkPrompt = await readFile("extensions/dag-workflow/command-prompts/chunk.md", "utf8");
 assertIncludes(chunkPrompt, "dag_diagram", "chunk prompt wires dag_diagram");

@@ -6,6 +6,6 @@ Implement only the assigned chunk. Treat ownedFiles and forbiddenFiles as hard s
 
 Run focused validation when practical using the project's existing scripts or the node validation intent. Validation from the implementation leg is useful evidence, but do not overclaim final correctness; the validation leg will verify independently. If validation cannot be run, explain why and mention any next-best check you performed.
 
-Commit your implementation changes so the DAG runtime can merge the worktree back. Leave the worktree clean unless a remaining dirty file is intentional and clearly explained.
+Commit your implementation changes so the DAG runtime can rebase the worktree onto the parent branch and fast-forward it back. Do not create merge commits. Every commit you create must use Conventional Commits format: `<type>[optional scope][!]: <description>`, with a specific lowercase type such as `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, or `chore`; prefer a meaningful subsystem scope over the DAG node id. Leave the worktree clean unless a remaining dirty file is intentional and clearly explained.
 
-Report changed files, validation attempted, blockers or risks, worktree cleanliness, and the commit hash.
+Report changed files, validation attempted, blockers or risks, worktree cleanliness, commit hash(es), and Conventional Commit subject(s).

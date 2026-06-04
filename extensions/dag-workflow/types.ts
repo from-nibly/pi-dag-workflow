@@ -59,7 +59,7 @@ export interface DagFile {
   defaults: {
     flow: string;
     stashDirtyParent?: boolean;
-    mergeStrategy?: "merge-no-ff" | string;
+    mergeStrategy?: "rebase-ff" | string;
     [key: string]: unknown;
   };
   steps: DagStep[];

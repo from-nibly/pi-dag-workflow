@@ -50,9 +50,42 @@ export async function ensureNodeWorktree(cwd: string, state: RunState, node: Dag
   return { branch, worktree };
 }
 
+const CONVENTIONAL_COMMIT_SUBJECT = /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([A-Za-z0-9._/-]+\))?!?: \S.*$/;
+
+export function isConventionalCommitSubject(subject: string): boolean {
+  return CONVENTIONAL_COMMIT_SUBJECT.test(subject);
+}
+
+function gitFailure(command: string, result: { stdout: string; stderr: string }): string {
+  return `${command} failed: ${result.stderr || result.stdout}`;
+}
+
 export async function mergeNode(cwd: string, state: RunState, node: DagNode): Promise<string> {
-  const branch = state.nodes[node.id]?.branch ?? nodeBranch(state.manifest.runId, node.id);
-  const result = await execGit(cwd, ["merge", "--no-ff", branch, "-m", `Merge DAG node ${node.id}`]);
-  if (result.code !== 0) throw new Error(`git merge failed: ${result.stderr || result.stdout}`);
-  return result.stdout + result.stderr;
+  const nodeState = state.nodes[node.id];
+  if (!nodeState) throw new Error(`Unknown node ${node.id}`);
+  const branch = nodeState.branch ?? nodeBranch(state.manifest.runId, node.id);
+  if (!nodeState.worktree) throw new Error(`Node ${node.id} has no worktree to rebase`);
+  const worktreeBranch = await getCurrentBranch(nodeState.worktree);
+  if (worktreeBranch !== branch) throw new Error(`Node ${node.id} worktree is on ${worktreeBranch}, expected ${branch}`);
+
+  const parent = await execGit(cwd, ["rev-parse", "HEAD"]);
+  if (parent.code !== 0) throw new Error(gitFailure("git rev-parse HEAD", parent));
+  const parentCommit = parent.stdout.trim();
+
+  const rebase = await execGit(nodeState.worktree, ["rebase", parentCommit]);
+  if (rebase.code !== 0) {
+    throw new Error(`${gitFailure(`git rebase ${parentCommit}`, rebase)}\nResolve the rebase in ${nodeState.worktree}, keep commit subjects in Conventional Commits format, then retry dag_merge_node.`);
+  }
+
+  const log = await execGit(nodeState.worktree, ["log", "--format=%s", `${parentCommit}..HEAD`]);
+  if (log.code !== 0) throw new Error(gitFailure("git log", log));
+  const subjects = log.stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+  const invalidSubjects = subjects.filter((subject) => !isConventionalCommitSubject(subject));
+  if (invalidSubjects.length > 0) {
+    throw new Error(`Node ${node.id} has non-Conventional Commit subject(s):\n${invalidSubjects.map((subject) => `- ${subject}`).join("\n")}\nReword them in ${nodeState.worktree} before retrying dag_merge_node.`);
+  }
+
+  const result = await execGit(cwd, ["merge", "--ff-only", branch]);
+  if (result.code !== 0) throw new Error(gitFailure("git merge --ff-only", result));
+  return [rebase.stdout + rebase.stderr, `Validated ${subjects.length} Conventional Commit subject(s).`, result.stdout + result.stderr].filter(Boolean).join("\n");
 }

@@ -105,7 +105,7 @@ Top-level `steps` is an array of reusable step definition objects merged by `id`
 
 The packaged default flow is `setup -> execute -> validate` using `builtin:worker` and `builtin:reviewer`.
 
-`merge` is top-level, step-shaped, has no ordering fields, and is appended implicitly after every node flow.
+`merge` is top-level, step-shaped, has no ordering fields, and is appended implicitly after every node flow. `dag_merge_node` rebases the node worktree onto the current parent commit, verifies node commit subjects are Conventional Commits, then fast-forwards the parent branch. It does not create merge commits such as `Merge DAG node ...`.
 
 ## DAG shape
 
@@ -117,7 +117,7 @@ The packaged default flow is `setup -> execute -> validate` using `builtin:worke
     "plan": ".ai/plan.md",
     "maxConcurrency": 2
   },
-  "defaults": { "flow": "default" },
+  "defaults": { "flow": "default", "mergeStrategy": "rebase-ff" },
   "steps": [
     { "id": "setup", "kind": "agent", "agent": "builtin:worker", "prompt": "builtin:setup" },
     { "id": "execute", "kind": "agent", "agent": "builtin:worker", "prompt": "builtin:executor" },
