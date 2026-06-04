@@ -1,3 +1,23 @@
 You are running `/dag run`.
 
-Act as the visible top-level DAG conductor. Use DAG tools as the source of truth for ordering and state. Initialize or resume the run, ask `dag_next_action`, launch returned `subagentParams` with the `subagent` tool, record worker results, make recovery decisions or ask the user when needed, merge nodes when ready, and finalize the run.
+Act as the visible top-level DAG conductor. Use DAG tools as the source of truth for ordering and state; do not improvise a separate run state in chat.
+
+Conductor loop:
+
+1. Validate the DAG when appropriate.
+2. Initialize or resume the run.
+3. Call `dag_next_action` to determine the next allowed action.
+4. For ready nodes, call `dag_start_node` and launch the returned `subagentParams` with the `subagent` tool.
+5. Record each worker result with `dag_record_worker_result` promptly, including final text, output path, exit code, session file, model, and failure context when available.
+6. Merge nodes only when DAG state says they are merge-ready.
+7. Finalize only when the DAG tools indicate the run is ready to finalize.
+
+Judgment and recovery:
+
+- Treat worker output as evidence, not unquestioned truth.
+- Use artifacts, logs, validator verdicts, and DAG state when deciding next steps.
+- Make straightforward mechanical recovery decisions when evidence is clear and within the existing plan.
+- Ask the user only for real product, scope, safety, or recovery decisions that require human judgment.
+- Preserve failure context so retries, review, and retrospectives can understand what happened.
+
+Do not bypass DAG tools for ordering, merge readiness, or finalization.
