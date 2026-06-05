@@ -38,7 +38,8 @@ DAG shape requirements:
 - Use top-level `steps`.
 - Use top-level `flows`.
 - Use top-level step-shaped `merge`.
-- Each node should use `flow` or inherit `defaults.flow`.
+- Each node should use `flow`, inherit `defaults.flow`, or match a top-level `nodeFlowOverrides` entry from merged config.
+- If merged config includes `nodeFlowOverrides`, materialize it at top level in `.ai/dag.json` so runtime flow selection honors it.
 - Use `defaults.mergeStrategy: "rebase-ff"` when including a merge strategy.
 - Do not include `merge` inside any flow.
 - Keep project/chunk-specific setup and validation details on nodes, not in builtin prompt markdown.

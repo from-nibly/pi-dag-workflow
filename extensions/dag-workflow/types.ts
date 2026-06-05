@@ -47,6 +47,11 @@ export interface DagEdge {
   reason?: string;
 }
 
+export interface NodeFlowOverride {
+  match: string;
+  flow: string;
+}
+
 export interface DagFile {
   schemaVersion: 1;
   run: {
@@ -65,6 +70,7 @@ export interface DagFile {
   steps: DagStep[];
   merge: DagStep;
   flows: Record<string, DagFlowStep[]>;
+  nodeFlowOverrides?: NodeFlowOverride[];
   nodes: DagNode[];
   edges: DagEdge[];
 }
@@ -74,7 +80,7 @@ export interface DagWorkflowConfig {
   steps?: Array<Partial<DagStep> & { id: string }>;
   merge?: Partial<DagStep> & { id?: string };
   flows?: Record<string, DagFlowStep[]>;
-  nodeFlowOverrides?: Array<{ match: string; flow: string }>;
+  nodeFlowOverrides?: NodeFlowOverride[];
   [key: string]: unknown;
 }
 

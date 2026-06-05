@@ -39,9 +39,9 @@ export const PACKAGE_DEFAULT_CONFIG: DagWorkflowConfig = {
       agent: "builtin:reviewer",
       prompt: "builtin:validator",
       input: "Validate using node.validationInstructions and project conventions.",
-      output: "Report validation actions/results, substitutions, risks, and end with VERDICT: PASS or VERDICT: FAIL.",
+      output: "Report validation actions/results with classifications, substitutions, risks, external workflows not live-tested, and end with VERDICT: PASS or VERDICT: FAIL.",
       requires: [
-        "Validation evidence is described.",
+        "Validation evidence is described and classified as unit/static, help smoke, mocked behavioral, or live external.",
         "Final output includes VERDICT: PASS or VERDICT: FAIL.",
       ],
       onFail: "retry:execute",

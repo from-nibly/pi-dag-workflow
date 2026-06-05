@@ -50,6 +50,74 @@ export async function ensureNodeWorktree(cwd: string, state: RunState, node: Dag
   return { branch, worktree };
 }
 
+export interface WorktreeRefreshResult {
+  refreshed: boolean;
+  blocked: boolean;
+  message: string;
+  before?: string;
+  after?: string;
+  parentCommit?: string;
+  output?: string;
+}
+
+export async function refreshNodeWorktreeFromParent(cwd: string, state: RunState, node: DagNode): Promise<WorktreeRefreshResult> {
+  const nodeState = state.nodes[node.id];
+  if (!nodeState) throw new Error(`Unknown node ${node.id}`);
+  if (!nodeState.worktree) throw new Error(`Node ${node.id} has no worktree to refresh`);
+  const branch = nodeState.branch ?? nodeBranch(state.manifest.runId, node.id);
+  const worktreeBranch = await getCurrentBranch(nodeState.worktree);
+  if (worktreeBranch !== branch) throw new Error(`Node ${node.id} worktree is on ${worktreeBranch}, expected ${branch}`);
+
+  const status = await execGit(nodeState.worktree, ["status", "--porcelain"]);
+  if (status.code !== 0) throw new Error(gitFailure("git status --porcelain", status));
+  if (status.stdout.trim()) {
+    return {
+      refreshed: false,
+      blocked: true,
+      message: `Node ${node.id} worktree is dirty. Review ${nodeState.worktree}, commit or discard intentional changes, then retry dag_start_node. Dirty files:\n${status.stdout.trim()}`,
+    };
+  }
+
+  const parent = await execGit(cwd, ["rev-parse", "HEAD"]);
+  if (parent.code !== 0) throw new Error(gitFailure("git rev-parse HEAD", parent));
+  const parentCommit = parent.stdout.trim();
+  const before = await getCurrentCommit(nodeState.worktree);
+
+  const parentAlreadyVisible = await execGit(nodeState.worktree, ["merge-base", "--is-ancestor", parentCommit, "HEAD"]);
+  if (parentAlreadyVisible.code === 0) {
+    nodeState.currentCommit = before;
+    return { refreshed: false, blocked: false, message: `Node ${node.id} already contains parent ${parentCommit}`, before, after: before, parentCommit };
+  }
+
+  const canFastForward = await execGit(nodeState.worktree, ["merge-base", "--is-ancestor", "HEAD", parentCommit]);
+  const update = canFastForward.code === 0
+    ? await execGit(nodeState.worktree, ["merge", "--ff-only", parentCommit])
+    : await execGit(nodeState.worktree, ["rebase", parentCommit]);
+  const command = canFastForward.code === 0 ? `git merge --ff-only ${parentCommit}` : `git rebase ${parentCommit}`;
+  if (update.code !== 0) {
+    return {
+      refreshed: false,
+      blocked: true,
+      before,
+      parentCommit,
+      output: update.stdout + update.stderr,
+      message: `${gitFailure(command, update)}\nResolve the refresh in ${nodeState.worktree}, then retry dag_start_node.`,
+    };
+  }
+
+  const after = await getCurrentCommit(nodeState.worktree);
+  nodeState.currentCommit = after;
+  return {
+    refreshed: before !== after,
+    blocked: false,
+    message: before === after ? `Node ${node.id} already up to date with parent ${parentCommit}` : `Refreshed node ${node.id} from parent ${parentCommit}`,
+    before,
+    after,
+    parentCommit,
+    output: update.stdout + update.stderr,
+  };
+}
+
 const CONVENTIONAL_COMMIT_SUBJECT = /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([A-Za-z0-9._/-]+\))?!?: \S.*$/;
 
 export function isConventionalCommitSubject(subject: string): boolean {

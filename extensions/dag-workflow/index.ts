@@ -10,6 +10,7 @@ import {
   getFlow,
   getNode,
   getReadyNodeIds,
+  dependenciesSatisfied,
   loadRun,
   readDag,
   resolveStep,
@@ -19,7 +20,7 @@ import {
   summarizeRun,
   validateDag,
 } from "./dag.ts";
-import { ensureNodeWorktree, mergeNode } from "./worktrees.ts";
+import { ensureNodeWorktree, mergeNode, refreshNodeWorktreeFromParent } from "./worktrees.ts";
 import { buildSubagentParams, extractVerdict } from "./subagents.ts";
 import { listWorkerRecords, readLogTail, writeMetricsArtifact, writeWorkerRecord } from "./sessions.ts";
 import { DEFAULT_DAG_PATH, type DagStep } from "./types.ts";
@@ -315,6 +316,17 @@ export default function dagWorkflow(pi: ExtensionAPI) {
       const node = getNode(dag, params.nodeId) ?? err(`Unknown node ${params.nodeId}`);
       await ensureNodeWorktree(ctx.cwd, state, node);
       const nodeState = state.nodes[node.id];
+      if (nodeState.status === "pending" && dependenciesSatisfied(state, node)) {
+        const refresh = await refreshNodeWorktreeFromParent(ctx.cwd, state, node);
+        if (refresh.blocked) {
+          nodeState.status = "needs_decision";
+          nodeState.failureReason = refresh.message;
+          await appendEvent(ctx.cwd, params.runId, { type: "worktree_refresh_blocked", nodeId: node.id, ...refresh });
+          await saveRunState(ctx.cwd, state);
+          return ok(`Node ${node.id} needs decision before launch: ${refresh.message}`, { action: "needs_decision", nodeId: node.id, refresh });
+        }
+        if (refresh.refreshed) await appendEvent(ctx.cwd, params.runId, { type: "worktree_refreshed", nodeId: node.id, ...refresh });
+      }
       const flowIndex = nodeState.currentFlowIndex;
       const step = resolveStep(dag, node, flowIndex);
       if (step.kind === "merge") { nodeState.status = "merge_ready"; await saveRunState(ctx.cwd, state); return ok(`Node ${node.id} merge ready`, { action: "merge", nodeId: node.id }); }

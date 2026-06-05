@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import type {
   DagFile,
@@ -49,6 +49,7 @@ export async function readDag(cwd: string, dagPath = DEFAULT_DAG_PATH): Promise<
   dag.defaults ??= { flow: "default" };
   dag.steps ??= [];
   dag.flows ??= {};
+  dag.nodeFlowOverrides ??= [];
   dag.merge ??= { id: "merge", kind: "merge" };
   return dag;
 }
@@ -106,6 +107,13 @@ export async function validateDag(cwd: string, dagPath = DEFAULT_DAG_PATH): Prom
     }
   }
 
+  if (dag.nodeFlowOverrides !== undefined && !Array.isArray(dag.nodeFlowOverrides)) errors.push("nodeFlowOverrides must be an array");
+  for (const [index, override] of Array.isArray(dag.nodeFlowOverrides) ? dag.nodeFlowOverrides.entries() : []) {
+    if (!override?.match || typeof override.match !== "string") errors.push(`nodeFlowOverrides[${index}]: match is required`);
+    if (!override?.flow || typeof override.flow !== "string") errors.push(`nodeFlowOverrides[${index}]: flow is required`);
+    else if (!dag.flows?.[override.flow]) errors.push(`nodeFlowOverrides[${index}]: flow references unknown flow ${override.flow}`);
+  }
+
   const defaultFlow = dag.defaults?.flow ?? "default";
   if (!dag.flows?.[defaultFlow]) errors.push(`defaults.flow references unknown flow ${defaultFlow}`);
 
@@ -121,7 +129,7 @@ export async function validateDag(cwd: string, dagPath = DEFAULT_DAG_PATH): Prom
     if (!asStringArray(node.ownedFiles)) errors.push(`${label}: ownedFiles must be an array`);
     if (!asStringArray(node.forbiddenFiles)) errors.push(`${label}: forbiddenFiles must be an array`);
     if (node.chunkFile && !existsSync(toAbsolute(cwd, node.chunkFile))) errors.push(`${label}: chunkFile does not exist: ${node.chunkFile}`);
-    const flow = node.flow ?? defaultFlow;
+    const flow = getNodeFlowName(dag, node);
     if (!dag.flows?.[flow]) errors.push(`${label}: flow references unknown flow ${flow}`);
   }
 
@@ -143,8 +151,29 @@ export function getNode(dag: DagFile, nodeId: string): DagNode | undefined {
   return dag.nodes.find((node) => node.id === nodeId);
 }
 
+function globishToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped.replace(/\*/g, ".*").replace(/\?/g, ".")}$`, "i");
+}
+
+function matchesNodeFlowOverride(match: string, node: DagNode): boolean {
+  const trimmed = match.trim();
+  if (!trimmed) return false;
+  const values = [node.id, node.title, node.chunkFile, basename(node.chunkFile)].filter(Boolean);
+  if (values.some((value) => value === trimmed)) return true;
+  if (!/[?*]/.test(trimmed)) return false;
+  const pattern = globishToRegExp(trimmed);
+  return values.some((value) => pattern.test(value));
+}
+
 export function getNodeFlowName(dag: DagFile, node: DagNode): string {
-  return node.flow ?? dag.defaults.flow;
+  let overrideFlow: string | undefined;
+  for (const override of dag.nodeFlowOverrides ?? []) {
+    if (typeof override?.flow === "string" && typeof override.match === "string" && matchesNodeFlowOverride(override.match, node)) {
+      overrideFlow = override.flow;
+    }
+  }
+  return overrideFlow ?? node.flow ?? dag.defaults.flow;
 }
 
 export function getFlow(dag: DagFile, node: DagNode): DagFlowStep[] {

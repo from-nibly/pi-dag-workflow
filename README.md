@@ -98,14 +98,51 @@ After a run or planning cycle, `/dag archive` writes a durable history file such
 
 ## Config
 
-- User-global config: `~/.pi/agent/extensions/dag-workflow/config.json`
-- Project config: `.ai/dag.config.json`
+Config files are optional JSON files:
 
-Top-level `steps` is an array of reusable step definition objects merged by `id`. Top-level `flows` is a map of flow names to ordered arrays of flow step objects. Flow step objects require `id` and may override any step field, including `agent`, `model`, and `thinking`.
+- User-global config path: `~/.pi/agent/extensions/dag-workflow/config.json`
+- Project config path: `.ai/dag.config.json`
 
-The packaged default flow is `setup -> execute -> validate` using `builtin:worker` and `builtin:reviewer`.
+Merge order is package defaults → user-global config → project config → inline/generated DAG choices. Later layers override earlier scalar/object fields. `steps` are merged by `id`, `flows` are merged by flow name, and `nodeFlowOverrides` are appended so later project entries can override earlier user entries when multiple patterns match.
 
-`merge` is top-level, step-shaped, has no ordering fields, and is appended implicitly after every node flow. `dag_merge_node` rebases the node worktree onto the current parent commit, verifies node commit subjects are Conventional Commits, then fast-forwards the parent branch. It does not create merge commits such as `Merge DAG node ...`.
+Top-level `steps` is an array of reusable step definition objects. Top-level `flows` is a map of flow names to ordered arrays of flow step objects. Flow step objects require `id` and may override any step field, including `agent`, `model`, and `thinking`.
+
+The packaged default flow is `setup -> execute -> validate` using `builtin:worker` and `builtin:reviewer`. Keep this as the default for ordinary DAGs; add reusable specialist flows only as opt-in choices selected by a node `flow` or by `nodeFlowOverrides`.
+
+`nodeFlowOverrides` entries have `{ "match": "pattern", "flow": "flowName" }`. Runtime matching supports exact node id matches plus glob-ish `*`/`?` matches against node id, title, `chunkFile`, and chunk filename. If several entries match, the last matching entry wins.
+
+External side-effect validation should be opt-in. Validators should classify evidence as `unit/static`, `help smoke`, `mocked behavioral`, or `live external`, and should explicitly call out external workflows that were not live-tested. Do not make live external validation the default flow.
+
+Example opt-in flow pattern for a workflow that intentionally validates an external CI loop:
+
+```json
+{
+  "steps": [
+    {
+      "id": "wci-ci-loop-validate",
+      "kind": "agent",
+      "agent": "builtin:reviewer",
+      "prompt": "builtin:validator",
+      "input": "Validate the WCI CI loop only when node.validationInstructions explicitly opt in to live external validation.",
+      "output": "Classify evidence, identify live external checks performed or skipped, and end with VERDICT: PASS or VERDICT: FAIL.",
+      "requires": ["External side effects were explicitly requested or skipped with residual risk called out."],
+      "onFail": "retry:execute"
+    }
+  ],
+  "flows": {
+    "wci-ci-loop": [
+      { "id": "setup" },
+      { "id": "execute" },
+      { "id": "wci-ci-loop-validate" }
+    ]
+  },
+  "nodeFlowOverrides": [
+    { "match": "wci-*", "flow": "wci-ci-loop" }
+  ]
+}
+```
+
+`merge` is top-level, step-shaped, has no ordering fields, and is appended implicitly after every node flow. Before a pending node starts, its clean worktree is refreshed from the current parent branch after hard dependencies have merged so dependent chunks can see upstream commits. Dirty node worktrees block with a `needs_decision` status. `dag_merge_node` rebases the node worktree onto the current parent commit, verifies node commit subjects are Conventional Commits, then fast-forwards the parent branch. It does not create merge commits such as `Merge DAG node ...`.
 
 ## DAG shape
 
@@ -127,6 +164,7 @@ The packaged default flow is `setup -> execute -> validate` using `builtin:worke
   "flows": {
     "default": [{ "id": "setup" }, { "id": "execute" }, { "id": "validate" }]
   },
+  "nodeFlowOverrides": [],
   "nodes": [
     {
       "id": "chunk-1",

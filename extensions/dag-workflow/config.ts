@@ -54,12 +54,13 @@ export async function loadWorkflowConfig(cwd: string, inline?: DagWorkflowConfig
   return mergeConfig(mergeConfig(mergeConfig(PACKAGE_DEFAULT_CONFIG, user), project), inline);
 }
 
-export function configToDagBase(config: DagWorkflowConfig): Pick<DagFile, "defaults" | "steps" | "merge" | "flows"> {
+export function configToDagBase(config: DagWorkflowConfig): Pick<DagFile, "defaults" | "steps" | "merge" | "flows" | "nodeFlowOverrides"> {
   return {
     defaults: { flow: "default", ...(config.defaults ?? {}) } as DagFile["defaults"],
     steps: (config.steps ?? []) as DagStep[],
     merge: { id: "merge", kind: "merge", ...(config.merge ?? {}) } as DagStep,
     flows: config.flows ?? {},
+    nodeFlowOverrides: config.nodeFlowOverrides ?? [],
   };
 }
 
