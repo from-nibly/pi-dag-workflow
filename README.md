@@ -21,7 +21,7 @@ Install `pi-subagents` separately only if you also want its general-purpose `sub
 All user commands are under `/dag`:
 
 ```text
-/dag brainstorm   # create/update .ai/project.md conversationally
+/dag brainstorm   # research and map project understanding in .ai/project.md
 /dag grillme      # interactive GrillMe TUI for many questions
 /dag plan         # write .ai/plan.md
 /dag chunk        # write .ai/chunks and .ai/dag.json
@@ -42,7 +42,7 @@ You can use any combination of `/dag brainstorm`, `/dag grillme`, and `/dag plan
 flowchart TD
   Start([Start in a project]) --> Discover{Need more project understanding?}
 
-  Discover -->|optional| Brainstorm["/dag brainstorm\nConversational project discovery\nupdates .ai/project.md"]
+  Discover -->|optional| Brainstorm["/dag brainstorm\nResearch-backed project discovery\nupdates .ai/project.md"]
   Discover -->|optional| GrillMe["/dag grillme\nQuestion TUI + chat mode\nupdates .ai/grillme/* and .ai/project.md"]
   Discover -->|optional| Existing["Use an existing .ai/plan.md"]
 
