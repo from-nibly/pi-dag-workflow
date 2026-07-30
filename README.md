@@ -1,10 +1,30 @@
 # pi-dag-workflow
 
-Standalone Pi package for DAG-oriented project discovery, planning, chunking, and ordered subagent execution.
+Pi extension for mixed-initiative project-model brainstorming. The current production slice focuses on research, intent clarification, semantic review, and deterministic generated specifications.
 
-## Default behavior
+Model-aware planning and execution are deferred while this workflow is dogfooded.
 
-The packaged prompts guide project discovery, decision interrogation, planning, chunking, worker discipline, and validation while preserving the default `setup -> execute -> validate` node flow. Project-specific setup, implementation, and validation details still belong in `.ai/project.md`, `.ai/plan.md`, chunks, and node instructions.
+## Authority
+
+One repository-wide tracked snapshot owns project meaning:
+
+```text
+project-model/model.json
+```
+
+It may contain both governing and non-authoritative objects:
+
+- workstreams;
+- intent and concepts;
+- evidence and assumptions;
+- questions and enduring tensions;
+- scenarios and proposals;
+- decisions and commitments;
+- discoveries from research, prototypes, repository inspection, or later execution.
+
+Human authority is explicit. Accepted intent, concepts, scenarios, decisions, and commitments carry content-bound receipts. Agent findings and derived implications remain non-authoritative until accepted.
+
+Tracked Markdown under `spec/` is a deterministic readable projection of accepted model-owned prose, not another source of truth. Rendered review turns, frontiers, deltas, ledgers, and consequence views remain ephemeral by default.
 
 ## Install
 
@@ -12,184 +32,123 @@ The packaged prompts guide project discovery, decision interrogation, planning, 
 pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.1.0
 ```
 
-DAG execution uses the bundled `pi-subagents` runtime through a DAG-owned `dag_subagent` tool. You do **not** need to install `pi-subagents` separately for `/dag run`.
-
-Install `pi-subagents` separately only if you also want its general-purpose `subagent` tool, slash commands, skills, or prompt templates outside the DAG workflow.
-
-## Commands
-
-All user commands are under `/dag`:
+## Model brainstorming commands
 
 ```text
-/dag brainstorm   # research and map project understanding in .ai/project.md
-/dag grillme      # interactive GrillMe TUI for many questions
-/dag plan         # write .ai/plan.md
-/dag chunk        # write .ai/chunks and .ai/dag.json
-/dag validate     # validate .ai/dag.json
-/dag run          # start conductor prompt
-/dag status       # show latest run status
-/dag workers      # summarize worker records
-/dag review       # reviewer prompt
-/dag retro        # retrospective prompt
-/dag archive      # write .ai/history entry, then ask about cleanup
+/dag brainstorm                         # interactive New/Resume selector
+/dag brainstorm new <name>              # create a resumable focus session
+/dag brainstorm resume <focus-id>       # resume an exact focus
+/dag brainstorm list                    # list focus sessions
+/dag brainstorm stop                    # suspend model mode
 ```
 
-## Usage flow
+A focus session is ignored presentation state under `.ai/model-sessions/`. It contains selected workstreams, one active review turn, and one replaceable previous-review snapshot. Optional Lavish HTML and adjacent lifecycle metadata live under `<focus-id>/lavish/`. None of these files owns unique project meaning.
 
-You can use any combination of `/dag brainstorm`, `/dag grillme`, and `/dag plan` as long as you end up with `.ai/plan.md`. Then `/dag chunk` creates `.ai/chunks/*` and `.ai/dag.json`, and `/dag run` starts the top-level conductor agent.
+Reloading, resuming, forking, or cloning a linked Pi conversation restores the exact focus. A new unlinked Pi session starts inactive. Concurrent multi-agent use of one focus is unsupported and has no locking or merge protocol.
 
-```mermaid
-flowchart TD
-  Start([Start in a project]) --> Discover{Need more project understanding?}
+## Model tools
 
-  Discover -->|optional| Brainstorm["/dag brainstorm\nResearch-backed project discovery\nupdates .ai/project.md"]
-  Discover -->|optional| GrillMe["/dag grillme\nQuestion TUI + chat mode\nupdates .ai/grillme/* and .ai/project.md"]
-  Discover -->|optional| Existing["Use an existing .ai/plan.md"]
+The seven tools register once and are activated only after Pi's extension runtime has initialized and a model brainstorming focus is active:
 
-  Brainstorm --> Plan["/dag plan\nwrite/update .ai/plan.md"]
-  GrillMe --> Plan
-  Existing --> PlanReady[".ai/plan.md"]
-  Plan --> PlanReady
+- `dag_model_context` — read narrow orientation, entity, frontier, delta, review, or governing projections.
+- `dag_model_update` — record non-authoritative findings, relationships, routing metadata, or Current understanding. It cannot grant authority or rewrite accepted semantics.
+- `dag_model_record_direction` — record unambiguous direct user authority with content-bound receipts.
+- `dag_model_review` — create an exact hash-bound review turn with **For awareness** and **Decisions needed**; its exact visible tool result records successful presentation.
+- `dag_model_present_review` — optionally render and `present`, `resume`, or `end` the active review through Lavish while returning bounded feedback for agent interpretation.
+- `dag_model_resolve_review` — apply independent fresh outcomes while preserving stale, omitted, or ambiguous points.
+- `dag_model_specs` — preview, check, or explicitly recover deterministic generated specs.
 
-  PlanReady --> Chunk["/dag chunk\nwrite .ai/chunks/chunk-N.md\nwrite .ai/dag.json"]
-  Chunk --> Validate["/dag validate\noptional schema/config check"]
-  Validate --> Run["/dag run\nstart top-level conductor agent"]
-  Chunk --> Run
+Routine successful semantic mutations automatically synchronize affected current specs without making a Git commit.
 
-  Run --> NextAction["conductor calls dag_next_action"]
-  NextAction --> StartNode["dag_start_node\nreturns subagent launch params"]
-  StartNode --> Worker["worker/reviewer subagents\nsetup → execute → validate"]
-  Worker --> Record["dag_record_worker_result"]
-  Record --> Decide{Next action?}
-  Decide -->|more ready nodes| StartNode
-  Decide -->|merge ready| Merge["dag_merge_node"]
-  Merge --> Decide
-  Decide -->|blocked/failure/conflict| UserInput["You steer the top-level agent\nchat instructions, answer questions, choose retry/skip/fix"]
-  UserInput --> NextAction
-  Decide -->|all merged| Finalize["dag_finalize"]
-  Finalize --> Done([Done])
-  Done --> Archive["/dag archive\nwrite .ai/history entry\nthen ask about cleanup"]
+Lavish presentation uses the pinned optional dependency `lavish-axi@0.1.43`; it never falls back to ambient `npx`. The generated shell supports multiple independent decision points, complete visible option prose, an explicit **Other** radio, and a separate response box. The renderer does not resolve semantic state automatically: the agent validates returned review/point/option hashes and invokes `dag_model_resolve_review` from a bound human turn.
 
-  Status["/dag status / workers / inspect / tail\nobserve progress anytime"] -.-> Run
-  Status -.-> UserInput
-```
-
-During `/dag run`, you steer the **top-level conductor agent**, not each worker directly. You can provide additional instructions in chat, ask it to inspect status, choose recovery actions, or stop and revise chunks/config before continuing.
-
-After `/dag chunk` writes `.ai/chunks/*` and `.ai/dag.json`, it prints a compact text dependency diagram directly in the terminal output. The diagram is generated from `nodes[].dependsOn` and includes first-ready chunks and `maxConcurrency` when available:
+## Mixed-initiative loop
 
 ```text
-DAG valid: .ai/dag.json
-
-chunk-1  Add renderer helper             deps: -
-chunk-2  Update chunk prompt             deps: -
-chunk-3  Document diagram output         deps: chunk-1, chunk-2
-
-Dependency sketch:
-chunk-1 ─┐
-         ├─> chunk-3
-chunk-2 ─┘
-
-First ready: chunk-1, chunk-2
-maxConcurrency: 2
+Orient
+  → Explore and record coherent non-authoritative findings
+  → Consolidate material model changes
+  → Stress-test with representative/boundary/failure cases
+  → Present a materiality-based review turn
+  → Apply exact explicit outcomes
+  → Regenerate affected specs
+  → Continue, change focus, or stop
 ```
 
-After a run or planning cycle, `/dag archive` writes a durable history file such as `.ai/history/YYYY-MM-DD-HH-MM-<type>-<slug>.md` first, then asks whether you want to clean up old DAG artifacts. Cleanup is never automatic; files are deleted or moved only after explicit confirmation after the history file has been created.
+Direct, unambiguous user direction commits once. Silence, generic praise, ambiguity, and agent-derived consequences never commit. Reconsidering accepted content does not revoke it automatically; generated specs retain still-governing content with an **Under review** marker until it is explicitly suspended, retired, or superseded.
 
-## Config
+New behavioral prototypes require explicit user request. Hand-authored prototype evidence lives under `spec/prototypes/<slug>/` and is protected from spec generation.
 
-Config files are optional JSON files:
+## Generated specifications
 
-- User-global config path: `~/.pi/agent/extensions/dag-workflow/config.json`
-- Project config path: `.ai/dag.config.json`
+Project-specific non-semantic routing metadata in the model declares output paths, sections, short summaries, and object order. Every accepted object's full body has one canonical generated placement; other specs link to it.
 
-Merge order is package defaults → user-global config → project config → inline/generated DAG choices. Later layers override earlier scalar/object fields. `steps` are merged by `id`, `flows` are merged by flow name, and `nodeFlowOverrides` are appended so later project entries can override earlier user entries when multiple patterns match.
+V1 deliberately uses minimal one-way safety:
 
-Top-level `steps` is an array of reusable step definition objects. Top-level `flows` is a map of flow names to ordered arrays of flow step objects. Flow step objects require `id` and may override any step field, including `agent`, `model`, and `thinking`.
+- generated files are marked;
+- rendering occurs in a temporary location;
+- `dag_model_specs check` regenerates and compares output;
+- unknown target collisions fail;
+- prototype directories are never overwritten;
+- stale generated paths are reported conservatively.
 
-The packaged default flow is `setup -> execute -> validate` using `builtin:worker` and `builtin:reviewer`. Keep this as the default for ordinary DAGs; add reusable specialist flows only as opt-in choices selected by a node `flow` or by `nodeFlowOverrides`.
+There is no generated-file ownership manifest, editable generated region, reverse synchronization, or automatic deletion framework in V1.
 
-`nodeFlowOverrides` entries have `{ "match": "pattern", "flow": "flowName" }`. Runtime matching supports exact node id matches plus glob-ish `*`/`?` matches against node id, title, `chunkFile`, and chunk filename. If several entries match, the last matching entry wins.
+## Deferred workflows
 
-External side-effect validation should be opt-in. Validators should classify evidence as `unit/static`, `help smoke`, `mocked behavioral`, or `live external`, and should explicitly call out external workflows that were not live-tested. Do not make live external validation the default flow.
+These commands currently report that model-aware replacements are deferred:
 
-Example opt-in flow pattern for a workflow that intentionally validates an external CI loop:
-
-```json
-{
-  "steps": [
-    {
-      "id": "wci-ci-loop-validate",
-      "kind": "agent",
-      "agent": "builtin:reviewer",
-      "prompt": "builtin:validator",
-      "input": "Validate the WCI CI loop only when node.validationInstructions explicitly opt in to live external validation.",
-      "output": "Classify evidence, identify live external checks performed or skipped, and end with VERDICT: PASS or VERDICT: FAIL.",
-      "requires": ["External side effects were explicitly requested or skipped with residual risk called out."],
-      "onFail": "retry:execute"
-    }
-  ],
-  "flows": {
-    "wci-ci-loop": [
-      { "id": "setup" },
-      { "id": "execute" },
-      { "id": "wci-ci-loop-validate" }
-    ]
-  },
-  "nodeFlowOverrides": [
-    { "match": "wci-*", "flow": "wci-ci-loop" }
-  ]
-}
+```text
+/dag plan
+/dag chunk
+/dag run
+/dag review
+/dag retro
+/dag archive
 ```
 
-`merge` is top-level, step-shaped, has no ordering fields, and is appended implicitly after every node flow. Before a pending node starts, its clean worktree is refreshed from the current parent branch after hard dependencies have merged so dependent chunks can see upstream commits. Dirty node worktrees block with a `needs_decision` status. `dag_merge_node` rebases the node worktree onto the current parent commit, verifies node commit subjects are Conventional Commits, then fast-forwards the parent branch. It does not create merge commits such as `Merge DAG node ...`.
+GrillMe, promotion, legacy prompt workflows, subagent execution registration, and model-unaware mutating DAG tools are removed.
 
-## DAG shape
+Clearly labeled read-only diagnostics remain for pre-cutover artifacts:
 
-```json
-{
-  "schemaVersion": 1,
-  "run": {
-    "name": "example",
-    "plan": ".ai/plan.md",
-    "maxConcurrency": 2
-  },
-  "defaults": { "flow": "default", "mergeStrategy": "rebase-ff" },
-  "steps": [
-    { "id": "setup", "kind": "agent", "agent": "builtin:worker", "prompt": "builtin:setup" },
-    { "id": "execute", "kind": "agent", "agent": "builtin:worker", "prompt": "builtin:executor" },
-    { "id": "validate", "kind": "agent", "agent": "builtin:reviewer", "prompt": "builtin:validator" }
-  ],
-  "merge": { "id": "merge", "kind": "merge", "onConflict": "resolve" },
-  "flows": {
-    "default": [{ "id": "setup" }, { "id": "execute" }, { "id": "validate" }]
-  },
-  "nodeFlowOverrides": [],
-  "nodes": [
-    {
-      "id": "chunk-1",
-      "title": "Example chunk",
-      "chunkFile": ".ai/chunks/chunk-1.md",
-      "dependsOn": [],
-      "ownedFiles": ["src/example.ts"],
-      "forbiddenFiles": []
-    }
-  ],
-  "edges": []
-}
+```text
+/dag validate
+/dag status
+/dag workers
+/dag inspect
+/dag tail
+dag_validate
+dag_diagram
+dag_status
 ```
 
-Project/chunk-specific setup, implementation, and validation details belong on node instructions (`setupInstructions`, `implementationInstructions`, `validationInstructions`), not in builtin prompt markdown.
+They cannot create or advance execution.
 
-## GrillMe
+## Candidate migration
 
-`/dag grillme` installs a vim-like Pi TUI editor:
+The repository includes a one-time importer for the previous structured-brainstorm snapshot:
 
-- `Esc`: nav mode
-- nav: `h` previous, `l` next, `j/k` option, `Enter` answer selected option, `a` freeform answer, `c` chat, `x` complete
-- answer: `Enter` save, `Shift+Enter` newline
-- chat: `Enter` asks the top-level agent
+```nu
+node scripts/migrate-brainstorm-to-project-model.mjs
+```
 
-Pressing `x` completes and closes the GrillMe session, discards unanswered questions, and asks the agent to call `dag_grillme_get_answers` to read only `{ id, title, body, answer }` for answered/non-discarded questions. The agent should synthesize those answers into `.ai/project.md`.
+It writes:
 
-Durable state lives in `.ai/grillme/grillme-N.json`. Research summaries and source links should be recorded in `.ai/project.md`.
+```text
+project-model/model.json                              # candidate mode
+project-model/migrations/brainstorm-v2-candidate.md  # mapping/omission audit
+.ai/model-migration/candidate/spec/**                 # ignored generated preview
+```
+
+The candidate does not become authoritative until its semantic mappings, omissions, generated specs, and exact manifest hash receive explicit human approval. Cutover is an isolated `dag_model_record_direction` operation with `{ "cutover": { "candidateManifestHash": "sha256:…" } }`; it creates `migration_cutover` receipts, changes model mode, and replaces the declared hand-maintained projection targets as one recoverable transaction. The importer refuses to replace an authoritative model, even with `--force`.
+
+## Validation
+
+```nu
+npm run smoke
+node scripts/project-model-test.mjs
+# Only while project-model/model.json is still a non-authoritative candidate:
+node scripts/migrate-brainstorm-to-project-model.mjs --force
+```
+
+The production tests cover model validation, acceptance boundaries, focus sessions, sparse/stale review resolution, deterministic projections, Pi activation and fork restoration, disabled legacy workflows, and migration candidate generation.

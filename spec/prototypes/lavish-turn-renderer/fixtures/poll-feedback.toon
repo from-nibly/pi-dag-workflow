@@ -1,0 +1,19 @@
+session:
+  file: /fixture/review.html
+  status: feedback
+dom_snapshot: "ignored large snapshot"
+prompts[2]:
+  - uid: u1
+    prompt: "Review response for review-renderer-boundary/point-adapter: accept option-separate\n\nContext data:\n{\"reviewId\":\"review-renderer-boundary\",\"pointId\":\"point-adapter\",\"action\":\"accept\",\"optionId\":\"option-separate\",\"pointHash\":\"sha256:fixture-review\",\"optionHash\":\"sha256:option-separate\"}"
+    selector: "#point-point-adapter"
+    tag: model-review
+    text: Accept Separate adapter
+    target:
+      type: element
+      selector: "#point-point-adapter"
+  - uid: u2
+    prompt: "The consequence wording should mention abort recovery."
+    selector: "#current-understanding"
+    tag: annotation
+    text: abort recovery
+next_step: "Apply the requested changes."

@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile, readFile, access, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 import { renderDagDiagram } from "../extensions/dag-workflow/diagram.ts";
 import { configToDagBase, mergeConfig } from "../extensions/dag-workflow/config.ts";
 import { PACKAGE_DEFAULT_CONFIG } from "../extensions/dag-workflow/defaults.ts";
@@ -10,29 +12,46 @@ import { ensureNodeWorktree, execGit, isConventionalCommitSubject, mergeNode, re
 const files = [
   "package.json",
   "extensions/dag-workflow/index.ts",
-  "extensions/dag-workflow/dag-subagent.ts",
   "extensions/dag-workflow/types.ts",
   "extensions/dag-workflow/dag.ts",
   "extensions/dag-workflow/diagram.ts",
   "extensions/dag-workflow/config.ts",
-  "extensions/dag-workflow/grillme/editor.ts",
-  "extensions/dag-workflow/command-prompts/archive.md",
-  "extensions/dag-workflow/command-prompts/brainstorm.md",
-  "extensions/dag-workflow/command-prompts/chunk.md",
-  "extensions/dag-workflow/command-prompts/grillme.md",
-  "extensions/dag-workflow/command-prompts/plan.md",
-  "extensions/dag-workflow/command-prompts/retro.md",
-  "extensions/dag-workflow/command-prompts/review.md",
-  "extensions/dag-workflow/command-prompts/run.md",
-  "extensions/dag-workflow/step-prompts/conflict-resolver.md",
-  "extensions/dag-workflow/step-prompts/executor.md",
-  "extensions/dag-workflow/step-prompts/reviewer.md",
-  "extensions/dag-workflow/step-prompts/session-retrospector.md",
-  "extensions/dag-workflow/step-prompts/setup.md",
-  "extensions/dag-workflow/step-prompts/validator.md",
+  "extensions/dag-workflow/project-model/types.ts",
+  "extensions/dag-workflow/project-model/model.ts",
+  "extensions/dag-workflow/project-model/store.ts",
+  "extensions/dag-workflow/project-model/sessions.ts",
+  "extensions/dag-workflow/project-model/projector.ts",
+  "extensions/dag-workflow/project-model/domain.ts",
+  "extensions/dag-workflow/project-model/integration.ts",
+  "extensions/dag-workflow/project-model/review-turn.ts",
+  "extensions/dag-workflow/project-model/review-renderer.ts",
+  "extensions/dag-workflow/project-model/lavish-cli.ts",
+  "extensions/dag-workflow/project-model/review-presentation.ts",
+  "extensions/dag-workflow/project-model/migration.ts",
+  "scripts/project-model-test.mjs",
+  "scripts/migrate-brainstorm-to-project-model.mjs",
+  "project-model/model.json",
+  "project-model/migrations/brainstorm-v2-candidate.md",
+  "project-model/migrations/brainstorm-v2-overrides.json",
+  "spec/prototypes/brainstorm-pi-adapter/README.md",
+  "spec/prototypes/brainstorm-pi-adapter/adapter.mjs",
+  "spec/prototypes/brainstorm-pi-adapter/scenario.mjs",
+  "spec/prototypes/lavish-turn-renderer/README.md",
+  "spec/prototypes/lavish-turn-renderer/contract.md",
+  "spec/prototypes/lavish-turn-renderer/renderer.mjs",
+  "spec/prototypes/lavish-turn-renderer/scenario.mjs",
+  "spec/prototypes/lavish-turn-renderer/sample-turn.html",
 ];
 
 for (const file of files) await access(file);
+
+const execFileAsync = promisify(execFile);
+const productionModel = await execFileAsync(process.execPath, ["scripts/project-model-test.mjs"]);
+assertIncludes(productionModel.stdout, "Project model production tests OK", "production project-model tests pass");
+const adapterPrototype = await execFileAsync(process.execPath, ["spec/prototypes/brainstorm-pi-adapter/scenario.mjs"]);
+assertIncludes(adapterPrototype.stdout, "Brainstorm Pi adapter prototype OK", "legacy adapter evidence still executes");
+const lavishPrototype = await execFileAsync(process.execPath, ["spec/prototypes/lavish-turn-renderer/scenario.mjs"]);
+assertIncludes(lavishPrototype.stdout, "Lavish turn-renderer prototype OK", "Lavish turn-renderer prototype scenario passes");
 
 const sampleDag = {
   schemaVersion: 1,
@@ -82,35 +101,13 @@ testConfigMergeAndDagBase();
 testNodeFlowOverrides();
 await testWorktreeRefresh();
 
-const chunkPrompt = await readFile("extensions/dag-workflow/command-prompts/chunk.md", "utf8");
-assertIncludes(chunkPrompt, "dag_diagram", "chunk prompt wires dag_diagram");
-assertIncludes(chunkPrompt, "without adding a heading", "chunk prompt avoids diagram headings");
-assertIncludes(chunkPrompt, "Do not wrap the diagram in Markdown code fences", "chunk prompt avoids diagram code fences");
-assertIncludes(chunkPrompt, "nodeFlowOverrides", "chunk prompt preserves nodeFlowOverrides");
-
-const validatorPrompt = await readFile("extensions/dag-workflow/step-prompts/validator.md", "utf8");
-assertIncludes(validatorPrompt, "unit/static", "validator prompt classifies unit/static validation");
-assertIncludes(validatorPrompt, "help smoke", "validator prompt classifies help smoke validation");
-assertIncludes(validatorPrompt, "mocked behavioral", "validator prompt classifies mocked behavioral validation");
-assertIncludes(validatorPrompt, "live external", "validator prompt classifies live external validation");
-assertIncludes(validatorPrompt, "Do not perform live external validation unless", "validator prompt keeps live validation opt-in");
-assertIncludes(validatorPrompt, "call that out explicitly", "validator prompt calls out skipped external workflows");
-
-const reviewPrompt = await readFile("extensions/dag-workflow/command-prompts/review.md", "utf8");
-assertIncludes(reviewPrompt, "unit/static", "review prompt classifies validation evidence");
-assertIncludes(reviewPrompt, "external workflow that was not live-tested", "review prompt calls out external workflows not live-tested");
-
 const readme = await readFile("README.md", "utf8");
-assertIncludes(readme, "Dependency sketch:", "README documents diagram sample");
-assertIncludes(readme, "/dag chunk", "README documents /dag chunk diagram output");
-assertIncludes(readme, "directly in the terminal output", "README documents direct terminal output");
-assertIncludes(readme, "~/.pi/agent/extensions/dag-workflow/config.json", "README documents user config path");
-assertIncludes(readme, ".ai/dag.config.json", "README documents project config path");
-assertIncludes(readme, "package defaults → user-global config → project config", "README documents config merge order");
-assertIncludes(readme, "wci-ci-loop-validate", "README documents opt-in wci-ci-loop-validate pattern");
-assertIncludes(readme, "External side-effect validation should be opt-in", "README keeps external validation opt-in");
+assertIncludes(readme, "project-model/model.json", "README documents the shared model authority");
+assertIncludes(readme, "/dag brainstorm", "README documents model brainstorming");
+assertIncludes(readme, "dag_model_record_direction", "README documents the direct-authority boundary");
+assertIncludes(readme, "Model-aware planning and execution are deferred", "README documents disabled downstream workflows");
 
-console.log(`Smoke OK: ${files.length} required files exist and DAG reliability checks passed`);
+console.log(`Smoke OK: ${files.length} required files exist; project-model and legacy read-only DAG checks passed`);
 
 function testConfigMergeAndDagBase() {
   const userConfig = {

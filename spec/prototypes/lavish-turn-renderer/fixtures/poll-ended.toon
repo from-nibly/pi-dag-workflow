@@ -1,0 +1,5 @@
+session:
+  file: /fixture/review.html
+  status: ended
+  ended_by: user
+next_step: "The user ended this Lavish Editor session."

@@ -1,0 +1,341 @@
+{
+  "D63-out-of-scope-is-brainstorm-local": {
+    "action": "omit"
+  },
+  "D7-primary-spec": {
+    "action": "omit"
+  },
+  "D-recovery-matrix": {
+    "action": "omit"
+  },
+  "D62-untouched-tangents-become-tracked": {
+    "action": "omit"
+  },
+  "D6-worktree-isolation": {
+    "action": "omit"
+  },
+  "D31-agent-owned-ignorable-badges": {
+    "action": "defer"
+  },
+  "D-component-vocabulary": {
+    "action": "defer"
+  },
+  "D-context-block-model": {
+    "action": "defer"
+  },
+  "D-context-interactivity": {
+    "action": "defer"
+  },
+  "D30-fixed-tangent-badges": {
+    "action": "defer"
+  },
+  "D32-flat-nonclosed-frontier": {
+    "action": "defer"
+  },
+  "D46-plan-and-chunk-assign-prototypes": {
+    "action": "defer"
+  },
+  "D49-relevant-first-spec-traversal": {
+    "action": "defer"
+  },
+  "D68-renderer-neutral-direct-integration": {
+    "action": "defer"
+  },
+  "D-renderer-parity": {
+    "action": "defer"
+  },
+  "D-renderer-policy": {
+    "action": "defer"
+  },
+  "D72-review-may-suggest-optional-lavish": {
+    "action": "defer"
+  },
+  "D-rich-fragment-isolation": {
+    "action": "defer"
+  },
+  "D66-agent-judges-tangents-tools-validate-structure": {
+    "action": "rewrite",
+    "body": "The agent judges whether a finding merits a discovery, question, tension, proposal, or workstream change and identifies semantic overlap. Tools validate stable identity, type-specific state, scope, references, hashes, and allowed transitions; they do not score research value or require fabricated discoveries.",
+    "title": "Agent judges meaning; tools validate model structure"
+  },
+  "D64-agent-semantically-deduplicates-tangents": {
+    "action": "rewrite",
+    "body": "Before adding a discovery, question, tension, proposal, or workstream, compare its meaning with current model objects. Reuse or link substantial overlap, use typed supersession where meaning is replaced, and ask the user only when a material distinction requires product judgment.",
+    "title": "Deduplicate semantic model objects"
+  },
+  "D26-bounded-autonomous-bursts": {
+    "action": "rewrite",
+    "body": "Explore autonomously within the selected focus and initiate a materiality-based review turn when a coherent cluster needs product judgment, evidence changes framing, a preference blocks progress, continuing risks drift, or the user requests review. Use no fixed tool, time, object, or token quota."
+  },
+  "D55-compact-resume-orientation": {
+    "action": "rewrite",
+    "body": "On resume, show the selected workstreams/focus, Current understanding, any active review turn, the unresolved question/tension frontier, material model delta since the previous-review baseline, and governing items under review. Load deeper model slices or generated specs only as needed."
+  },
+  "D59-continuous-tangent-discovery": {
+    "action": "rewrite",
+    "body": "Throughout exploration, record coherent new findings as sourced discoveries and triage their possible impact into evidence, assumptions, questions, tensions, proposals, scenarios, commitments, or a proposed workstream change. Do not assume the initial focus is complete or invent objects to satisfy a quota.",
+    "title": "Continuously record useful discoveries"
+  },
+  "D42-curate-prototypes": {
+    "action": "rewrite",
+    "body": "Prototype files may change or be removed while exploratory. Retain artifacts that remain behaviorally useful, and record any still-material finding as a discovery/evidence item or other appropriate model object before deleting a failed, superseded, or noisy artifact."
+  },
+  "D67-defer-toon": {
+    "action": "rewrite",
+    "body": "Keep `project-model/model.json` and model-tool inputs as JSON with compact domain-shaped projections. Do not require TOON in V1; consider alternate encodings only after dogfooding identifies a measured bottleneck."
+  },
+  "D6-derived-views": {
+    "action": "rewrite",
+    "body": "Generated specifications and oversight surfaces are projections of selected project-model objects and are never independent authority. Tracked specs regenerate deterministically from model-owned prose; review turns and other oversight views remain ephemeral by default.",
+    "title": "Treat generated views as non-authoritative projections"
+  },
+  "D-evidence-stack": {
+    "action": "rewrite",
+    "body": "Validate the complete brainstorming-first production slice with repeatable automated tests runnable locally or in CI, including schema/reference invariants, atomic model mutation, content-hash authority, projection drift/safety, focus lifecycle, and Pi tool activation. Renderer/browser contracts remain outside V1; sustained-use and model-scored semantic quality are not release gates."
+  },
+  "D51-flexible-requirements-and-scenarios": {
+    "action": "rewrite",
+    "body": "Accepted model objects may use explicit requirements and concrete scenarios when they improve precision, alongside rationale, invariants, flows, constraints, diagrams, and links. Generated specs project that prose without requiring OpenSpec syntax."
+  },
+  "D70-four-layer-tool-output": {
+    "action": "rewrite",
+    "body": "Separate the authoritative project model, narrow model-facing tool projections/receipts, ephemeral focus and review presentation state, and generated user-facing views. Routine tool results do not return the complete model or generated documents; review is the bounded exception that returns exact hash-bound context and options."
+  },
+  "D45-immediate-spec-prototype-ambiguity": {
+    "action": "rewrite",
+    "body": "Treat a mismatch between a prototype and a generated specification/model commitment as a sourced discovery and divergence. Neither artifact mutates authority: reconcile the finding into proposed/reopened model objects and request human judgment only when accepted direction may change.",
+    "title": "Treat prototype/spec mismatch as a discovery"
+  },
+  "D-initial-orientation-proof": {
+    "action": "rewrite",
+    "body": "Before the first decisions-needed review, present an Initial understanding synthesis grounded in user input, relevant model objects, repository/code evidence, known constraints, and explicit uncertainty. Store it as agent-authored, non-authoritative Current-understanding metadata rather than as a renderer component or acceptance request.",
+    "title": "Present Initial understanding before the first Decisions-needed review"
+  },
+  "D7-inline-rationale": {
+    "action": "rewrite",
+    "body": "Keep rationale in the authoritative model object beside the intent, decision, scenario, or commitment it explains; deterministic specification projections render that rationale near the governing prose.",
+    "title": "Keep rationale with authoritative model content"
+  },
+  "D37-integrate-clear-preserve-unclear": {
+    "action": "rewrite",
+    "body": "`dag_model_resolve_review` applies each explicit, fresh, hash-matching outcome independently. Omitted, ambiguous, contradictory, or stale points remain unresolved and regenerate against current model content."
+  },
+  "D69-judgment-structure-direction-transport": {
+    "action": "rewrite",
+    "body": "Agents own research, synthesis, semantic classification, and response interpretation. Tools own model schema/invariants, atomic writes, content hashes, receipts, references, type-specific transitions, and deterministic projections. Humans own outcomes, priorities, values, focus, and acceptance or replacement of governing direction."
+  },
+  "D24-keep-spec-root": {
+    "action": "rewrite",
+    "body": "Keep tracked generated specification views under `spec/`; authoritative semantic content lives in `project-model/model.json`, and projection paths/order live in non-semantic project metadata.",
+    "title": "Keep generated specifications under spec/"
+  },
+  "D7-markdown-links": {
+    "action": "rewrite",
+    "body": "Generated specs use stable Markdown links and anchors calculated from projection metadata. Hand-authored prototype READMEs/assets may link to generated specs or stable model IDs; do not persist machine-local presentation-session URLs as durable references."
+  },
+  "D7-markdown-only": {
+    "action": "rewrite",
+    "body": "Tracked specification views under `spec/` are generated Markdown, not authority. Prototype READMEs/assets remain hand-authored evidence and may include non-Markdown files; authoritative semantic prose remains in `project-model/model.json`.",
+    "title": "Keep generated specifications in Markdown"
+  },
+  "D-meaningful-semantic-refresh": {
+    "action": "rewrite",
+    "body": "Replace Current understanding after a material model change, accepted correction, contradiction resolution, or research reframing—not for acknowledgments, navigation, or unchanged conversation. Retain only the latest non-authoritative synthesis and its source object IDs/hashes."
+  },
+  "D74-mechanical-inference-only": {
+    "action": "rewrite",
+    "body": "Tools generate and validate mechanical fields—typed IDs, timestamps, semantic hashes, receipts, derived reverse links, projection links, and explicitly requested type-specific transitions. Agents author and classify meaning, rationale, recommendations, user interpretation, and semantic relationships; tools do not infer them from prose."
+  },
+  "D-mode-system-prompt-plus-kickoff": {
+    "action": "rewrite",
+    "body": "While model brainstorming is active, inject the operational behavior contract and send one compact kickoff naming the repository model, exact focus session, selected workstreams/seed, orientation, and immediate action. Dynamically activate the six model tools without duplicating the contract in verbose tool guidance."
+  },
+  "D65-no-forced-exhaustion-sweep": {
+    "action": "rewrite",
+    "body": "Add discoveries or other non-authoritative model objects only when supported and useful. At a materiality-based review turn, report material additions or state that none were found; do not fabricate branches or claim completeness."
+  },
+  "D1-no-resurrection": {
+    "action": "rewrite",
+    "body": "Remove resolved presentation points from the active review turn. If new evidence challenges governing direction, create a linked reconsideration question and mark the effective object Under review; do not erase, silently rewrite, or casually re-present accepted authority.",
+    "title": "Do not silently resurrect settled review points"
+  },
+  "D34-no-tangent-selection-lease": {
+    "action": "rewrite",
+    "body": "A focus session's selected workstreams remain active until the user redirects or stops the focus; selection is an attention boundary, not an authority lease. Reload, resume, fork, and clone reactivate the exact linked focus after validation.",
+    "title": "Focus selection has no lease"
+  },
+  "D20-openspec-conventions-only": {
+    "action": "rewrite",
+    "body": "Domain-oriented Markdown organization may inform generated specification views, but the project model, six tools, projection metadata, and mixed-initiative loop remain project-owned; do not add OpenSpec runtime/package/schema authority."
+  },
+  "D44-prototype-bounded-behavioral-reference": {
+    "action": "rewrite",
+    "body": "A prototype is hand-authored evidence with an explicit README scope, not governing authority. Record material findings as discoveries/evidence and accept any resulting intent, decision, scenario, or commitment through normal model authority rules; accidental prototype details do not become requirements."
+  },
+  "D53-prototype-specmd-exception": {
+    "action": "rewrite",
+    "body": "Prototype slug directories use hand-authored `README.md` as their evidence entry point. The projector protects these directories and never generates or overwrites their READMEs/assets."
+  },
+  "D-question-context": {
+    "action": "rewrite",
+    "body": "Each Decisions-needed point concisely explains its trigger, relevant evidence/current understanding, remaining uncertainty, consequences, and why the answer materially changes the model, without duplicating generated specs. Presentation mechanics and rich context formats remain deferred."
+  },
+  "D-question-corrections": {
+    "action": "rewrite",
+    "body": "Classify an explicit user correction under normal authority rules. Correct a non-authoritative agent mistake directly; if it conflicts with accepted direction, preserve the governing object, create a linked contradiction/reconsideration question, and require explicit suspension, retirement, or supersession before its governing effect changes."
+  },
+  "D1-question-distinction": {
+    "action": "rewrite",
+    "body": "Workstreams and focus sessions scope attention; durable questions/tensions represent unresolved meaning; ephemeral review turns present exact hash-bound points; explicit outcomes update the linked proposal, decision, commitment, or question state. Retiring a review point never deletes the underlying model object."
+  },
+  "D57-refresh-selected-focus-on-resume": {
+    "action": "rewrite",
+    "body": "Before substantive resumed exploration, re-read the model slices, generated specs, code/tests, and external evidence relevant to the selected workstreams. Record changed facts as discoveries/divergence and never silently rewrite accepted objects; do not require a repository-wide scan.",
+    "title": "Refresh evidence for the selected focus on resume"
+  },
+  "D48-retain-useful-prototypes": {
+    "action": "rewrite",
+    "body": "Retain a prototype while it uniquely improves understanding or validation. It may be removed after material findings are represented in the project model or other durable evidence and its unique behavioral role is gone."
+  },
+  "D-retire-grillme": {
+    "action": "rewrite",
+    "body": "At cutover, remove or unregister GrillMe tools, editor, prompts, state handling, documentation, and production registration. Model brainstorming is the sole active DAG-owned research/review workflow; no compatibility alias or GrillMe-state migration is required."
+  },
+  "D52-short-linked-support-summaries": {
+    "action": "rewrite",
+    "body": "Each accepted object's full governing body has one canonical generated placement. Other generated specs use projector-owned links and short navigation summaries rather than duplicating normative prose.",
+    "title": "Link canonical object placements instead of duplicating prose"
+  },
+  "D60-show-tangents-at-review-checkpoint": {
+    "action": "rewrite",
+    "body": "Record a coherent finding immediately as a non-authoritative discovery. Present it under For awareness at the next materiality-based review turn; initiate review sooner when it invalidates current framing or creates material drift.",
+    "title": "Show material discoveries at the next review turn"
+  },
+  "D6-single-agent": {
+    "action": "rewrite",
+    "body": "Brainstorming is single-agent and single-writer. Concurrent use of one focus receives no lock/merge UX, but canonical model writes use Pi's file-mutation queue and review outcomes enforce object-level semantic-hash freshness.",
+    "title": "Use single-agent model brainstorming"
+  },
+  "D-single-current-proof": {
+    "action": "rewrite",
+    "body": "Keep one latest project-level Current understanding synthesis in tracked metadata. It is agent-authored, non-authoritative, carries source object IDs/hashes, and is replaced rather than accumulated as review history."
+  },
+  "D6-snapshot-only": {
+    "action": "rewrite",
+    "body": "Use one tracked `project-model/model.json` current snapshot as semantic authority, with Git history rather than an application event log. Focus sessions and one replaceable previous-review snapshot are ephemeral presentation/baseline state and contain no unique project meaning.",
+    "title": "Use one current model snapshot without event sourcing"
+  },
+  "D-structural-proof-validation": {
+    "action": "rewrite",
+    "body": "Validate that Current understanding is nonempty when present and that its source object IDs/hashes are valid/current. Agent guidance and later field-based evaluation assess synthesis quality; deterministic tools do not claim to judge comprehension."
+  },
+  "D25-structured-discovery-loop": {
+    "action": "rewrite",
+    "body": "Operate model brainstorming as Explore → Consolidate → Stress-test → Commit → Project, repeating or moving backward as useful. Exploration writes non-authoritative model objects immediately; review turns separate For awareness from exact Decisions needed; no promotion step exists."
+  },
+  "D61-tangent-candidate-context": {
+    "action": "rewrite",
+    "body": "A discovery or proposed workstream change records the finding/evidence that exposed it, the uncertainty or research need, its repository/workstream scope, and its possible model impact. Do not fabricate downstream questions before evidence supports them.",
+    "title": "Give discoveries source, scope, and possible impact"
+  },
+  "D-understanding-in-resolve-review": {
+    "action": "rewrite",
+    "body": "When resolved review outcomes materially change the model, atomically replace Current understanding in the same resolution transaction using the resulting object IDs/hashes. The synthesis remains explicitly agent-authored and non-authoritative."
+  },
+  "D33-unrestricted-tangent-multiselect": {
+    "action": "rewrite",
+    "body": "A focus session may select one or more workstreams or bounded scopes without an arbitrary count limit. The agent does not silently change the selected focus, while cross-workstream links and newly discovered non-authoritative objects remain visible.",
+    "title": "Allow multi-workstream focus"
+  },
+  "D27-user-selects-tangents": {
+    "action": "rewrite",
+    "body": "The user controls the active focus by selecting or changing workstreams/bounded scopes. The agent may autonomously research and add sourced non-authoritative objects within that focus, surface cross-scope implications, and propose focus changes, but does not silently redefine product direction or scope.",
+    "title": "The user controls focus scope"
+  },
+  "D71-context-before-review-decisions": {
+    "action": "retain"
+  },
+  "D1-contextual-working-sets": {
+    "action": "retain"
+  },
+  "D22-no-openspec-changes": {
+    "action": "retain"
+  },
+  "D28-optional-reasoned-recommendations": {
+    "action": "retain"
+  },
+  "D41-prototype-readme": {
+    "action": "retain"
+  },
+  "D47-prototype-readme-execution-and-scope": {
+    "action": "retain"
+  },
+  "D7-prototypes-directory": {
+    "action": "retain"
+  },
+  "D40-prototypes-start-under-spec": {
+    "action": "retain"
+  },
+  "D-question-worthiness": {
+    "action": "retain"
+  },
+  "D-real-options-only": {
+    "action": "retain"
+  },
+  "D-research-classify-before-ask": {
+    "action": "retain"
+  },
+  "D-semantic-evaluation": {
+    "action": "retain"
+  },
+  "D-token-budget": {
+    "action": "retain"
+  },
+  "D39-user-requests-prototypes": {
+    "action": "retain"
+  },
+  "D-canonical-mixed-initiative-project-model": {
+    "action": "rewrite",
+    "title": "Adopt one durable project model as authority",
+    "body": "Adopt one durable tracked model per repository as authority for intended outcomes and explicitly accepted decisions and commitments, while storing uncertainty and agent-authored objects with clearly non-authoritative state. Humans retain authority over outcomes, priorities, values, and acceptance. Code and tests remain evidence of implemented reality; differences are explicit divergence to reconcile. Detailed model-aware planning and execution reconciliation remains deferred."
+  },
+  "D-durable-statused-snapshot": {
+    "action": "rewrite",
+    "title": "Keep one current tracked model snapshot",
+    "body": "Persist one current tracked snapshot containing materially useful typed objects, including active uncertainty and discoveries. Objects carry stable identity, type-specific state, scope, source/provenance, relationships, timestamps, and confidence where meaningful. Git supplies history; the model is not an event log. Focus-session review/presentation state and scratch research remain ephemeral."
+  },
+  "D-generated-reviewable-views": {
+    "action": "omit"
+  },
+  "D-model-delta-oversight-loop": {
+    "action": "rewrite",
+    "title": "Center oversight on model deltas and consequences",
+    "body": "Use a repeating Explore, Consolidate, Stress-test, Commit, Project loop. Consolidation presents Added, Changed, Still unresolved, Possible misunderstanding, and consequences; stress-testing adds boundary/failure cases, contradictions, and alternatives. Commit explicitly disposes exact model objects according to their type-specific lifecycle; silence commits nothing. Oversight projects Current understanding, Model delta, Decision ledger, Unresolved frontier, Consequence, Divergence, and Representative slices."
+  },
+  "D-conductor-owned-reconciliation": {
+    "action": "defer"
+  },
+  "D-single-cutover-no-dual-authority": {
+    "action": "omit"
+  },
+  "D-separate-tension-type": {
+    "action": "rewrite",
+    "title": "Keep tension as a separate durable type",
+    "body": "Keep tension as a separate durable type for enduring opposing forces, with active, resolved, deferred, and retired states. Questions remain concrete uncertainties, contradictions, tradeoffs, or reconsideration prompts and may arise from a tension."
+  },
+  "D-six-explicit-model-tools": {
+    "action": "rewrite",
+    "title": "Use six action-shaped project-model tools",
+    "body": "Expose six action-shaped tools: `dag_model_context`, `dag_model_update`, `dag_model_record_direction`, `dag_model_review`, `dag_model_resolve_review`, and `dag_model_specs`. Context reads narrow slices; update cannot grant authority or rewrite accepted semantics; record_direction is the privileged direct-user authority path; review creates hash-bound packets; resolve_review applies independent fresh outcomes; specs previews, checks, and explicitly recovers projections."
+  },
+  "D-transactional-automatic-spec-sync": {
+    "action": "rewrite",
+    "title": "Synchronize affected specs after model mutations",
+    "body": "Routine successful semantic model mutations synchronize any affected tracked current specs without making a Git commit. `dag_model_specs` remains the explicit preview, check, and recovery path."
+  },
+  "D-retain-legacy-readonly-diagnostics": {
+    "action": "rewrite",
+    "title": "Retain labeled read-only diagnostics for legacy artifacts",
+    "body": "Clearly labeled read-only status, workers, inspect, tail, validate, and diagram diagnostics may remain solely for pre-cutover artifacts, but cannot create or advance execution. Mutating legacy workflow operations remain removed or unregistered."
+  }
+}

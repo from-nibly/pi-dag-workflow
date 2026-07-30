@@ -1,0 +1,9 @@
+session:
+  file: /fixture/review.html
+  status: feedback
+dom_snapshot: ""
+prompts[0]:
+layout_warnings[2]{selector,kind,axis,overflowPx,viewportWidth,severity,persistent}:
+  "#point-point-adapter",content-overflow,horizontal,96,390,error,true
+  "#frontier",viewport-unreachable-control,vertical,48,390,error,false
+next_step: "Repair the inaccessible content before review."

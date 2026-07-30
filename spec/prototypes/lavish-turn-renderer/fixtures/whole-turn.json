@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "statusLabel": "Prototype fixture",
+  "presentationNotice": "This sample uses representative review data to exercise the renderer. Queued choices validate interaction behavior but do not resolve the repository project model.",
+  "project": {
+    "id": "pi-dag-workflow",
+    "title": "Pi DAG Workflow",
+    "revision": 10,
+    "modelHash": "sha256:fixture-model"
+  },
+  "focus": {
+    "id": "focus-lavish-renderer",
+    "title": "Lavish renderer",
+    "workstreamIds": ["WS-agent-workflow", "WS-artifacts-lavish"]
+  },
+  "currentUnderstanding": {
+    "body": "The renderer only displays the active hash-bound review and collects feedback; it never writes the project model directly. Feedback from this page can still change semantic state after the agent verifies the active review, point, option, and hashes and then invokes the existing semantic review-resolution tool."
+  },
+  "delta": {
+    "added": 6,
+    "changed": 3,
+    "stillUnresolved": 2,
+    "possibleMisunderstanding": "Browser feedback proposes outcomes; the agent still interprets them before resolution.",
+    "consequences": [
+      "Interrupted polling must leave the active review resumable.",
+      "The artifact path must remain stable for the life of the review."
+    ]
+  },
+  "frontier": [
+    {
+      "id": "Q-feedback-cap",
+      "type": "question",
+      "title": "Feedback cap",
+      "state": "open",
+      "summary": "Choose prompt-count and byte limits after observing real submissions.",
+      "badges": ["Needs clarity", "1 open question"]
+    },
+    {
+      "id": "DISC-presentation-gate",
+      "type": "discovery",
+      "title": "Presentation receipt",
+      "state": "untriaged",
+      "summary": "Visible tool output was not recognized as exact presentation.",
+      "badges": ["Risk", "New"]
+    }
+  ],
+  "frontierHandoff": "After this turn, the agent resolves clear outcomes, preserves ambiguous or stale points, updates the model, and selects the next material unresolved objects. The human can redirect or replace that focus at any time.",
+  "review": {
+    "id": "review-renderer-boundary",
+    "title": "Renderer boundary review",
+    "semanticHash": "sha256:fixture-review",
+    "points": [
+      {
+        "id": "point-protocol",
+        "title": "Protocol evidence",
+        "context": "Lavish provides file-keyed open, poll, and end commands with resumable feedback.",
+        "purpose": "awareness",
+        "objectRefs": [
+          { "id": "EV-lavish-cli", "semanticHash": "sha256:evidence" }
+        ],
+        "options": []
+      },
+      {
+        "id": "point-adapter",
+        "title": "Adapter boundary",
+        "context": "A separate presentation adapter keeps semantic tools renderer-neutral.",
+        "purpose": "decision",
+        "question": "Where should Lavish presentation live?",
+        "objectRefs": [
+          { "id": "PROP-separate-adapter", "semanticHash": "sha256:proposal" }
+        ],
+        "options": [
+          {
+            "id": "option-separate",
+            "label": "Separate adapter",
+            "description": "Add dag_model_present_review outside the semantic tool set.",
+            "semanticHash": "sha256:option-separate",
+            "recommended": true,
+            "rationale": "Keeps rendering failures outside semantic mutation.",
+            "direction": {
+              "collection": "decisions",
+              "newId": "DEC-separate-adapter",
+              "state": "accepted",
+              "value": {
+                "title": "Use a separate presentation adapter",
+                "body": "Add dag_model_present_review outside the semantic model tools.",
+                "scope": { "kind": "repository" },
+                "sourceRefs": ["PROP-separate-adapter"],
+                "relationships": []
+              }
+            }
+          },
+          {
+            "id": "option-integrated",
+            "label": "Integrated review tool",
+            "description": "Fold presentation and polling into dag_model_review.",
+            "semanticHash": "sha256:option-integrated",
+            "recommended": false,
+            "rationale": "Reduces tool count, but couples browser lifecycle failures to semantic review creation.",
+            "direction": {
+              "collection": "decisions",
+              "newId": "DEC-integrated-review",
+              "state": "accepted",
+              "value": {
+                "title": "Integrate presentation into review",
+                "body": "Extend dag_model_review with Lavish presentation.",
+                "scope": { "kind": "repository" },
+                "sourceRefs": [],
+                "relationships": []
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "point-feedback-bounds",
+        "title": "Prototype-only feedback limits example",
+        "context": "This representative second decision proves that one turn can queue multiple independent outcomes. Production still needs feedback bounds because browser annotations can be arbitrarily numerous or large; a cap prevents one poll from exhausting tool or agent context, while explicit truncation reporting prevents silent loss. The numeric choices below are illustrative fixture data, not an active project-model question.",
+        "purpose": "decision",
+        "question": "Which illustrative limit profile should this fixture display?",
+        "objectRefs": [
+          { "id": "Q-feedback-cap", "semanticHash": "sha256:feedback-cap" }
+        ],
+        "options": [
+          {
+            "id": "option-bounds-conservative",
+            "label": "Conservative bounds",
+            "description": "Allow 20 prompts, 4 KB per prompt, and 16 KB total per poll result.",
+            "semanticHash": "sha256:bounds-conservative",
+            "recommended": true,
+            "rationale": "Matches the tested prototype defaults and keeps agent context predictable."
+          },
+          {
+            "id": "option-bounds-generous",
+            "label": "Generous bounds",
+            "description": "Allow 50 prompts, 8 KB per prompt, and 64 KB total per poll result.",
+            "semanticHash": "sha256:bounds-generous",
+            "recommended": false,
+            "rationale": "Preserves larger annotation batches but can consume substantially more context."
+          }
+        ]
+      }
+    ]
+  },
+  "presentationBlocks": [
+    {
+      "id": "block-comparison",
+      "placement": "before-review",
+      "kind": "comparison",
+      "title": "Why compare these boundaries?",
+      "intro": "This agent-authored block summarizes the concrete tradeoff behind the decision below; it is explanatory presentation, not a separate model object or authority source.",
+      "columns": [
+        { "title": "Separate adapter", "items": ["Independent resume", "Renderer-neutral model tools", "One extra tool call"] },
+        { "title": "Integrated", "items": ["One tool call", "Wider failure boundary", "More review-tool modes"] }
+      ]
+    },
+    {
+      "id": "block-table",
+      "placement": "point:point-adapter",
+      "kind": "table",
+      "title": "Lifecycle responsibilities",
+      "headers": ["Concern", "Owner"],
+      "rows": [
+        ["Review hashes", "Project model"],
+        ["Artifact and polling", "Presentation adapter"],
+        ["Outcome interpretation", "Agent"]
+      ]
+    },
+    {
+      "id": "block-trusted-html",
+      "placement": "after-review",
+      "kind": "html",
+      "title": "Example: agent-authored interactive context",
+      "html": "<section class=\"rich-demo\"><strong>Why this is here:</strong> The agent may add a purpose-built diagram, calculator, or prototype when interaction helps the human judge a decision. This counter only proves trusted local scripts work; it is not a product control. <button type=\"button\" onclick=\"this.nextElementSibling.textContent=Number(this.nextElementSibling.textContent)+1\">Try the demo counter</button> <output>0</output></section>"
+    }
+  ]
+}
