@@ -460,11 +460,15 @@ export class WorkerManager {
   async inspect(id) {
     this.#assertAttached();
     const state = await this.store.load();
-    const worker = state.workers[id] ?? Object.values(state.workers).find((candidate) => candidate.completionId === id || candidate.attempts.some((attempt) => attempt.completionId === id));
+    const directWorker = state.workers[id];
+    const worker = directWorker ?? Object.values(state.workers).find((candidate) => candidate.attempts.some((attempt) => attempt.completionId === id));
     if (!worker) throw new Error(`Unknown worker or completion: ${id}`);
-    const attempt = worker.attempts.find((candidate) => candidate.attemptNumber === worker.currentAttempt) ?? worker.attempts.at(-1);
+    const attempt = directWorker
+      ? worker.attempts.find((candidate) => candidate.attemptNumber === worker.currentAttempt) ?? worker.attempts.at(-1)
+      : worker.attempts.find((candidate) => candidate.completionId === id);
+    if (!attempt) throw new Error(`Completion ${id} has no matching attempt`);
     let result = null;
-    if (attempt?.resultPath) result = await readJson(resolve(state.repositoryRoot, attempt.resultPath), { maxBytes: MAX_RESULT_BYTES });
+    if (attempt.resultPath) result = await readJson(resolve(state.repositoryRoot, attempt.resultPath), { maxBytes: MAX_RESULT_BYTES });
     return { worker, attempt, result };
   }
 

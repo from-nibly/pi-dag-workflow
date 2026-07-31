@@ -148,6 +148,9 @@ try {
   assert(transferredSummary.storageId === "manager-source" && transferredSummary.ownerSessionId === "manager-descendant", "direct fork durably transfers the complete stable worker session");
   await manager.cancel(live.workerId, "test direct-fork cancellation");
   await waitFor(async () => { await manager.scan(); return (await manager.status(live.workerId)).status === "cancelled"; });
+  const cancelledInspection = await manager.inspect(live.workerId);
+  const cancelledCompletionId = cancelledInspection.result.completionId;
+  assert(cancelledInspection.result.attemptNumber === 1 && cancelledInspection.result.terminalStatus === "cancelled", "cancelled attempt has an immutable terminal result");
   await waitFor(async () => parentPi.messages.length >= 3);
   await manager.onAgentSettled();
 
@@ -158,6 +161,8 @@ try {
   await waitFor(async () => parentPi.messages.length >= 4);
   const inspection = await manager.inspect(live.workerId);
   assert(inspection.result.attemptNumber === 2 && inspection.result.terminalStatus === "succeeded", "inspection returns the immutable current-attempt result");
+  const historicalInspection = await manager.inspect(cancelledCompletionId);
+  assert(historicalInspection.result.completionId === cancelledCompletionId && historicalInspection.result.attemptNumber === 1 && historicalInspection.result.terminalStatus === "cancelled", "completion inspection remains bound to its historical attempt after retry");
   await manager.onAgentSettled();
   await manager.detach();
   delete process.env.FAKE_WORKER_RPC_MODE;

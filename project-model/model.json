@@ -5002,6 +5002,39 @@
       "updatedAt": "2026-07-30T18:33:04.911Z"
     },
     {
+      "body": "Installed-runtime dogfooding held a cancelled attempt-1 completion behind another in-flight completion, retried the same worker, and then received the attempt-1 completion ID with attempt-2 success content. `WorkerManager.inspect(completionId)` found the owning worker but always selected its current attempt. It now resolves the exact attempt carrying that completion ID, while worker-ID inspection continues to select the current attempt. Regression coverage verifies historical completion inspection remains bound after retry.",
+      "confidence": "high",
+      "createdAt": "2026-07-31T03:55:56.327Z",
+      "id": "DISC-queued-retry-completion-rendered-latest-attempt",
+      "implications": "Serial queue identity and payload now refer to the same immutable attempt result even when a worker is retried before an older queued completion is delivered.",
+      "introducedBy": "agent",
+      "proposedFollowup": "Run the focused worker tests and repeat installed cancellation/retry dogfooding after the correction is installed.",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-compact-subagent-completion-message"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-serial-worker-completion-queue"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/worker-runtime/manager.mjs",
+        "scripts/worker-runtime-test.mjs"
+      ],
+      "state": "integrated",
+      "title": "Queued historical completion initially rendered the latest retry attempt",
+      "updatedAt": "2026-07-31T03:55:56.327Z"
+    },
+    {
       "body": "`dag_model_review` returns the exact review Markdown as a visible tool result, but the Pi adapter marks presentation only when a later assistant text message contains the entire Markdown verbatim. The user responded to the visible review, yet `dag_model_resolve_review` rejected it as unpresented. The manual recovery used the domain presentation marker. Production should recognize the exact tool result/turn delivery itself, or store a tool-result-bound presentation receipt, rather than require a large verbatim assistant echo.",
       "confidence": "high",
       "createdAt": "2026-07-29T02:23:11.922Z",
@@ -6119,9 +6152,13 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "The two requested execution items are complete without reviving the disabled DAG workflow. The model kernel now removes explicitly superseded accepted objects from governing/spec projections and reconciles exact direct authority with equivalent active review points, including startup cleanup of preexisting stale review state. The extension-owned headless subagent runtime is implemented: process-isolated Pi RPC children, detached survival, atomic session state, bounded mailboxes/results/diagnostics, fail-closed identity recovery, minimal terminating reports with two repair turns, compact serial completion delivery, auto-acknowledgement, direct-fork transfer, explicit retry/cancel/status/inspect/tail controls, and child orchestration-tool omission. `pi-subagents` and the dormant adapter are removed. Deterministic tests, repeated supervisor/manager tests, package smoke, spec drift, dry-pack, and a real installed-Pi RPC worker all pass. Reload Pi before dogfooding the new tools in this current conversation. Canonical DAG planning/execution and persistent visualization remain deferred.",
-      "generatedAt": "2026-07-30T21:17:55.571Z",
+      "body": "The model-kernel corrections and extension-owned headless subagent runtime are implemented without reviving disabled DAG execution. Installed Home Manager dogfooding verified asynchronous launch, status, inspection, bounded diagnostic tails, cancellation, retry, terminating structured reports, direct-fork session transfer, and serial completion delivery. The first cancellation/retry run exposed a historical-completion bug: an attempt-1 completion ID could render the latest attempt-2 result when retry occurred before delivery. Completion inspection now binds completion IDs to their exact immutable attempts, with regression coverage. `pi-subagents` and the dormant adapter remain removed. Canonical DAG planning/execution and persistent visualization remain deferred.",
+      "generatedAt": "2026-07-31T03:55:56.329Z",
       "sourceObjects": [
+        {
+          "id": "DISC-queued-retry-completion-rendered-latest-attempt",
+          "semanticHash": "sha256:d5a6c2fb7a646bbabb10850b183f6cafcd3e21a86e6d4ac89d164ce7be1427ad"
+        },
         {
           "id": "DISC-owned-worker-runtime-implemented-and-validated",
           "semanticHash": "sha256:e7eb03ba3bafaf145702c6a58934c984510441402ba4481a5629edbf6fc07e3e"
@@ -6149,6 +6186,10 @@
         {
           "id": "DEC-compact-subagent-completion-message",
           "semanticHash": "sha256:7e0b935c608c30a771d4c28cb13072bbc21c9aa75bb5d87251699acc383be04f"
+        },
+        {
+          "id": "DEC-serial-worker-completion-queue",
+          "semanticHash": "sha256:62c25ff7940ad52eb675156989765f36c3e1ddc68cc68d58dac2db2209a6c56b"
         },
         {
           "id": "DEC-defer-worker-widget-until-dag-redesign",
@@ -6397,9 +6438,9 @@
         }
       ]
     },
-    "revision": 56,
+    "revision": 57,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-07-30T21:17:55.571Z"
+    "updatedAt": "2026-07-31T03:55:56.329Z"
   },
   "proposals": [
     {
