@@ -2,12 +2,13 @@
   "name": "pi-dag-workflow",
   "version": "0.1.0",
   "type": "module",
-  "description": "Pi DAG workflow extension with project discovery, chunking, and ordered subagent flows.",
+  "description": "Pi extension for authoritative project modeling and durable asynchronous subagents.",
   "keywords": ["pi-package", "pi-extension", "dag-workflow"],
   "license": "MIT",
   "scripts": {
     "smoke": "node scripts/smoke-test.mjs",
     "test:model": "node scripts/project-model-test.mjs",
+    "test:workers": "node scripts/worker-runtime-test.mjs",
     "migrate:model": "node scripts/migrate-brainstorm-to-project-model.mjs",
     "pack:dry": "npm pack --dry-run"
   },
@@ -16,9 +17,6 @@
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
-  },
-  "dependencies": {
-    "pi-subagents": "0.25.0"
   },
   "optionalDependencies": {
     "lavish-axi": "0.1.43"

@@ -135,9 +135,45 @@ else process.stdout.write(session(c==="end"?"ended":"opened"));
     const rejectedOutcome = await domain.resolveReview(focus.id, { outcomes: [{ pointId: "point-two", action: "reject" }] }, "user-reject");
     assert(rejectedOutcome.appliedPointIds.includes("point-two"), "reviewed rejection is applied durably");
     assert((await domain.models.load()).decisions.some(({ id }) => id === "DEC-reject-two"), "rejection creates its reviewed durable decision");
-    await domain.update(focus.id, {
-      specViews: [{ id: "SPEC-root", kind: "spec", path: "spec/spec.md", title: "Demo", sections: [{ id: "purpose", title: "Purpose", objectIds: ["INT-goal", "DEC-one", "DEC-reject-two"] }] }],
+
+    const directReview = await domain.createReview(focus.id, {
+      id: "review-direct-reconciliation",
+      title: "Direct reconciliation",
+      points: [
+        {
+          id: "point-direct-one",
+          title: "First direct choice",
+          context: "This can be answered directly.",
+          purpose: "decision",
+          question: "Choose the first direction?",
+          options: [{ id: "option-direct-one", label: "First", description: "Accept the first direction.", direction: { collection: "decisions", newId: "DEC-direct-review-one", value: { title: "Direct review one", body: "The first direct review direction.", scope: { kind: "repository" }, sourceRefs: [], relationships: [], rationale: "It is exact." } } }],
+        },
+        {
+          id: "point-direct-two",
+          title: "Second direct choice",
+          context: "This remains independently unresolved.",
+          purpose: "decision",
+          question: "Choose the second direction?",
+          options: [{ id: "option-direct-two", label: "Second", description: "Accept the second direction.", direction: { collection: "decisions", newId: "DEC-direct-review-two", value: { title: "Direct review two", body: "The second direct review direction.", scope: { kind: "repository" }, sourceRefs: [], relationships: [], rationale: "It is also exact." } } }],
+        },
+      ],
     });
+    const persistedDirectReview = structuredClone((await domain.sessions.load(focus.id)).activeReview);
+    const firstDirect = await domain.recordDirection(focus.id, {
+      directions: [directReview.review.points[0].options[0].direction],
+      specViews: [{ id: "SPEC-root", kind: "spec", path: "spec/spec.md", title: "Demo", sections: [{ id: "purpose", title: "Purpose", objectIds: ["INT-goal", "DEC-one", "DEC-reject-two", "DEC-direct-review-one"] }] }],
+    }, "user-direct-one");
+    assert(firstDirect.reconciledReviewPointIds.includes("point-direct-one"), "equivalent direct authority reconciles an unpresented active review point");
+    const remainingDirectReview = (await domain.sessions.load(focus.id)).activeReview;
+    assert(remainingDirectReview?.points.length === 1 && remainingDirectReview.points[0].id === "point-direct-two" && !remainingDirectReview.presentedAt, "direct reconciliation preserves unrelated points as an unpresented continuation");
+    const secondDirect = await domain.recordDirection(focus.id, {
+      directions: [remainingDirectReview.points[0].options[0].direction],
+      specViews: [{ id: "SPEC-root", kind: "spec", path: "spec/spec.md", title: "Demo", sections: [{ id: "purpose", title: "Purpose", objectIds: ["INT-goal", "DEC-one", "DEC-reject-two", "DEC-direct-review-one", "DEC-direct-review-two"] }] }],
+    }, "user-direct-two");
+    assert(secondDirect.reconciledReviewPointIds.includes("point-direct-two") && !(await domain.sessions.load(focus.id)).activeReview, "equivalent direct authority clears the final stale review point");
+    await domain.sessions.mutate(focus.id, (session) => { session.activeReview = persistedDirectReview; });
+    const recoveredReview = await domain.reconcileSatisfiedReview(focus.id);
+    assert(recoveredReview.reconciledReviewPointIds.length === 2 && !(await domain.sessions.load(focus.id)).activeReview, "startup reconciliation clears a preexisting review whose exact directions are already accepted");
 
     const model = await domain.models.load();
     const malformed = structuredClone(model);
@@ -166,6 +202,26 @@ else process.stdout.write(session(c==="end"?"ended":"opened"));
     const cutover = await domain.cutover(focus.id, candidateManifestHash(model), "user-cutover");
     assert(cutover.receiptMode === "migration_cutover", "cutover records a migration authority receipt");
     assertIncludes(await readFile(join(root, "spec/spec.md"), "utf8"), "generated-by: pi-dag-workflow/project-model", "audited cutover replaces declared hand-maintained projection targets");
+
+    await domain.recordDirection(focus.id, {
+      directions: [{
+        collection: "decisions",
+        key: "one-v2",
+        value: {
+          ...base("Choose one v2", "One is replaced by the current direction."),
+          rationale: "The newer direction supersedes the older accepted decision.",
+          relationships: [{ kind: "supersedes", targetId: "DEC-one" }],
+        },
+      }],
+      specViews: [{ id: "SPEC-root", kind: "spec", path: "spec/spec.md", title: "Demo", sections: [{ id: "purpose", title: "Purpose", objectIds: ["INT-goal", "DEC-one-v2", "DEC-reject-two", "DEC-direct-review-one", "DEC-direct-review-two"] }] }],
+    }, "user-supersede");
+    const supersededProjection = await readFile(join(root, "spec/spec.md"), "utf8");
+    assertIncludes(supersededProjection, "One is replaced by the current direction.", "accepted superseder renders as governing direction");
+    assert(!supersededProjection.includes("One is selected."), "superseded accepted decision stops rendering");
+    const governing = await domain.context(focus.id, { view: "governing" });
+    assert(!governing.some(({ id }) => id === "DEC-one") && governing.some(({ id }) => id === "DEC-one-v2"), "governing context excludes superseded accepted decisions");
+    assert(validateProjectModel(await domain.models.load()).length === 0, "superseded accepted objects no longer require canonical generated-spec placement");
+
     await domain.update(focus.id, {
       add: [{ collection: "questions", key: "reconsider", value: { ...base("Reconsider goal", "Should the goal change?"), kind: "reconsideration", relationships: [{ kind: "challenges", targetId: "INT-goal" }] } }],
     });
@@ -232,6 +288,8 @@ async function testPiIntegration() {
     const ctx = pi.context(root);
     await pi.runCommand("dag", "brainstorm new Schema focus", ctx);
     assert(pi.activeTools.has("dag_model_context"), "brainstorm command activates model tools");
+    assert(["subagent", "subagent_status", "subagent_inspect", "subagent_tail", "subagent_cancel", "subagent_retry"].every((name) => pi.tools.has(name)), "generic owned-worker tools are registered independently of DAG mode");
+    assert(pi.commands.has("workers"), "generic /workers command is registered");
     assert(!pi.tools.has("dag_init") && !pi.tools.has("dag_start_node"), "mutating legacy DAG tools are not registered");
     assert(![...pi.tools].some(([name]) => name.startsWith("dag_grillme")), "GrillMe tools are absent");
     let seedAuthorityRejected = false;

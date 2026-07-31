@@ -1,8 +1,8 @@
 # pi-dag-workflow
 
-Pi extension for mixed-initiative project-model brainstorming. The current production slice focuses on research, intent clarification, semantic review, and deterministic generated specifications.
+Pi extension for mixed-initiative project-model brainstorming and extension-owned asynchronous Pi workers. The production workflow covers research, intent clarification, semantic review, deterministic generated specifications, and durable process-isolated subagents.
 
-Model-aware planning and execution are deferred while this workflow is dogfooded.
+Model-aware DAG planning and execution remain deferred while this workflow is dogfooded.
 
 ## Authority
 
@@ -58,7 +58,7 @@ The seven tools register once and are activated only after Pi's extension runtim
 - `dag_model_resolve_review` — apply independent fresh outcomes while preserving stale, omitted, or ambiguous points.
 - `dag_model_specs` — preview, check, or explicitly recover deterministic generated specs.
 
-Routine successful semantic mutations automatically synchronize affected current specs without making a Git commit.
+Routine successful semantic mutations automatically synchronize affected current specs without making a Git commit. Accepted objects explicitly superseded by another receipt-valid accepted object stop rendering while retaining stable historical model identity. A direct direction that exactly matches an active review disposition reconciles that disposable review point without requiring a second authority receipt.
 
 Lavish presentation uses the pinned optional dependency `lavish-axi@0.1.43`; it never falls back to ambient `npx`. The generated shell supports multiple independent decision points, complete visible option prose, an explicit **Other** radio, and a separate response box. The renderer does not resolve semantic state automatically: the agent validates returned review/point/option hashes and invokes `dag_model_resolve_review` from a bound human turn.
 
@@ -94,6 +94,27 @@ V1 deliberately uses minimal one-way safety:
 
 There is no generated-file ownership manifest, editable generated region, reverse synchronization, or automatic deletion framework in V1.
 
+## Asynchronous workers
+
+The extension owns a generic worker runtime; it does not depend on `pi-subagents`. Every launch returns immediately while a detached supervisor runs the exact installed Pi CLI in RPC mode. Workers survive top-level Pi reload or exit, report through a terminating `subagent_report` tool, and deliver bounded completions serially when the owning session reconnects.
+
+Top-level agent tools:
+
+- `subagent` — launch an asynchronous worker;
+- `subagent_status` — list or summarize workers;
+- `subagent_inspect` — read a bounded immutable terminal result;
+- `subagent_tail` — read selected bounded diagnostics;
+- `subagent_cancel` — cancel only after PID/start-identity and attempt verification;
+- `subagent_retry` — explicitly start a new attempt for a terminal worker.
+
+Equivalent user commands are `/workers list|inspect|tail|cancel|retry`.
+
+Runtime state lives under `.ai/worker-sessions/`. One atomic `worker-session.json` belongs to each top-level Pi session; detached supervisors write bounded mailboxes, a diagnostic log capped at 50 MiB, and immutable terminal results. Child processes inherit ordinary active tools but omit `subagent*`, `dag_*`, and `dag_model_*` orchestration surfaces except for `subagent_report`. Full transcripts and cumulative `message_update` events are never persisted.
+
+Direct forks and clones transfer the complete worker session and completion queue when source ownership can be proven. Ambiguous, corrupt, stale-live, PID-reused, or conflicting ownership fails closed rather than signaling or relaunching an unproven process.
+
+Obsolete `pi-subagents` artifacts are not adopted or deleted automatically. Historical sibling directories named `*-dag-subagents` and temporary `/tmp/pi-subagents-*` trees may be removed manually only after confirming that no legacy worker process still owns them.
+
 ## Deferred workflows
 
 These commands currently report that model-aware replacements are deferred:
@@ -107,7 +128,7 @@ These commands currently report that model-aware replacements are deferred:
 /dag archive
 ```
 
-GrillMe, promotion, legacy prompt workflows, subagent execution registration, and model-unaware mutating DAG tools are removed.
+GrillMe, promotion, legacy prompt workflows, the dormant `dag_subagent` adapter, the `pi-subagents` dependency, and model-unaware mutating DAG tools are removed.
 
 Clearly labeled read-only diagnostics remain for pre-cutover artifacts:
 
@@ -146,7 +167,8 @@ The candidate does not become authoritative until its semantic mappings, omissio
 
 ```nu
 npm run smoke
-node scripts/project-model-test.mjs
+npm run test:model
+npm run test:workers
 # Only while project-model/model.json is still a non-authoritative candidate:
 node scripts/migrate-brainstorm-to-project-model.mjs --force
 ```

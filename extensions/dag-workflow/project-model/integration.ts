@@ -221,7 +221,9 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
     const link = latestFocusLink(ctx, resolve(ctx.cwd));
     if (!link || link.mode !== "active") return;
     try {
-      const focus = await domain(ctx.cwd).sessions.load(link.focusSessionId);
+      const projectDomain = domain(ctx.cwd);
+      await projectDomain.reconcileSatisfiedReview(link.focusSessionId);
+      const focus = await projectDomain.sessions.load(link.focusSessionId);
       if (focus.status !== "active") return;
       activate(ctx.cwd, link.focusSessionId);
     } catch {

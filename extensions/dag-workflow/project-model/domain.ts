@@ -9,12 +9,12 @@ import {
   canonicalStringify,
   createAcceptance,
   findObject,
-  isSpecEligible,
   modelHash,
   nowIso,
   requiresAcceptance,
   semanticHash,
   sha256,
+  specEligibleObjectIds,
 } from "./model.ts";
 import { SpecProjector } from "./projector.ts";
 import { reviewSemanticHash, type ModelReviewTurnProjection, type PresentationBlock } from "./review-turn.ts";
@@ -141,9 +141,12 @@ export class ProjectModelDomain {
       .map(({ collection, object }) => ({ id: object.id, collection, title: object.title, state: object.state, semanticHash: semanticHash(collection, object) }));
     if (view === "delta") return projectDelta(model, focus);
     if (view === "review") return focus.activeReview ? { review: projectReview(focus.activeReview), markdown: renderReviewMarkdown(model, focus.activeReview) } : null;
-    if (view === "governing") return scopedObjects(model, focus)
-      .filter(({ collection, object }) => isSpecEligible(collection, object))
-      .map(({ collection, object }) => ({ id: object.id, collection, title: object.title, state: object.state, semanticHash: semanticHash(collection, object) }));
+    if (view === "governing") {
+      const eligibleIds = specEligibleObjectIds(model);
+      return scopedObjects(model, focus)
+        .filter(({ object }) => eligibleIds.has(object.id))
+        .map(({ collection, object }) => ({ id: object.id, collection, title: object.title, state: object.state, semanticHash: semanticHash(collection, object) }));
+    }
     throw new Error(`Unknown model context view: ${view}`);
   }
 
@@ -211,12 +214,43 @@ export class ProjectModelDomain {
     if (!((input.directions?.length ?? 0) > 0)) throw new Error("record_direction requires directions");
     const focus = await this.sessions.load(focusId);
     const batchRef = sha256({ interactionRef, directions: input.directions });
+    const reconciledReviewPointIds: string[] = [];
+    let activeReviewAfterDirection: FocusReview | null | undefined;
     const result = await this.transact(async (draft, changed) => {
+      const beforeDirection = structuredClone(draft);
       if (input.specViews) { draft.project.projections.specs = structuredClone(input.specViews); changed.add("project.projections"); }
-      for (const direction of input.directions!) applyDirection(draft, focus, direction, "direct_direction", interactionRef, batchRef, changed);
+      const appliedTargets = input.directions!.map((direction) => {
+        const object = applyDirection(draft, focus, direction, "direct_direction", interactionRef, batchRef, changed);
+        return { collection: direction.collection, id: object.id };
+      });
       if (input.currentUnderstanding) setCurrentUnderstanding(draft, input.currentUnderstanding, changed);
+
+      if (focus.activeReview) {
+        const directResults = new Set(appliedTargets.map(({ collection, id }) => directionResultKey(draft, collection, id)));
+        for (const point of focus.activeReview.points.filter(({ purpose }) => purpose === "decision")) {
+          if (!reviewPointFresh(beforeDirection, point)) continue;
+          if (reviewDirections(point).some((direction) => directResults.has(previewDirectionResultKey(beforeDirection, focus, direction)))) {
+            reconciledReviewPointIds.push(point.id);
+          }
+        }
+        if (reconciledReviewPointIds.length) {
+          const points = focus.activeReview.points
+            .filter(({ id }) => !reconciledReviewPointIds.includes(id))
+            .map((point) => refreshReviewPoint(draft, point));
+          if (points.length) {
+            activeReviewAfterDirection = { ...focus.activeReview, points };
+            delete activeReviewAfterDirection.presentedAt;
+          } else activeReviewAfterDirection = null;
+        }
+      }
+    }, async () => {
+      if (activeReviewAfterDirection === undefined) return;
+      const session = structuredClone(focus);
+      if (activeReviewAfterDirection) session.activeReview = activeReviewAfterDirection;
+      else delete session.activeReview;
+      await this.sessions.write(session);
     });
-    return receipt("record_direction", result, { focusId, receiptMode: "direct_direction", batchRef });
+    return receipt("record_direction", result, { focusId, receiptMode: "direct_direction", batchRef, reconciledReviewPointIds });
   }
 
   async cutover(focusId: string, acceptedCandidateHash: string, interactionRef: string) {
@@ -251,6 +285,7 @@ export class ProjectModelDomain {
   }
 
   async createReview(focusId: string, input: { id?: string; key?: string; title: string; points: ReviewPointInput[] }) {
+    await this.reconcileSatisfiedReview(focusId);
     const model = await this.models.load();
     const focus = await this.sessions.load(focusId);
     if (focus.activeReview) throw new Error(`Focus already has an active review: ${focus.activeReview.id}`);
@@ -294,6 +329,28 @@ export class ProjectModelDomain {
       };
     });
     return true;
+  }
+
+  async reconcileSatisfiedReview(focusId: string) {
+    const model = await this.models.load();
+    const focus = await this.sessions.load(focusId);
+    if (!focus.activeReview) return { reconciledReviewPointIds: [], remainingPointIds: [] };
+    const reconciledReviewPointIds = focus.activeReview.points
+      .filter(({ purpose }) => purpose === "decision")
+      .filter((point) => reviewDirections(point).some((direction) => reviewDirectionSatisfied(model, focus, direction)))
+      .map(({ id }) => id);
+    if (!reconciledReviewPointIds.length) return { reconciledReviewPointIds, remainingPointIds: focus.activeReview.points.map(({ id }) => id) };
+
+    const points = focus.activeReview.points
+      .filter(({ id }) => !reconciledReviewPointIds.includes(id))
+      .map((point) => refreshReviewPoint(model, point));
+    const session = structuredClone(focus);
+    if (points.length) {
+      session.activeReview = { ...focus.activeReview, points };
+      delete session.activeReview.presentedAt;
+    } else delete session.activeReview;
+    await this.sessions.write(session);
+    return { reconciledReviewPointIds, remainingPointIds: points.map(({ id }) => id) };
   }
 
   async resolveReview(
@@ -472,7 +529,7 @@ function applyDirection(
   interactionRef: string | undefined,
   batchRef: string,
   changed: Set<string>,
-) {
+): ModelObject {
   if (!DIRECTION_COLLECTIONS.has(input.collection)) throw new Error(`Direct direction cannot target ${input.collection}`);
   if (input.id && input.newId) throw new Error("Direction cannot set both id and newId");
   let object: ModelObject;
@@ -490,6 +547,47 @@ function applyDirection(
   object.updatedAt = nowIso();
   object.acceptance = createAcceptance(input.collection, object, mode, interactionRef, batchRef);
   changed.add(object.id);
+  return object;
+}
+
+function directionResultKey(model: ProjectModel, collection: ModelCollectionName, id: string): string {
+  const found = findObject(model, id);
+  if (!found || found.collection !== collection) throw new Error(`Direction result not found in ${collection}: ${id}`);
+  return canonicalStringify({ collection, id, semanticHash: semanticHash(collection, found.object) });
+}
+
+function previewDirectionResultKey(model: ProjectModel, focus: FocusSession, direction: DirectionInput): string {
+  const preview = structuredClone(model);
+  const object = applyDirection(preview, focus, direction, "accepted_existing", undefined, "preview", new Set());
+  return directionResultKey(preview, direction.collection, object.id);
+}
+
+function reviewDirections(point: ReviewPoint): DirectionInput[] {
+  return [
+    ...point.options.map(({ direction }) => direction),
+    point.rejectDirection,
+    point.deferDirection,
+  ].filter((direction): direction is DirectionInput => Boolean(direction));
+}
+
+function reviewDirectionSatisfied(model: ProjectModel, focus: FocusSession, direction: DirectionInput): boolean {
+  const id = direction.id ?? direction.newId;
+  if (!id) return false;
+  const actual = findObject(model, id);
+  if (!actual || actual.collection !== direction.collection) return false;
+  const actualHash = semanticHash(actual.collection, actual.object);
+  if (!actual.object.acceptance || actual.object.acceptance.contentHash !== actualHash) return false;
+
+  const preview = structuredClone(model);
+  if (direction.newId) {
+    preview[direction.collection] = (preview[direction.collection] as ModelObject[]).filter((object) => object.id !== direction.newId) as never;
+  }
+  try {
+    const expected = applyDirection(preview, focus, direction, "accepted_existing", undefined, "preview", new Set());
+    return actualHash === semanticHash(direction.collection, expected);
+  } catch {
+    return false;
+  }
 }
 
 function setCurrentUnderstanding(model: ProjectModel, input: { body: string; sourceObjectIds: string[] }, changed: Set<string>) {

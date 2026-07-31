@@ -28,7 +28,14 @@ const files = [
   "extensions/dag-workflow/project-model/lavish-cli.ts",
   "extensions/dag-workflow/project-model/review-presentation.ts",
   "extensions/dag-workflow/project-model/migration.ts",
+  "extensions/dag-workflow/worker-runtime/core.mjs",
+  "extensions/dag-workflow/worker-runtime/child-report.ts",
+  "extensions/dag-workflow/worker-runtime/supervisor.mjs",
+  "extensions/dag-workflow/worker-runtime/manager.mjs",
+  "extensions/dag-workflow/worker-runtime/integration.ts",
   "scripts/project-model-test.mjs",
+  "scripts/worker-runtime-test.mjs",
+  "scripts/fixtures/fake-worker-rpc.mjs",
   "scripts/migrate-brainstorm-to-project-model.mjs",
   "project-model/model.json",
   "project-model/migrations/brainstorm-v2-candidate.md",
@@ -48,6 +55,8 @@ for (const file of files) await access(file);
 const execFileAsync = promisify(execFile);
 const productionModel = await execFileAsync(process.execPath, ["scripts/project-model-test.mjs"]);
 assertIncludes(productionModel.stdout, "Project model production tests OK", "production project-model tests pass");
+const workerRuntime = await execFileAsync(process.execPath, ["scripts/worker-runtime-test.mjs"], { timeout: 120_000 });
+assertIncludes(workerRuntime.stdout, "Owned worker core, supervisor, and manager tests OK", "owned worker runtime tests pass");
 const adapterPrototype = await execFileAsync(process.execPath, ["spec/prototypes/brainstorm-pi-adapter/scenario.mjs"]);
 assertIncludes(adapterPrototype.stdout, "Brainstorm Pi adapter prototype OK", "legacy adapter evidence still executes");
 const lavishPrototype = await execFileAsync(process.execPath, ["spec/prototypes/lavish-turn-renderer/scenario.mjs"]);
@@ -105,9 +114,13 @@ const readme = await readFile("README.md", "utf8");
 assertIncludes(readme, "project-model/model.json", "README documents the shared model authority");
 assertIncludes(readme, "/dag brainstorm", "README documents model brainstorming");
 assertIncludes(readme, "dag_model_record_direction", "README documents the direct-authority boundary");
-assertIncludes(readme, "Model-aware planning and execution are deferred", "README documents disabled downstream workflows");
+assertIncludes(readme, "Model-aware DAG planning and execution remain deferred", "README documents disabled downstream workflows");
+assertIncludes(readme, "subagent_report", "README documents the owned worker report boundary");
+assertIncludes(readme, ".ai/worker-sessions/", "README documents durable worker state");
+const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+assert(!packageJson.dependencies?.["pi-subagents"], "pi-subagents dependency is removed");
 
-console.log(`Smoke OK: ${files.length} required files exist; project-model and legacy read-only DAG checks passed`);
+console.log(`Smoke OK: ${files.length} required files exist; project-model, owned-worker, and legacy read-only DAG checks passed`);
 
 function testConfigMergeAndDagBase() {
   const userConfig = {

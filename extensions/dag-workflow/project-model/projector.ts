@@ -3,9 +3,10 @@ import { dirname, join, posix, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
   activeReconsiderationIds,
+  allObjects,
   findObject,
-  isSpecEligible,
   sha256,
+  specEligibleObjectIds,
 } from "./model.ts";
 import type { ModelCollectionName, ModelObject, ProjectModel, SpecProjectionView } from "./types.ts";
 
@@ -32,8 +33,15 @@ export class SpecProjector {
   constructor(root: string) { this.root = resolve(root); }
 
   render(model: ProjectModel): RenderedSpec[] {
-    const placements = canonicalPlacements(model);
-    return model.project.projections.specs.map((view) => renderView(model, view, placements));
+    const eligibleIds = specEligibleObjectIds(model);
+    const renderedIds = new Set(eligibleIds);
+    if (model.project.mode === "candidate") {
+      for (const { collection, object } of allObjects(model)) {
+        if (isCandidateProjectable(collection, object)) renderedIds.add(object.id);
+      }
+    }
+    const placements = canonicalPlacements(model, renderedIds);
+    return model.project.projections.specs.map((view) => renderView(model, view, placements, eligibleIds));
   }
 
   targetPaths(model: ProjectModel): string[] {
@@ -127,7 +135,12 @@ export class SpecProjector {
   }
 }
 
-function renderView(model: ProjectModel, view: SpecProjectionView, placements: Map<string, { path: string; viewId: string }>): RenderedSpec {
+function renderView(
+  model: ProjectModel,
+  view: SpecProjectionView,
+  placements: Map<string, { path: string; viewId: string }>,
+  eligibleIds: ReadonlySet<string>,
+): RenderedSpec {
   const selected = (view.sections ?? []).flatMap((section) => section.objectIds.map((id) => {
     const found = findObject(model, id);
     if (!found) throw new Error(`Projection ${view.id} references missing object ${id}`);
@@ -164,7 +177,7 @@ function renderView(model: ProjectModel, view: SpecProjectionView, placements: M
     for (const id of section.objectIds) {
       const found = findObject(model, id)!;
       const candidate = model.project.mode === "candidate" && isCandidateProjectable(found.collection, found.object);
-      if (!candidate && !isSpecEligible(found.collection, found.object)) continue;
+      if (!candidate && !eligibleIds.has(id)) continue;
       emitted += 1;
       lines.push("", `<a id="obj-${anchorId(id)}"></a>`, "", `### ${found.object.title}`, "");
       if (model.project.mode === "candidate") lines.push("> **Candidate:** pending migration audit and cutover acceptance.", "");
@@ -203,11 +216,12 @@ function appendTypeDetails(lines: string[], collection: ModelCollectionName, obj
   }
 }
 
-function canonicalPlacements(model: ProjectModel): Map<string, { path: string; viewId: string }> {
+function canonicalPlacements(model: ProjectModel, renderedIds: ReadonlySet<string>): Map<string, { path: string; viewId: string }> {
   const placements = new Map<string, { path: string; viewId: string }>();
   for (const view of model.project.projections.specs) {
     for (const section of view.sections ?? []) {
       for (const id of section.objectIds) {
+        if (!renderedIds.has(id)) continue;
         if (placements.has(id)) throw new Error(`Multiple canonical placements for ${id}`);
         placements.set(id, { path: view.path, viewId: view.id });
       }

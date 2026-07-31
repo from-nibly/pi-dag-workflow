@@ -4,6 +4,8 @@ import { Type } from "typebox";
 import { findLatestRun, loadRun, readDag, runDir, summarizeRun, validateDag } from "./dag.ts";
 import { renderDagDiagram } from "./diagram.ts";
 import { registerProjectModelIntegration } from "./project-model/integration.ts";
+import { isWorkerChildRole, registerWorkerChild } from "./worker-runtime/child-report.ts";
+import { registerWorkerRuntime } from "./worker-runtime/integration.ts";
 import { listWorkerRecords, readLogTail } from "./sessions.ts";
 import { DEFAULT_DAG_PATH } from "./types.ts";
 
@@ -44,7 +46,13 @@ async function latestOrProvidedRun(cwd: string, runId?: string): Promise<string>
 }
 
 export default function dagWorkflow(pi: ExtensionAPI) {
+  if (isWorkerChildRole()) {
+    registerWorkerChild(pi);
+    return;
+  }
+
   const modelIntegration = registerProjectModelIntegration(pi);
+  registerWorkerRuntime(pi);
 
   pi.registerCommand("dag", {
     description: "Model brainstorming plus read-only inspection of legacy DAG artifacts",

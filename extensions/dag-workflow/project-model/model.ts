@@ -238,12 +238,22 @@ export function normalizeModel(input: ProjectModel): ProjectModel {
   return canonicalize(model);
 }
 
-export function isSpecEligible(collection: ModelCollectionName, object: ModelObject): boolean {
+function hasAcceptedSpecAuthority(collection: ModelCollectionName, object: ModelObject): boolean {
   if (!object.acceptance || object.acceptance.contentHash !== semanticHash(collection, object)) return false;
   if (collection === "intents" || collection === "concepts" || collection === "scenarios") return object.state === "accepted";
   if (collection === "decisions") return object.state === "accepted";
   if (collection === "commitments") return object.state === "accepted";
   return false;
+}
+
+export function specEligibleObjectIds(model: ProjectModel): Set<string> {
+  const accepted = allObjects(model).filter(({ collection, object }) => hasAcceptedSpecAuthority(collection, object));
+  const superseded = new Set(
+    accepted.flatMap(({ object }) => (Array.isArray(object.relationships) ? object.relationships : [])
+      .filter((relationship) => relationship?.kind === "supersedes")
+      .map(({ targetId }) => targetId)),
+  );
+  return new Set(accepted.filter(({ object }) => !superseded.has(object.id)).map(({ object }) => object.id));
 }
 
 export function activeReconsiderationIds(model: ProjectModel, targetId: string): string[] {
@@ -439,10 +449,13 @@ function validateProjections(
     }
   }
   if (model.project?.mode === "authoritative") {
-    for (const [id, found] of objectById) {
-      try { if (isSpecEligible(found.collection, found.object) && !placed.has(id)) errors.push(`${id} has no canonical generated-spec placement`); }
-      catch { errors.push(`${id} cannot be evaluated for projection eligibility`); }
+    let eligibleIds: Set<string>;
+    try { eligibleIds = specEligibleObjectIds(model); }
+    catch {
+      for (const id of objectById.keys()) errors.push(`${id} cannot be evaluated for projection eligibility`);
+      return;
     }
+    for (const id of eligibleIds) if (!placed.has(id)) errors.push(`${id} has no canonical generated-spec placement`);
   }
 }
 
