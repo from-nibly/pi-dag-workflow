@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-owned-worker-runtime; contract: 1; input: sha256:54ebb99c8138b336bd9cb41a9bc5ed480fd97a72ec6a410f8da5233cb2bc129c -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-owned-worker-runtime; contract: 1; input: sha256:7c53dbb936e1a318df8f355969b484e5a72b8104b6ec043796843217b20c8ec7 -->
 
 # Owned asynchronous DAG worker runtime
 
@@ -110,14 +110,6 @@ The worker manager treats the first `agent_settled` event after a completion-tri
 
 **Rationale.** Lower completion-turn overhead is more important than a durable semantic acknowledgement.
 
-<a id="obj-dec-defer-worker-widget-until-dag-redesign"></a>
-
-### Defer persistent worker UI until DAG redesign
-
-V1 implements the owned subagent runtime and explicit status/inspect/tail/cancel/retry tools without a persistent worker widget. Worker and DAG visualization are designed together after canonical DAG execution state exists.
-
-**Rationale.** Avoid any interim UI surface and minimize v1 implementation scope.
-
 <a id="obj-dec-automatically-transfer-workers-to-direct-fork"></a>
 
 ### Automatically transfer workers to a direct fork or clone
@@ -165,3 +157,11 @@ Each serial worker completion follow-up is capped at 16 KiB and includes stable 
 `subagent_report` is a terminating typed tool. Its worker-authored schema requires `outcome: completed | needs_attention` and `summary`; optional fields are bounded `details`, artifact references, and next steps. The serialized report is capped at 64 KiB, with summary at 8 KiB, details at 32 KiB, at most 32 artifact references, and at most 16 next steps. Artifact paths are references only and are never automatically read or injected. The tool returns the validated report in RPC `tool_execution_end` details with `terminate: true`. The supervisor then waits for `agent_settled` or process termination and writes one immutable schema-versioned result containing stable completion/worker/attempt/config identity, canonical terminal status, report status and optional report, timestamps, process exit/signal, Pi/model stop reason, model/usage, bounded fallback text, diagnostic and artifact references, and result hash. Canonical status precedence is: verified cancellation → cancelled; lost or ambiguous process identity → lost or needs_attention; nonzero process exit, RPC/protocol failure, or model error → failed; settled valid needs-attention report → needs_attention; settled valid completed report → succeeded; settled missing report after repair → needs_attention. A captured completed claim is preserved but never overrides observed failure.
 
 **Rationale.** A small generic worker claim plus an independently observed runtime envelope is reliable across task types and preserves provenance without DAG coupling.
+
+<a id="obj-dec-generic-worker-idempotent-consumer-contract-v1"></a>
+
+### Put idempotent launch and retry-safe reconciliation in the generic worker runtime
+
+The generic owned-worker runtime—not a DAG-only compatibility layer—owns process-shared worker-session lock/CAS; opaque caller `launchKey` plus full normalized request hash; atomic reserve-or-launch returning an existing exact attempt on replay and rejecting conflicting requests; exact storage, launch-owner-session, worker, attempt, nonce, config, supervisor, and child identities; durable result enumeration/read-by-launch-key independent of completion delivery or auto-ack; process disposition and `retrySafe` proof distinct from terminal status; preservation/quarantine of late, corrupt, conflicting, and recovery artifacts; owner-managed retry tokens that prevent unbound manual retries; and verified approved disposable working roots. These are generic delegated-process guarantees and expose no plan, DAG node, phase, gate, worktree, merge, or integration semantics. The DAG adapter binds opaque identities, validates lifecycle evidence, and remains the only interpreter of DAG success.
+
+**Rationale.** Launch idempotency and proof that an old process can no longer mutate its cwd are process-service responsibilities. Reimplementing them in the DAG adapter would leave other consumers unsafe and create two competing recovery protocols.
