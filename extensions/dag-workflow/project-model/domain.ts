@@ -372,6 +372,7 @@ export class ProjectModelDomain {
     const appliedPointIds: string[] = review.points.filter(({ purpose }) => purpose === "awareness").map(({ id }) => id);
     const batchRef = sha256({ interactionRef, reviewId: review.id, outcomes: input.outcomes ?? [] });
     let unresolvedPointIds: string[] = [];
+    let remainingFocusReview: FocusReview | undefined;
     let remainingReview: { review: ReturnType<typeof projectReview>; markdown: string } | undefined;
     const result = await this.transact(async (draft, changed) => {
       for (const point of review.points.filter(({ purpose }) => purpose === "decision")) {
@@ -403,11 +404,12 @@ export class ProjectModelDomain {
         const points = review.points.filter(({ id }) => unresolvedPointIds.includes(id)).map((point) => refreshReviewPoint(draft, point));
         const remaining = { ...review, points };
         delete remaining.presentedAt;
+        remainingFocusReview = remaining;
         remainingReview = { review: projectReview(remaining), markdown: renderReviewMarkdown(draft, remaining) };
       }
     }, async () => {
       const session = structuredClone(focus);
-      if (remainingReview) session.activeReview = remainingReview.review as FocusReview;
+      if (remainingFocusReview) session.activeReview = remainingFocusReview;
       else delete session.activeReview;
       await this.sessions.write(session);
     });
@@ -603,7 +605,9 @@ function setCurrentUnderstanding(model: ProjectModel, input: { body: string; sou
 
 function normalizeReviewPoint(model: ProjectModel, focus: FocusSession, input: ReviewPointInput, reservedIds: Set<string>): ReviewPoint {
   const rejectDirection = input.rejectDirection ? materializeReviewDirection(model, focus, input.rejectDirection, reservedIds) : undefined;
+  const rejectDirectionValuePatch = reviewDirectionValuePatch(input.rejectDirection);
   const deferDirection = input.deferDirection ? materializeReviewDirection(model, focus, input.deferDirection, reservedIds) : undefined;
+  const deferDirectionValuePatch = reviewDirectionValuePatch(input.deferDirection);
   const directionTargetIds = [rejectDirection?.id, deferDirection?.id].filter(Boolean) as string[];
   const point: ReviewPoint = {
     id: normalizeNestedId("point", input.id ?? input.key ?? input.title),
@@ -619,6 +623,7 @@ function normalizeReviewPoint(model: ProjectModel, focus: FocusSession, input: R
     options: (input.options ?? []).map((option) => {
       if (option.objectId && !findObject(model, option.objectId)) throw new Error(`Review option references missing object: ${option.objectId}`);
       const direction = option.direction ? materializeReviewDirection(model, focus, option.direction, reservedIds) : undefined;
+      const directionValuePatch = reviewDirectionValuePatch(option.direction);
       const normalized = {
         id: normalizeNestedId("option", option.id ?? option.key ?? option.label),
         label: option.label,
@@ -627,11 +632,14 @@ function normalizeReviewPoint(model: ProjectModel, focus: FocusSession, input: R
         ...(option.recommended ? { recommended: true } : {}),
         ...(option.rationale ? { rationale: option.rationale } : {}),
         ...(direction ? { direction } : {}),
+        ...(directionValuePatch !== undefined ? { directionValuePatch } : {}),
       };
       return { ...normalized, semanticHash: reviewOptionHash(model, normalized) };
     }),
     ...(rejectDirection ? { rejectDirection } : {}),
+    ...(rejectDirectionValuePatch !== undefined ? { rejectDirectionValuePatch } : {}),
     ...(deferDirection ? { deferDirection } : {}),
+    ...(deferDirectionValuePatch !== undefined ? { deferDirectionValuePatch } : {}),
   };
   if (point.purpose === "decision" && (!point.question || !point.options.length)) throw new Error(`${point.id} decision requires a question and options`);
   return point;
@@ -662,6 +670,13 @@ function reviewOptionHash(model: ProjectModel, option: Omit<ReviewPoint["options
 }
 
 function refreshReviewPoint(model: ProjectModel, point: ReviewPoint): ReviewPoint {
+  const options = point.options.map((option) => {
+    const direction = option.direction ? refreshReviewDirection(model, option.direction, option.directionValuePatch) : undefined;
+    const refreshed = { ...option, ...(direction ? { direction } : {}) };
+    return { ...refreshed, semanticHash: reviewOptionHash(model, refreshed) };
+  });
+  const rejectDirection = point.rejectDirection ? refreshReviewDirection(model, point.rejectDirection, point.rejectDirectionValuePatch) : undefined;
+  const deferDirection = point.deferDirection ? refreshReviewDirection(model, point.deferDirection, point.deferDirectionValuePatch) : undefined;
   return {
     ...point,
     objectRefs: point.objectRefs.map(({ id }) => {
@@ -669,8 +684,26 @@ function refreshReviewPoint(model: ProjectModel, point: ReviewPoint): ReviewPoin
       if (!found) throw new Error(`Unresolved review point references removed object: ${id}`);
       return { id, semanticHash: semanticHash(found.collection, found.object) };
     }),
-    options: point.options.map((option) => ({ ...option, semanticHash: reviewOptionHash(model, option) })),
+    options,
+    ...(rejectDirection ? { rejectDirection } : {}),
+    ...(deferDirection ? { deferDirection } : {}),
   };
+}
+
+function refreshReviewDirection(model: ProjectModel, direction: DirectionInput, valuePatch: Record<string, unknown> | null | undefined): DirectionInput {
+  if (!direction.id) return structuredClone(direction);
+  const found = findObject(model, direction.id);
+  if (!found || found.collection !== direction.collection) throw new Error(`Unresolved review direction target not found in ${direction.collection}: ${direction.id}`);
+  const object = structuredClone(found.object);
+  if (valuePatch) Object.assign(object, sanitizeAuthorityFields(valuePatch));
+  (object as ModelObjectBase).state = direction.state ?? ACCEPTED_STATE[direction.collection]!;
+  const { acceptance: _acceptance, createdAt: _createdAt, id: _id, introducedBy: _introducedBy, state: _state, updatedAt: _updatedAt, ...value } = object;
+  return { collection: direction.collection, id: direction.id, ...(direction.key ? { key: direction.key } : {}), state: object.state, value };
+}
+
+function reviewDirectionValuePatch(direction: DirectionInput | undefined): Record<string, unknown> | null | undefined {
+  if (!direction?.id) return undefined;
+  return direction.value ? sanitizeAuthorityFields(direction.value as Record<string, unknown>) : null;
 }
 
 function scopedObjects(model: ProjectModel, focus: FocusSession) {
@@ -705,7 +738,16 @@ function summarizeFocus(focus: FocusSession) {
   return { id: focus.id, title: focus.title, status: focus.status, workstreamIds: focus.workstreamIds, hasBaseline: Boolean(focus.previousReview) };
 }
 function summarizeReview(review: FocusReview) { return { id: review.id, title: review.title, pointCount: review.points.length, presentedAt: review.presentedAt }; }
-function projectReview(review: FocusReview) { return { id: review.id, title: review.title, points: review.points }; }
+function projectReview(review: FocusReview) {
+  return {
+    id: review.id,
+    title: review.title,
+    points: review.points.map(({ rejectDirectionValuePatch: _rejectPatch, deferDirectionValuePatch: _deferPatch, ...point }) => ({
+      ...point,
+      options: point.options.map(({ directionValuePatch: _directionPatch, ...option }) => option),
+    })),
+  };
+}
 
 function renderReviewMarkdown(model: ProjectModel, review: FocusReview): string {
   const lines = [`# ${review.title}`];

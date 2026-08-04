@@ -25,7 +25,7 @@ async function testDomainAndProjection() {
     });
     const direction = await domain.recordDirection(focus.id, {
       directions: [{ collection: "intents", key: "goal", value: { ...base("Goal", "Build the thing."), kind: "outcome", relationships: [{ kind: "supports", targetId: "PROP-two" }, { kind: "challenges", targetId: "PROP-one" }] } }],
-      currentUnderstanding: { body: "We are building the thing for the accepted reason.", sourceObjectIds: ["INT-goal"] },
+      currentUnderstanding: { body: "## Accepted direction\n\n- Build **the thing** for the accepted reason.\n- Keep `authority` explicit.\n\n<unsafe> stays text.", sourceObjectIds: ["INT-goal"] },
     }, "user-1");
     assert(direction.receiptMode === "direct_direction", "direct direction returns receipt mode");
     let malformedDirectionRejected = false;
@@ -47,8 +47,8 @@ async function testDomainAndProjection() {
     const review = await domain.createReview(focus.id, {
       title: "Choose",
       points: [
-        { key: "one", title: "First", context: "First decision.", purpose: "decision", question: "Choose one?", objectIds: ["PROP-one"], options: [{ key: "one", label: "One", description: "Choose one.", objectId: "PROP-one", direction: { collection: "decisions", key: "one", value: { title: "Choose one", body: "One is selected.", scope: { kind: "repository" }, sourceRefs: [], relationships: [], rationale: "It fits." } } }] },
-        { key: "two", title: "Second", context: "Second decision.", purpose: "decision", question: "Choose two?", objectIds: ["PROP-two"], options: [{ key: "two", label: "Two", description: "Choose two.", objectId: "PROP-two", direction: { collection: "decisions", key: "two", value: { title: "Choose two", body: "Two is selected.", scope: { kind: "repository" }, sourceRefs: [], relationships: [], rationale: "It fits." } } }], rejectDirection: { collection: "decisions", key: "reject-two", value: { title: "Reject two", body: "Two is explicitly rejected.", scope: { kind: "repository" }, sourceRefs: [], relationships: [], rationale: "It does not fit." } } },
+        { key: "one", title: "First", context: "#### Why this decision exists\n\n- First **decision** with `context`.\n\n<unsafe-point> stays text.", purpose: "decision", question: "Choose one?", objectIds: ["PROP-one"], options: [{ key: "one", label: "One", description: "Choose one.", objectId: "PROP-one", direction: { collection: "decisions", key: "one", value: { title: "Choose one", body: "One is selected.", scope: { kind: "repository" }, sourceRefs: [], relationships: [], rationale: "It fits." } } }] },
+        { key: "two", title: "Second", context: "WHY THIS DECISION EXISTS — Second decision. COST — More state.", purpose: "decision", question: "Choose two?", objectIds: ["PROP-two"], options: [{ key: "two", label: "Two", description: "Choose two.", objectId: "PROP-two", direction: { collection: "decisions", key: "two", value: { title: "Choose two", body: "Two is selected.", scope: { kind: "repository" }, sourceRefs: [], relationships: [], rationale: "It fits." } } }], rejectDirection: { collection: "decisions", key: "reject-two", value: { title: "Reject two", body: "Two is explicitly rejected.", scope: { kind: "repository" }, sourceRefs: [], relationships: [], rationale: "It does not fit." } } },
       ],
     });
     assertIncludes(review.markdown, "## Decisions needed", "review renders exact decision section");
@@ -64,6 +64,14 @@ async function testDomainAndProjection() {
     assert((renderedTurn.match(/value=\"__other__\"/g) ?? []).length === 2, "production shell always renders Other");
     assert((renderedTurn.match(/name=\"responseText\"/g) ?? []).length === 2, "production shell keeps response text separate from radio choices");
     assert(!renderedTurn.includes("Exact authority payload") && !renderedTurn.includes("id=\"send-feedback\""), "production shell hides serialized authority and omits the redundant top send control");
+    assertIncludes(renderedTurn, "<h4>Accepted direction</h4>", "Current understanding renders safe Markdown headings");
+    assertIncludes(renderedTurn, "<li>Build <strong>the thing</strong> for the accepted reason.</li>", "Current understanding renders Markdown lists and emphasis");
+    assertIncludes(renderedTurn, "<code>authority</code>", "Current understanding renders inline code");
+    assert(renderedTurn.includes("&lt;unsafe&gt; stays text.") && !renderedTurn.includes("<unsafe>"), "Current understanding escapes raw HTML");
+    assertIncludes(renderedTurn, "<h6>Why this decision exists</h6>", "review point context renders safe Markdown headings");
+    assertIncludes(renderedTurn, "<li>First <strong>decision</strong> with <code>context</code>.</li>", "review point context renders Markdown lists and inline formatting");
+    assert(renderedTurn.includes("&lt;unsafe-point&gt; stays text.") && !renderedTurn.includes("<unsafe-point>"), "review point context escapes raw HTML");
+    assertIncludes(renderedTurn, "<h5>Why this decision exists</h5><p>Second decision.</p><h5>Cost</h5><p>More state.</p>", "legacy labeled review context renders as readable Markdown sections");
 
     const fakeLavish = join(root, "fake-lavish.mjs");
     await writeFile(fakeLavish, String.raw`const a=process.argv.slice(2);
@@ -75,6 +83,26 @@ if(c==="poll"&&process.env.FAKE_MODE==="ended")process.stdout.write(session("end
 else if(c==="poll")process.stdout.write(session("feedback","prompts[1]:\n  - uid: \"1\"\n    prompt: \"Selected option\"\n    selector: \"#point-one\"\n    tag: model-review\n    text: \"Select One\"\nlayout_warnings[0]:\n"));
 else process.stdout.write(session(c==="end"?"ended":"opened"));
 `);
+    const fakeDedicatedOpen = join(root, "fake-dedicated-open.mjs");
+    const dedicatedOpenLog = join(root, "dedicated-open.json");
+    await writeFile(fakeDedicatedOpen, String.raw`import { writeFile } from "node:fs/promises";
+const args=process.argv.slice(2);
+await writeFile(process.env.DEDICATED_OPEN_LOG,JSON.stringify(args));
+process.stdout.write("session:\n  file: "+args[0]+"\n  status: opened\n");
+`);
+    const dedicatedAdapter = new LavishCliAdapter({
+      command: process.execPath,
+      argsPrefix: [fakeLavish],
+      dedicatedOpenCommand: process.execPath,
+      dedicatedOpenArgsPrefix: [fakeDedicatedOpen],
+      env: { DEDICATED_OPEN_LOG: dedicatedOpenLog },
+    });
+    const dedicatedOpened = await dedicatedAdapter.open("/fixture/review.html", { reopen: true });
+    assert(dedicatedOpened.status === "opened", "dedicated opener returns the Lavish session");
+    assert(JSON.stringify(JSON.parse(await readFile(dedicatedOpenLog, "utf8"))) === JSON.stringify(["/fixture/review.html", "--reopen"]), "dedicated opener receives file and explicit reopen");
+    await dedicatedAdapter.open("/fixture/headless.html", { noOpen: true });
+    assert(JSON.stringify(JSON.parse(await readFile(dedicatedOpenLog, "utf8"))) === JSON.stringify(["/fixture/review.html", "--reopen"]), "no-open mode bypasses the dedicated browser helper");
+
     const feedbackManager = new ReviewPresentationManager(root, { cli: new LavishCliAdapter({ command: process.execPath, argsPrefix: [fakeLavish], env: { FAKE_MODE: "feedback" } }) });
     const phases = [];
     const presented = await feedbackManager.present(turn, { noOpen: true, onUpdate: ({ phase }) => phases.push(phase), onPresented: async () => { assert(await domain.markReviewPresented(focus.id, turn.review.id, turn.review.semanticHash), "exact Lavish review is marked presented"); } });
@@ -136,6 +164,51 @@ else process.stdout.write(session(c==="end"?"ended":"opened"));
     assert(rejectedOutcome.appliedPointIds.includes("point-two"), "reviewed rejection is applied durably");
     assert((await domain.models.load()).decisions.some(({ id }) => id === "DEC-reject-two"), "rejection creates its reviewed durable decision");
 
+    await domain.update(focus.id, {
+      add: [{ collection: "decisions", key: "refresh-target", value: { ...base("Refresh target", "Original candidate body."), rationale: "It is still being refined." } }],
+      specViews: [{ id: "SPEC-root", kind: "spec", path: "spec/spec.md", title: "Demo", sections: [{ id: "purpose", title: "Purpose", objectIds: ["INT-goal", "DEC-one", "DEC-reject-two", "DEC-refresh-target"] }] }],
+    });
+    const refreshReview = await domain.createReview(focus.id, {
+      id: "review-refresh-existing-direction",
+      title: "Refresh an existing direction",
+      points: [
+        { id: "point-refresh-awareness", title: "Refresh awareness", context: "Resolving awareness refreshes the unresolved decision.", purpose: "awareness", objectIds: ["DEC-refresh-target"] },
+        {
+          id: "point-refresh-existing",
+          title: "Accept the refreshed target",
+          context: "The candidate may change before this point is resolved.",
+          purpose: "decision",
+          question: "Accept the current candidate?",
+          objectIds: ["DEC-refresh-target"],
+          options: [
+            { id: "option-refresh-current", label: "Current", description: "Accept the candidate's current semantic payload.", objectId: "DEC-refresh-target", direction: { collection: "decisions", id: "DEC-refresh-target", state: "accepted" } },
+            { id: "option-refresh-override", label: "Override", description: "Accept a deliberate body override while inheriting other current fields.", objectId: "DEC-refresh-target", direction: { collection: "decisions", id: "DEC-refresh-target", state: "accepted", value: { body: "Deliberate reviewed override." } } },
+          ],
+        },
+      ],
+    });
+    assert(!("directionValuePatch" in refreshReview.review.points[1].options[1]), "internal refresh metadata is excluded from the public review payload");
+    await domain.markReviewPresented(focus.id, refreshReview.review.id);
+    await domain.update(focus.id, { patch: [{ id: "DEC-refresh-target", changes: { title: "Refresh target revised", body: "Revised candidate body." } }] });
+    const refreshedResolution = await domain.resolveReview(focus.id, { outcomes: [] }, "user-refresh-existing");
+    assert(refreshedResolution.unresolvedPointIds.includes("point-refresh-existing"), "changed existing-target point remains unresolved for fresh review");
+    const refreshedPoint = (await domain.sessions.load(focus.id)).activeReview.points[0];
+    const currentDirection = refreshedPoint.options.find(({ id }) => id === "option-refresh-current").direction;
+    const overrideDirection = refreshedPoint.options.find(({ id }) => id === "option-refresh-override").direction;
+    assert(currentDirection.value.title === "Refresh target revised" && currentDirection.value.body === "Revised candidate body.", "refresh rematerializes an existing direction from the current target");
+    assert(overrideDirection.value.title === "Refresh target revised" && overrideDirection.value.body === "Deliberate reviewed override.", "refresh reapplies an explicit direction patch over the current target");
+    assert(refreshedPoint.options.find(({ id }) => id === "option-refresh-override").directionValuePatch.body === "Deliberate reviewed override.", "partial resolution preserves private refresh metadata in the focus session");
+    await domain.markReviewPresented(focus.id, refreshReview.review.id);
+    await domain.update(focus.id, { patch: [{ id: "DEC-refresh-target", changes: { rationale: "The latest rationale." } }] });
+    await domain.resolveReview(focus.id, { outcomes: [] }, "user-refresh-existing-again");
+    const refreshedAgain = (await domain.sessions.load(focus.id)).activeReview.points[0].options.find(({ id }) => id === "option-refresh-override");
+    assert(refreshedAgain.direction.value.rationale === "The latest rationale." && refreshedAgain.direction.value.body === "Deliberate reviewed override.", "repeated refresh preserves the explicit patch while inheriting later target changes");
+    await domain.markReviewPresented(focus.id, refreshReview.review.id);
+    const acceptedRefresh = await domain.resolveReview(focus.id, { outcomes: [{ pointId: "point-refresh-existing", action: "accept", optionId: "option-refresh-current" }] }, "user-accept-refresh");
+    assert(acceptedRefresh.appliedPointIds.includes("point-refresh-existing"), "refreshed exact direction resolves successfully");
+    const acceptedRefreshTarget = (await domain.models.load()).decisions.find(({ id }) => id === "DEC-refresh-target");
+    assert(acceptedRefreshTarget.state === "accepted" && acceptedRefreshTarget.body === "Revised candidate body.", "accepted refreshed direction commits the current reviewed payload");
+
     const directReview = await domain.createReview(focus.id, {
       id: "review-direct-reconciliation",
       title: "Direct reconciliation",
@@ -161,14 +234,14 @@ else process.stdout.write(session(c==="end"?"ended":"opened"));
     const persistedDirectReview = structuredClone((await domain.sessions.load(focus.id)).activeReview);
     const firstDirect = await domain.recordDirection(focus.id, {
       directions: [directReview.review.points[0].options[0].direction],
-      specViews: [{ id: "SPEC-root", kind: "spec", path: "spec/spec.md", title: "Demo", sections: [{ id: "purpose", title: "Purpose", objectIds: ["INT-goal", "DEC-one", "DEC-reject-two", "DEC-direct-review-one"] }] }],
+      specViews: [{ id: "SPEC-root", kind: "spec", path: "spec/spec.md", title: "Demo", sections: [{ id: "purpose", title: "Purpose", objectIds: ["INT-goal", "DEC-one", "DEC-reject-two", "DEC-refresh-target", "DEC-direct-review-one"] }] }],
     }, "user-direct-one");
     assert(firstDirect.reconciledReviewPointIds.includes("point-direct-one"), "equivalent direct authority reconciles an unpresented active review point");
     const remainingDirectReview = (await domain.sessions.load(focus.id)).activeReview;
     assert(remainingDirectReview?.points.length === 1 && remainingDirectReview.points[0].id === "point-direct-two" && !remainingDirectReview.presentedAt, "direct reconciliation preserves unrelated points as an unpresented continuation");
     const secondDirect = await domain.recordDirection(focus.id, {
       directions: [remainingDirectReview.points[0].options[0].direction],
-      specViews: [{ id: "SPEC-root", kind: "spec", path: "spec/spec.md", title: "Demo", sections: [{ id: "purpose", title: "Purpose", objectIds: ["INT-goal", "DEC-one", "DEC-reject-two", "DEC-direct-review-one", "DEC-direct-review-two"] }] }],
+      specViews: [{ id: "SPEC-root", kind: "spec", path: "spec/spec.md", title: "Demo", sections: [{ id: "purpose", title: "Purpose", objectIds: ["INT-goal", "DEC-one", "DEC-reject-two", "DEC-refresh-target", "DEC-direct-review-one", "DEC-direct-review-two"] }] }],
     }, "user-direct-two");
     assert(secondDirect.reconciledReviewPointIds.includes("point-direct-two") && !(await domain.sessions.load(focus.id)).activeReview, "equivalent direct authority clears the final stale review point");
     await domain.sessions.mutate(focus.id, (session) => { session.activeReview = persistedDirectReview; });
@@ -213,7 +286,7 @@ else process.stdout.write(session(c==="end"?"ended":"opened"));
           relationships: [{ kind: "supersedes", targetId: "DEC-one" }],
         },
       }],
-      specViews: [{ id: "SPEC-root", kind: "spec", path: "spec/spec.md", title: "Demo", sections: [{ id: "purpose", title: "Purpose", objectIds: ["INT-goal", "DEC-one-v2", "DEC-reject-two", "DEC-direct-review-one", "DEC-direct-review-two"] }] }],
+      specViews: [{ id: "SPEC-root", kind: "spec", path: "spec/spec.md", title: "Demo", sections: [{ id: "purpose", title: "Purpose", objectIds: ["INT-goal", "DEC-one-v2", "DEC-reject-two", "DEC-refresh-target", "DEC-direct-review-one", "DEC-direct-review-two"] }] }],
     }, "user-supersede");
     const supersededProjection = await readFile(join(root, "spec/spec.md"), "utf8");
     assertIncludes(supersededProjection, "One is replaced by the current direction.", "accepted superseder renders as governing direction");

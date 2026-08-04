@@ -230,6 +230,7 @@ export interface ReviewOption {
   recommended?: boolean;
   rationale?: string;
   direction?: ReviewDirection;
+  directionValuePatch?: Record<string, unknown> | null;
 }
 
 export interface ReviewPoint {
@@ -241,7 +242,9 @@ export interface ReviewPoint {
   objectRefs: Array<{ id: string; semanticHash: string }>;
   options: ReviewOption[];
   rejectDirection?: ReviewDirection;
+  rejectDirectionValuePatch?: Record<string, unknown> | null;
   deferDirection?: ReviewDirection;
+  deferDirectionValuePatch?: Record<string, unknown> | null;
 }
 
 export interface FocusReview {

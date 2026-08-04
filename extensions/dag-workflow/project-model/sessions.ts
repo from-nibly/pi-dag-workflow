@@ -121,12 +121,22 @@ export function validateFocusSession(session: FocusSession): void {
         else if (optionIds.has(option.id)) errors.push(`${point.id} has duplicate option ${option.id}`);
         else optionIds.add(option.id);
         if (option?.direction) validateReviewDirectionShape(option.direction, `${point.id}.${option.id}.direction`, errors);
+        validateDirectionValuePatch(option?.directionValuePatch, `${point.id}.${option?.id}.directionValuePatch`, errors);
       }
       if (point.rejectDirection) validateReviewDirectionShape(point.rejectDirection, `${point.id}.rejectDirection`, errors);
+      validateDirectionValuePatch(point.rejectDirectionValuePatch, `${point.id}.rejectDirectionValuePatch`, errors);
       if (point.deferDirection) validateReviewDirectionShape(point.deferDirection, `${point.id}.deferDirection`, errors);
+      validateDirectionValuePatch(point.deferDirectionValuePatch, `${point.id}.deferDirectionValuePatch`, errors);
     }
   }
   if (errors.length) throw new Error(`Invalid focus session:\n- ${errors.join("\n- ")}`);
+}
+
+function validateDirectionValuePatch(value: unknown, label: string, errors: string[]) {
+  if (value === undefined || value === null) return;
+  if (typeof value !== "object" || Array.isArray(value)) { errors.push(`${label} must be an object or null`); return; }
+  const forbidden = ["acceptance", "introducedBy", "createdAt", "updatedAt", "id"].filter((key) => key in value);
+  if (forbidden.length) errors.push(`${label} contains controlled fields: ${forbidden.join(", ")}`);
 }
 
 function validateReviewDirectionShape(direction: ReviewDirection, label: string, errors: string[]) {

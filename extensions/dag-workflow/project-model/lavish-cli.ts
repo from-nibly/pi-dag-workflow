@@ -20,14 +20,18 @@ export const DEFAULT_FEEDBACK_LIMITS: Readonly<FeedbackLimits> = Object.freeze({
 export class LavishCliAdapter {
   readonly command?: string;
   readonly argsPrefix: string[];
+  readonly dedicatedOpenCommand: string;
+  readonly dedicatedOpenArgsPrefix: string[];
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
   readonly maxRawBytes: number;
   readonly limits: FeedbackLimits;
 
-  constructor(input: { command?: string; argsPrefix?: string[]; cwd?: string; env?: NodeJS.ProcessEnv; maxRawBytes?: number; limits?: Partial<FeedbackLimits> } = {}) {
+  constructor(input: { command?: string; argsPrefix?: string[]; dedicatedOpenCommand?: string; dedicatedOpenArgsPrefix?: string[]; cwd?: string; env?: NodeJS.ProcessEnv; maxRawBytes?: number; limits?: Partial<FeedbackLimits> } = {}) {
     this.command = input.command;
     this.argsPrefix = [...(input.argsPrefix ?? [])];
+    this.dedicatedOpenCommand = input.dedicatedOpenCommand ?? "lavish-open";
+    this.dedicatedOpenArgsPrefix = [...(input.dedicatedOpenArgsPrefix ?? [])];
     this.cwd = input.cwd ?? process.cwd();
     this.env = { ...(input.env ?? {}) };
     this.maxRawBytes = input.maxRawBytes ?? 256_000;
@@ -35,8 +39,18 @@ export class LavishCliAdapter {
   }
 
   async open(file: string, input: { signal?: AbortSignal; reopen?: boolean; noOpen?: boolean } = {}) {
-    const args = [file, ...(input.reopen ? ["--reopen"] : []), ...(input.noOpen ? ["--no-open"] : [])];
-    const result = await this.run(args, input.signal);
+    if (input.noOpen) {
+      const args = [file, ...(input.reopen ? ["--reopen"] : []), "--no-open"];
+      const result = await this.run(args, input.signal);
+      return { ...parseSession(result.stdout), raw: result.stdout };
+    }
+    const args = [...this.dedicatedOpenArgsPrefix, file, ...(input.reopen ? ["--reopen"] : [])];
+    const result = await runProcess(this.dedicatedOpenCommand, args, {
+      cwd: this.cwd,
+      env: { ...process.env, ...this.env },
+      signal: input.signal,
+      maxBytes: this.maxRawBytes,
+    });
     return { ...parseSession(result.stdout), raw: result.stdout };
   }
 
