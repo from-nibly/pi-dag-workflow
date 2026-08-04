@@ -109,6 +109,44 @@ try {
   assert(identity && await processIdentityStatus(process.pid, identity) === "live", "process identity proves the current process");
   assert(await processIdentityStatus(process.pid, `${identity}-wrong`) === "mismatch", "process identity detects PID reuse/mismatch");
 
+  const fastSessionFile = join(root, "fast-session.jsonl");
+  await writeFile(fastSessionFile, `${JSON.stringify({ type: "session", version: 3, id: "fast-parent", timestamp: new Date().toISOString(), cwd: root })}\n`);
+  const fastPi = createFakeParentPi();
+  let fastManager;
+  fastManager = new WorkerManager(fastPi, {
+    piCliPath: resolve("scripts/fixtures/fake-worker-rpc.mjs"),
+    watchIntervalMs: 1000,
+    spawnSupervisor: async (_supervisorPath, configPath) => {
+      const fastConfig = await readJson(configPath);
+      const fastPaths = attemptPaths(root, fastConfig.storageId, fastConfig.workerId, fastConfig.attemptNumber);
+      await writeImmutableJson(fastPaths.result, withResultHash({
+        schemaVersion: 1,
+        completionId: `completion-${fastConfig.workerId}-${fastConfig.attemptNumber}-fast`,
+        storageId: fastConfig.storageId,
+        ownerSessionId: fastConfig.ownerSessionId,
+        workerId: fastConfig.workerId,
+        attemptNumber: fastConfig.attemptNumber,
+        attemptNonce: fastConfig.attemptNonce,
+        configHash: fastConfig.configHash,
+        terminalStatus: "succeeded",
+        reportStatus: "valid",
+        startedAt: fastConfig.createdAt,
+        endedAt: new Date().toISOString(),
+      }));
+      await fastManager.scan();
+      return { pid: process.pid, unref() {} };
+    },
+  });
+  await fastManager.attach(managerContext(root, "fast-parent", fastSessionFile));
+  const fastLaunch = await fastManager.launch({ task: "Finish before supervisor identity binding." });
+  const fastStatus = await fastManager.status(fastLaunch.workerId);
+  const fastState = await fastManager.store.load();
+  const fastAttempt = fastState.workers[fastLaunch.workerId].attempts[0];
+  assert(fastLaunch.status === "succeeded" && fastStatus.status === "succeeded", "late supervisor identity binding preserves an already ingested terminal status");
+  assert(fastAttempt.ingestedAt && fastAttempt.supervisorPid === process.pid && fastAttempt.supervisorStartIdentity === identity, "late supervisor identity facts attach without regressing terminal state");
+  await fastManager.onAgentSettled();
+  await fastManager.detach();
+
   const valid = await runSupervisor(root, "valid", 2);
   assert(valid.terminalStatus === "succeeded" && valid.reportStatus === "valid", "supervisor captures a valid terminating report");
   const repaired = await runSupervisor(root, "repair", 2);

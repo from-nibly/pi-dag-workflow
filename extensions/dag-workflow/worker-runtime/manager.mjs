@@ -190,17 +190,23 @@ export class WorkerManager {
       throw error;
     }
     const supervisorStartIdentity = await waitForIdentity(processHandle.pid);
+    let launchStatus;
     await this.store.mutate((draft) => {
       const current = draft.workers[workerId];
       const attempt = current?.attempts.find((candidate) => candidate.attemptNumber === attemptNumber);
       if (!attempt || attempt.attemptNonce !== attemptNonce) throw new Error(`Worker ${workerId} attempt generation changed during launch`);
-      attempt.supervisorPid = processHandle.pid;
-      attempt.supervisorStartIdentity = supervisorStartIdentity;
-      attempt.status = supervisorStartIdentity ? "running" : "launch_ambiguous";
-      current.status = supervisorStartIdentity ? "running" : "needs_attention";
-      current.updatedAt = nowIso();
+      attempt.supervisorPid ??= processHandle.pid;
+      attempt.supervisorStartIdentity ??= supervisorStartIdentity;
+      const isCurrent = current.currentAttempt === attemptNumber;
+      const isTerminal = Boolean(attempt.ingestedAt) || TERMINAL_STATUSES.has(attempt.status);
+      if (isCurrent && !isTerminal) {
+        attempt.status = supervisorStartIdentity ? "running" : "launch_ambiguous";
+        current.status = supervisorStartIdentity ? "running" : "needs_attention";
+        current.updatedAt = nowIso();
+      }
+      launchStatus = isCurrent ? current.status : attempt.status;
     });
-    return { workerId, attemptNumber, status: supervisorStartIdentity ? "running" : "needs_attention", asynchronous: true };
+    return { workerId, attemptNumber, status: launchStatus, asynchronous: true };
   }
 
   async scan() {
