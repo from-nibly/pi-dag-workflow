@@ -9817,6 +9817,41 @@
       "updatedAt": "2026-07-31T13:47:32.910Z"
     },
     {
+      "body": "A process-shared directory lock, pure reducer, atomic rename, and passing happy-path tests are insufficient unless the store confines run namespaces, binds every owner transition to immutable process/lineage evidence, makes takeover resumable after every crash point, verifies predecessor and immutable-fact references, and prevents any new non-recovery effect after a cancellation fence. Cancellation must preserve sticky lanes and uncertain resources while coherently fencing reservations, effects, train entries, and per-work-item generations.",
+      "createdAt": "2026-08-04T17:56:27.200Z",
+      "id": "DISC-run-state-kernel-needs-crash-resumable-proof-bound-foundation",
+      "implications": "Task 109's foundational reducer/store boundary is now implemented and verified. Ownership is bound to the executing PID/start identity, explicit current-owner transfer, deterministic lineage, durable process observations, owner epochs, and crash-resumable recovery. Cancellation now fences generations/effects first, rejects overlap and post-fence work, quarantines non-cancel terminal races without semantic pointers, and releases lanes/leases only after exact worker and effect reconciliation. Snapshot/archive/fact publication and liveness fail closed with resumable initialization, atomic lock retirement, stable read retry, and raw corruption retention.",
+      "introducedBy": "agent",
+      "proposedFollowup": "Proceed to task 110 worker-runtime hardening; keep concrete worker ingestion, Git integration, and scheduler command families in their accepted downstream tasks.",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DEC-closed-atomic-dag-run-state-reducer-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-process-shared-dag-conductor-ownership-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-run-pause-cancel-late-result-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-foundational-run-state-kernel-adversarial-review"
+      ],
+      "state": "integrated",
+      "title": "Run-state kernel needs crash-resumable proof-bound ownership and coherent cancellation",
+      "updatedAt": "2026-08-04T19:39:41.493Z"
+    },
+    {
       "body": "The immutable plan and atomic run state already distinguish precedence, gates, mutexes, resources, leases, stages, authorization, freshness, effects, and integration. A node/stage can therefore be semantically ready yet not admitted because capacity or policy slots are unavailable. Conflating these states—as the legacy pending-plus-merged check does—would make heuristics look like correctness blockers and make widget explanations unstable. V1 needs a pure correctness frontier followed by deterministic reservation/admission ordering.",
       "createdAt": "2026-08-03T21:56:35.422Z",
       "id": "DISC-scheduler-must-separate-correctness-frontier-from-admission-order",
@@ -11174,6 +11209,40 @@
       "updatedAt": "2026-08-02T15:18:18.338Z"
     },
     {
+      "body": "An independent adversarial review of the initial task-109 reducer/store slice found release-blocking gaps in run-store path confinement, cancellation execution fencing, crash-resumable dead-owner takeover, hash-bound ownership proof, immutable-fact liveness, partial-completion cancellation, parent-directory durability, and exact natural-slot coverage. It also identified earlier ordinary live-owner replacement, recovery races, non-exact idempotency, ready-run pause rejection, cancellation projection inconsistency, partial immutable publication, and unverified predecessor chains; many of those earlier gaps were repaired during the same implementation turn.",
+      "confidence": "high",
+      "createdAt": "2026-08-04T17:56:27.200Z",
+      "id": "EV-foundational-run-state-kernel-adversarial-review",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-closed-atomic-dag-run-state-reducer-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-process-shared-dag-conductor-ownership-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-run-pause-cancel-late-result-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "worker-completion:completion-worker-msexb6nf-15fbb08e20-2-a32bed8746f7"
+      ],
+      "state": "current",
+      "title": "Foundational reducer/store review exposed ownership, cancellation, fact, and crash-safety gaps",
+      "updatedAt": "2026-08-04T17:56:27.200Z"
+    },
+    {
       "body": "A fresh Pi 0.82.1 RPC process loaded the current working checkout explicitly with global extension discovery disabled. `pi.getAllTools()` included `dag_model_present_review` alongside the other six model tools, and the extension loaded without error. The current `~/.pi/agent/settings.json` also resolves directly to this working checkout at commit 14abba7. Therefore the missing tool in the active agent schema is a current-process/session exposure issue, not absent code or a required Home Manager installation.",
       "confidence": "high",
       "createdAt": "2026-07-30T03:15:28.707Z",
@@ -12374,6 +12443,43 @@
       "updatedAt": "2026-07-30T02:52:06.195Z"
     },
     {
+      "body": "Task-109 hardening repaired all blockers from four adversarial review attempts. The final kernel now confines run namespaces; validates closed canonical reducer inputs and source snapshots; records one exact durable idempotency slot per revision; requires explicit current-owner transfer or exact process-death recovery; recovers idle owners and every initialization/recovery crash point; atomically retires locks; verifies current/predecessor archives and immutable fact liveness; retains corrupt raw bytes through canonical quarantine envelopes; requires external user authority for quarantine adoption; blocks overlapping cancellation and post-fence execution; quarantines late successful worker results without current pointers; retains lanes/leases until exact worker/effect closure; reconciles failed run/repository/train effects; and explicitly retries only replay-safe uncertain dispatches. Real child-process fixtures cover initialization, immutable publication, snapshot rename, recovery intent/quarantine/replacement/rename, copied identities, and concurrent read/prune races. The complete runtime/model/worker/smoke/package/spec/syntax/diff matrix passed.",
+      "confidence": "high",
+      "createdAt": "2026-08-04T19:39:41.492Z",
+      "id": "EV-run-state-kernel-hardening-and-closure",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-closed-atomic-dag-run-state-reducer-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-process-shared-dag-conductor-ownership-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-run-pause-cancel-late-result-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "test:npm-run-pack-dry",
+        "test:npm-run-smoke",
+        "test:npm-run-test-dag-runtime",
+        "worker-completion:completion-worker-msexb6nf-15fbb08e20-4-2c38b2358850"
+      ],
+      "state": "current",
+      "title": "Foundational run-state kernel passed crash, concurrency, cancellation, authority, and corruption closure",
+      "updatedAt": "2026-08-04T19:39:41.492Z"
+    },
+    {
       "body": "An independent review compared Git graph, DVC DAG, systemd dependency/critical-chain views, pstree, Argo Workflows, GitHub CLI run watching, Ninja, Gradle, Bazel, and Pi TUI constraints. The recurring pattern is a narrow topology channel independent from a fixed status cell, an aggregate progress header, and a compact active/exception list. Full boxed DAGs belong in explicit commands. Large views should select attention/active seeds plus one-hop context, mark every cut with deterministic upstream/downstream counts, preserve topological order, avoid status-driven reordering, and use ASCII semantics with width measured in terminal cells. The review recommends comparing a one-node-per-row topology gutter against horizontal and adjacency layouts rather than assuming horizontal is best.",
       "confidence": "high",
       "createdAt": "2026-08-04T02:16:11.113Z",
@@ -12592,64 +12698,28 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "## Model-aware DAG redesign is fully specified\n\nThe accepted design now covers immutable architecture-first planning, fixed F0–F8 evidence production, a closed atomic run-state reducer, process-shared ownership, a hardened DAG-agnostic worker boundary, exact real-Git composition and landing, causal dependency completion, sticky active-node lanes with deterministic scheduling, and a passive exact-session-bound TUI projection.\n\nDogfood evaluation keeps three layers separate: uncompensated integrity/safety invariants, quality-conditioned outcomes, and explanatory diagnostics. Historical sessions supply incident scenarios rather than comparable rates. Prospective evidence uses deterministic conformance and failure suites plus six counterbalanced serial/parallel pairs for a bounded local directional claim; any integrity or architecture escape stops evaluation.\n\nEach run or explicit censored checkpoint can produce a content-addressed `RunEvaluationEnvelopeV1`. A separate lossy atomic accumulator observes bounded intervals without becoming a transition log, scheduler input, authority, or execution dependency. Telemetry remains local, sidecars expire seven days after validated sealing, and only the latest fifty bounded envelopes remain unless conclusions are explicitly promoted into project-model evidence.\n\nUseful parallelism is safely ready opportunity captured by evidence-creditable overlap, with work efficiency, typed waits, false-independence waste, and paired elapsed/outcome deltas reported separately. Raw lane or worker utilization is diagnostic only. Human intervention and exact covered model usage/cost remain contextual; designated dogfood runs may collect three optional raw post-run ratings without a composite. Prompts, transcripts, LLM judges, hidden budgets, and population/statistical claims remain outside v1.",
-      "generatedAt": "2026-08-04T14:40:10.496Z",
+      "body": "The immutable canonical plan/schema layer and the foundational atomic run-state kernel are implemented. CanonicalDagPlanV1 remains static authority; DagRunStateV1 changes only through closed guarded inputs with exact natural-slot receipts, owner-epoch fencing, persisted effect intents, and deterministic snapshot hashes. The store supplies process-shared exact-identity exclusion, explicit current-owner transfer, idle/dead-owner recovery, atomic archive/current publication, bounded archive retention, durable immutable facts, externally authorized quarantine adoption, corruption envelopes, and crash-resumable initialization/recovery. Cancellation advances generations before cancellation dispatch, blocks overlapping/post-fence work, quarantines late non-cancel results without adopting them, and retains sticky resources until all workers and affected effects are terminally reconciled. This remains non-authoritative implementation understanding grounded in the accepted runtime decisions and closure evidence; worker adapter ingestion, Git transactions, and scheduler/conductor surfaces remain downstream.",
+      "generatedAt": "2026-08-04T19:39:41.494Z",
       "sourceObjects": [
-        {
-          "id": "INT-model-aware-dag-redesign",
-          "semanticHash": "sha256:4c6a681eb2ba6c1866c798fa5e97197865907cee5ff32843d060585549f2c7d8"
-        },
-        {
-          "id": "DEC-closed-content-hashed-plan-envelope-v1",
-          "semanticHash": "sha256:fe3f6ae521d6a04eacb76a705e8afcd24dba85f0ccea0d7195d45fd5cf02b838"
-        },
-        {
-          "id": "DEC-fixed-evidence-producing-dag-node-lifecycle",
-          "semanticHash": "sha256:ade3bfde16e20da976a5412976ead78da8485ed02f39f0a9ce45b2bdfc145fa1"
-        },
         {
           "id": "DEC-closed-atomic-dag-run-state-reducer-v1",
           "semanticHash": "sha256:391a92bee11fe8d56ee53c9e5af37411e06e1fbeae4c5be908b59b88aec4f636"
         },
         {
-          "id": "DEC-generic-worker-idempotent-consumer-contract-v1",
-          "semanticHash": "sha256:7752b13a4fcd0681af20facd5ac79e3b4ce89cea1ac3ff611d6adf49db756956"
+          "id": "DEC-process-shared-dag-conductor-ownership-v1",
+          "semanticHash": "sha256:3d63bc48e1deb3bc48a92e228ef76d60eff45744af5e427f4d58874112262288"
         },
         {
-          "id": "DEC-explicit-base-merge-tree-synthetic-train-v1",
-          "semanticHash": "sha256:342a3f98f6cbea89eebe82e9c190ee70e614cab26b229ab211817305dea181ca"
+          "id": "DEC-run-pause-cancel-late-result-v1",
+          "semanticHash": "sha256:62feb57ad25fe6680246a05d7aa5b9c61bfef41402eb745485b985c460d10e86"
         },
         {
-          "id": "DEC-five-layer-monotone-scheduler-v1",
-          "semanticHash": "sha256:d753940fbf4ab42f3c352b4a27c09fb080f1885550d706651ae75518c319dbf5"
+          "id": "EV-run-state-kernel-hardening-and-closure",
+          "semanticHash": "sha256:4ac4dbb552ab820f9bb6bae250f4aa2ec2cd795e39ba6655b3756387368a41fb"
         },
         {
-          "id": "DEC-sticky-active-node-concurrency-lanes-v1",
-          "semanticHash": "sha256:ee14c00eea0d4d862eceb4bc7b272c498258ca0ca5ef39ff3950b6afa560fd29"
-        },
-        {
-          "id": "DEC-transition-signal-safety-rescan-stable-widget-join-v1",
-          "semanticHash": "sha256:37bf83758ca729fe0e257685cbcba533d620f2901fc415489688622dd117faf3"
-        },
-        {
-          "id": "DEC-three-strata-six-pair-dag-dogfood-v1",
-          "semanticHash": "sha256:eabe4bcce4d9b1cc7f19df8dcb75816b79256ec478c8034347a64d2fd590e972"
-        },
-        {
-          "id": "DEC-nonauthoritative-evaluation-envelope-accumulator-v1",
-          "semanticHash": "sha256:872c4c67212df3b288a569f21857c8ca8a0bc610444fc8c27c47a5077a86fb65"
-        },
-        {
-          "id": "DEC-local-latest-fifty-evaluation-retention-v1",
-          "semanticHash": "sha256:97f4f7f7603176b496d98ec42720f575f83c4a0158fac458f96240bbd6b777ce"
-        },
-        {
-          "id": "DEC-quality-conditioned-parallelism-metrics-v1",
-          "semanticHash": "sha256:a4fb3561d3ed1b225e9899a259d1bb9654185abb6782204b400bee7b7b043beb"
-        },
-        {
-          "id": "DEC-contextual-human-usage-diagnostics-separate-prompt-eval-v1",
-          "semanticHash": "sha256:65c81daf2125db60011bc66009cdb48b01f86e606c3bc1654d75041e8ee93dd9"
+          "id": "DISC-run-state-kernel-needs-crash-resumable-proof-bound-foundation",
+          "semanticHash": "sha256:ed5069ad240152ad5bc4faedb450b877eade7e5a9fd16d2e30ad3902d76e7592"
         }
       ]
     },
@@ -12989,9 +13059,9 @@
         }
       ]
     },
-    "revision": 164,
+    "revision": 166,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-04T17:04:42.484Z"
+    "updatedAt": "2026-08-04T19:39:41.494Z"
   },
   "proposals": [
     {

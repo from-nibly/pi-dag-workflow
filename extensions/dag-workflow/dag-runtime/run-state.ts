@@ -140,6 +140,85 @@ export interface OracleAssertionFactBindingV1 {
   observationHash: string;
 }
 
+export interface EffectReconciliationFactBindingV1 {
+  kind: "effect_reconciliation";
+  hash: string;
+  planHash: string;
+  runId: string;
+  runNonce: string;
+  effectId: string;
+  requestHash: string;
+  reconciliation: "applied_exact" | "compensated" | "proven_absent" | "conflict" | "unknown";
+}
+
+export interface ProcessIdentityObservationBindingV1 {
+  kind: "process_identity_observation";
+  hash: string;
+  lockMetadataHash: string;
+  pid: number;
+  processStartIdentity: string;
+  disposition: "dead_missing" | "dead_reused";
+  observedAt: string;
+}
+
+export interface CorruptFactEnvelopeBindingV1 {
+  kind: "corrupt_fact";
+  hash: string;
+  claimedHash: string;
+  rawBytesHash: string;
+  rawBytes: number;
+  quarantinedAt: string;
+  rawPathIdentityHash: string;
+}
+
+export interface QuarantineAuthorityBindingV1 {
+  kind: "quarantine_authority";
+  hash: string;
+  planHash: string;
+  runId: string;
+  runNonce: string;
+  quarantineId: string;
+  factHash: string;
+  quarantineEntryHash: string;
+  decision: "adopt";
+  issuedBy: "user";
+  issuedAt: string;
+}
+
+export interface QuarantineResolutionFactBindingV1 {
+  kind: "quarantine_resolution";
+  hash: string;
+  planHash: string;
+  runId: string;
+  runNonce: string;
+  quarantineId: string;
+  factHash: string;
+  quarantineEntryHash: string;
+  authorityReceiptHash: string;
+  disposition: "adopted";
+  rationaleHash: string;
+}
+
+export interface OwnershipFactBindingV1 {
+  kind: "ownership";
+  hash: string;
+  runId: string;
+  runNonce: string;
+  priorSessionId: string | null;
+  priorOwnerTokenHash: string | null;
+  priorPid: number;
+  priorProcessStartIdentity: string | null;
+  priorLockIdentity: string | null;
+  priorAttachedAt: string | null;
+  disposition: "absent" | "dead" | "same_manager";
+  priorObservationHash: string | null;
+  successorSessionId: string;
+  successorPid: number;
+  successorProcessStartIdentity: string;
+  successorLockIdentity: string;
+  lineageHash: string | null;
+}
+
 export interface CandidateFactBindingV1 {
   kind: "candidate";
   hash: string;
@@ -216,7 +295,7 @@ export interface IntegrationFactBindingV1 {
   reconciled: boolean;
 }
 
-export type DagRunFactBindingV1 = StageAttemptInputFactBindingV1 | WorkerResultFactBindingV1 | StageEvidenceFactBindingV1 | CheckDispositionFactBindingV1 | VerificationFactBindingV1 | OracleAssertionFactBindingV1 | CandidateFactBindingV1 | EvidenceAdoptionFactBindingV1 | IntegrationReadyFactBindingV1 | IntegrationFactBindingV1;
+export type DagRunFactBindingV1 = ProcessIdentityObservationBindingV1 | CorruptFactEnvelopeBindingV1 | StageAttemptInputFactBindingV1 | WorkerResultFactBindingV1 | StageEvidenceFactBindingV1 | CheckDispositionFactBindingV1 | VerificationFactBindingV1 | OracleAssertionFactBindingV1 | EffectReconciliationFactBindingV1 | QuarantineResolutionFactBindingV1 | OwnershipFactBindingV1 | CandidateFactBindingV1 | EvidenceAdoptionFactBindingV1 | IntegrationReadyFactBindingV1 | IntegrationFactBindingV1;
 export interface DagRunAuthorizationBindingV1 {
   hash: string;
   planHash: string;
@@ -265,6 +344,7 @@ export interface DagRunValidationContextV1 {
   catalog: DagExecutionCatalogBindingV1;
   normalizedSchedulerIndexHash: string;
   facts: Readonly<Record<string, DagRunFactBindingV1>>;
+  authorityReceipts?: Readonly<Record<string, QuarantineAuthorityBindingV1>>;
 }
 
 const RunDesiredSchema = Type.Enum(["running", "paused", "cancelled", "superseded"]);
@@ -301,7 +381,7 @@ const ConflictClassSchema = Type.Enum(["none", "mechanical", "semantic", "ambigu
 const LandingStateSchema = Type.Enum(["none", "intended", "dispatching", "observed", "reconciled", "ambiguous"]);
 const CancellationScopeSchema = Type.Enum(["run", "work_item", "stage_attempt", "integration_attempt"]);
 const CancellationStateSchema = Type.Enum(["requested", "dispatching", "observed", "ambiguous", "closed"]);
-const FactKindSchema = Type.Enum(["plan_review", "plan_authorization", "authorization_set", "staleness", "stage_attempt_input", "worker_result", "candidate", "stage_evidence", "check_disposition", "oracle_assertion", "finding", "finding_resolution", "waiver", "invalidation", "adoption", "effect_intent", "effect_reconciliation", "integration_ready", "integration", "ownership", "gate_release", "repository_observation", "verification"]);
+const FactKindSchema = Type.Enum(["plan_review", "plan_authorization", "authorization_set", "staleness", "stage_attempt_input", "worker_result", "candidate", "stage_evidence", "check_disposition", "oracle_assertion", "finding", "finding_resolution", "waiver", "invalidation", "adoption", "effect_intent", "effect_reconciliation", "corrupt_fact", "process_identity_observation", "quarantine_resolution", "quarantine_authority", "integration_ready", "integration", "ownership", "gate_release", "repository_observation", "verification"]);
 const StageAttemptInputFactBindingV1Schema = StrictObject({
   kind: Type.Literal("stage_attempt_input"), hash: HashSchema, planHash: HashSchema, runId: IdSchema,
   runNonce: Type.String({ minLength: 16, maxLength: 256 }), workItemId: IdSchema, stage: PlanStageIdSchema,
@@ -334,6 +414,36 @@ const OracleAssertionFactBindingV1Schema = StrictObject({
   observationMethod: Type.Enum(["static_analysis", "automated_check", "manual_observation", "external_observation", "combined"]),
   requiredEvidenceClass: Type.Enum(["deterministic", "independent", "manual", "external"]),
   disposition: Type.Literal("PASS"), observationHash: HashSchema,
+});
+const EffectReconciliationFactBindingV1Schema = StrictObject({
+  kind: Type.Literal("effect_reconciliation"), hash: HashSchema, planHash: HashSchema, runId: IdSchema,
+  runNonce: Type.String({ minLength: 16, maxLength: 256 }), effectId: IdSchema, requestHash: HashSchema,
+  reconciliation: Type.Enum(["applied_exact", "compensated", "proven_absent", "conflict", "unknown"]),
+});
+const ProcessIdentityObservationBindingV1Schema = StrictObject({
+  kind: Type.Literal("process_identity_observation"), hash: HashSchema, lockMetadataHash: HashSchema,
+  pid: PositiveIntegerSchema, processStartIdentity: Type.String({ minLength: 1, maxLength: 256 }),
+  disposition: Type.Enum(["dead_missing", "dead_reused"]), observedAt: TimestampSchema,
+});
+const CorruptFactEnvelopeBindingV1Schema = StrictObject({
+  kind: Type.Literal("corrupt_fact"), hash: HashSchema, claimedHash: HashSchema, rawBytesHash: HashSchema,
+  rawBytes: NonNegativeIntegerSchema, quarantinedAt: TimestampSchema, rawPathIdentityHash: HashSchema,
+});
+const QuarantineAuthorityBindingV1Schema = StrictObject({
+  kind: Type.Literal("quarantine_authority"), hash: HashSchema, planHash: HashSchema, runId: IdSchema,
+  runNonce: Type.String({ minLength: 16, maxLength: 256 }), quarantineId: IdSchema, factHash: HashSchema, quarantineEntryHash: HashSchema,
+  decision: Type.Literal("adopt"), issuedBy: Type.Literal("user"), issuedAt: TimestampSchema,
+});
+const QuarantineResolutionFactBindingV1Schema = StrictObject({
+  kind: Type.Literal("quarantine_resolution"), hash: HashSchema, planHash: HashSchema, runId: IdSchema,
+  runNonce: Type.String({ minLength: 16, maxLength: 256 }), quarantineId: IdSchema, factHash: HashSchema, quarantineEntryHash: HashSchema, authorityReceiptHash: HashSchema,
+  disposition: Type.Literal("adopted"), rationaleHash: HashSchema,
+});
+const OwnershipFactBindingV1Schema = StrictObject({
+  kind: Type.Literal("ownership"), hash: HashSchema, runId: IdSchema, runNonce: Type.String({ minLength: 16, maxLength: 256 }),
+  priorSessionId: Nullable(IdSchema), priorOwnerTokenHash: Nullable(HashSchema), priorPid: NonNegativeIntegerSchema, priorProcessStartIdentity: Nullable(Type.String({ minLength: 1, maxLength: 256 })), priorLockIdentity: Nullable(HashSchema), priorAttachedAt: Nullable(TimestampSchema),
+  disposition: Type.Enum(["absent", "dead", "same_manager"]), priorObservationHash: Nullable(HashSchema), successorSessionId: IdSchema, successorPid: PositiveIntegerSchema,
+  successorProcessStartIdentity: Type.String({ minLength: 1, maxLength: 256 }), successorLockIdentity: HashSchema, lineageHash: Nullable(HashSchema),
 });
 const StageEvidenceFactBindingV1Schema = StrictObject({
   kind: Type.Literal("stage_evidence"), hash: HashSchema, planHash: HashSchema, runId: IdSchema,
@@ -373,7 +483,7 @@ const IntegrationFactBindingV1Schema = StrictObject({
   sourceBase: GitTreeRefV1Schema, sourceCandidate: GitTreeRefV1Schema, syntheticParentCommit: GitOidSchema,
   sourceToIntegratedLineageHash: HashSchema, landed: GitTreeRefV1Schema, combinedStateVerified: Type.Boolean(), reconciled: Type.Boolean(),
 });
-const DagRunFactBindingV1Schema = Type.Union([StageAttemptInputFactBindingV1Schema, WorkerResultFactBindingV1Schema, StageEvidenceFactBindingV1Schema, CheckDispositionFactBindingV1Schema, VerificationFactBindingV1Schema, OracleAssertionFactBindingV1Schema, CandidateFactBindingV1Schema, EvidenceAdoptionFactBindingV1Schema, IntegrationReadyFactBindingV1Schema, IntegrationFactBindingV1Schema]);
+const DagRunFactBindingV1Schema = Type.Union([ProcessIdentityObservationBindingV1Schema, CorruptFactEnvelopeBindingV1Schema, StageAttemptInputFactBindingV1Schema, WorkerResultFactBindingV1Schema, StageEvidenceFactBindingV1Schema, CheckDispositionFactBindingV1Schema, VerificationFactBindingV1Schema, OracleAssertionFactBindingV1Schema, EffectReconciliationFactBindingV1Schema, QuarantineResolutionFactBindingV1Schema, OwnershipFactBindingV1Schema, CandidateFactBindingV1Schema, EvidenceAdoptionFactBindingV1Schema, IntegrationReadyFactBindingV1Schema, IntegrationFactBindingV1Schema]);
 const ProcedureCatalogBindingV1Schema = StrictObject({
   hash: HashSchema, procedureId: IdSchema, purpose: Type.Enum(["lifecycle", "evidence_only_delta_attestation"]), stages: Type.Array(PlanStageIdSchema, { minItems: 1 }),
   producerKinds: Type.Array(ProducerKindSchema, { minItems: 1 }), readOnly: Type.Boolean(), environmentProfileHash: HashSchema,
@@ -398,7 +508,7 @@ const DagRunAuthorizationBindingV1Schema = StrictObject({
   maxActiveNodes: PositiveIntegerSchema, validFrom: TimestampSchema, validUntil: Nullable(TimestampSchema),
 });
 
-const HashRefV1Schema = StrictObject({
+export const HashRefV1Schema = StrictObject({
   kind: FactKindSchema,
   schemaVersion: Type.Literal(1),
   id: IdSchema,
@@ -444,6 +554,8 @@ const OwnerProjectionV1Schema = StrictObject({
   attachedAt: Nullable(TimestampSchema),
   lastHeartbeatAt: Nullable(TimestampSchema),
   ownershipReceipt: Nullable(HashSchema),
+  lastReleaseCommandId: Nullable(IdSchema),
+  lastReleasePayloadHash: Nullable(HashSchema),
 });
 const DesiredProjectionV1Schema = StrictObject({
   run: RunDesiredSchema,
@@ -703,7 +815,7 @@ const BlockerProjectionV1Schema = StrictObject({
   releasedAt: Nullable(TimestampSchema),
   releaseReceipt: Nullable(HashSchema),
 });
-const EffectProjectionV1Schema = StrictObject({
+export const EffectProjectionV1Schema = StrictObject({
   effectId: IdSchema,
   kind: Type.Enum(["put_immutable_fact", "launch_worker", "cancel_worker", "materialize_workspace", "run_procedure", "reconcile_external_effect", "compose_candidate", "verify_prefix", "land_target"]),
   subject: SubjectRefV1Schema,
@@ -730,14 +842,14 @@ const CancellationProjectionV1Schema = StrictObject({
   cancellationId: IdSchema,
   scope: CancellationScopeSchema,
   subjectId: IdSchema,
-  fencedGeneration: NonNegativeIntegerSchema,
+  fencedGenerations: Type.Record(IdSchema, NonNegativeIntegerSchema),
   state: CancellationStateSchema,
   reason: BoundedTextSchema,
   requestedAt: TimestampSchema,
-  effectId: Nullable(IdSchema),
+  effectIds: StringSet(),
   resultHash: Nullable(HashSchema),
 });
-const QuarantineProjectionV1Schema = StrictObject({
+export const QuarantineProjectionV1Schema = StrictObject({
   quarantineId: IdSchema,
   fact: HashRefV1Schema,
   reason: QuarantineReasonSchema,
@@ -862,6 +974,10 @@ const DynamicExclusionV1Schema = StrictObject({
   createdAt: TimestampSchema,
   releasedAt: Nullable(TimestampSchema),
 });
+const IdempotencySlotV1Schema = StrictObject({
+  slotId: HashSchema, inputType: IdSchema, commandId: IdSchema, idempotencyKey: Type.String({ minLength: 1, maxLength: 256 }),
+  payloadHash: HashSchema, inputHash: HashSchema, appliedRevision: PositiveIntegerSchema,
+});
 const SchedulerProjectionV1Schema = StrictObject({
   policyVersion: Type.String({ minLength: 1, maxLength: 64 }),
   policyHash: HashSchema,
@@ -910,6 +1026,7 @@ export const DagRunStateV1Schema = StrictObject({
   effects: IdMap(EffectProjectionV1Schema),
   cancellations: IdMap(CancellationProjectionV1Schema),
   quarantine: IdMap(QuarantineProjectionV1Schema),
+  idempotencySlots: Type.Record(HashSchema, IdempotencySlotV1Schema),
   integrationTrains: IdMap(IntegrationTrainProjectionV1Schema),
   integrationAttempts: IdMap(IntegrationAttemptProjectionV1Schema),
   scheduler: SchedulerProjectionV1Schema,
@@ -986,7 +1103,16 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
   pushIssue(issues, "/freshness/receipt/kind", state.freshness.receipt.kind === "staleness", "must be a staleness fact");
   const ownerAttached = state.owner.sessionId !== null;
   pushIssue(issues, "/owner", ownerAttached === (state.owner.ownerTokenHash !== null && state.owner.processStartIdentity !== null && state.owner.lockIdentity !== null && state.owner.attachedAt !== null && state.owner.ownershipReceipt !== null && state.owner.pid > 0), "attached owner requires complete token, process, lock, time, and receipt identity");
-  pushIssue(issues, "/owner/ownerEpoch", ownerAttached ? state.owner.ownerEpoch > 0 : state.owner.ownerEpoch === 0, "owner epoch must be positive only while attached");
+  pushIssue(issues, "/owner/ownerEpoch", !ownerAttached || state.owner.ownerEpoch > 0, "attached owner requires a positive fencing epoch; detached runs retain their last epoch");
+  if (ownerAttached) {
+    const ownership = context.facts[state.owner.ownershipReceipt!];
+    pushIssue(issues, "/owner/ownershipReceipt", ownership?.kind === "ownership" && ownership.hash === state.owner.ownershipReceipt && ownership.hash === hashWithoutField(ownership as unknown as Record<string, unknown>, "hash") && ownership.runId === state.runId && ownership.runNonce === state.runNonce && ownership.successorSessionId === state.owner.sessionId && ownership.successorPid === state.owner.pid && ownership.successorProcessStartIdentity === state.owner.processStartIdentity && ownership.successorLockIdentity === state.owner.lockIdentity, "must resolve exact canonical ownership evidence for the attached process identity");
+    if (ownership?.kind === "ownership" && ownership.disposition === "dead") {
+      const observation = ownership.priorObservationHash ? context.facts[ownership.priorObservationHash] : undefined;
+      const priorLock = ownership.priorSessionId && ownership.priorOwnerTokenHash && ownership.priorProcessStartIdentity && ownership.priorLockIdentity && ownership.priorAttachedAt ? { lockIdentity: ownership.priorLockIdentity, ownerTokenHash: ownership.priorOwnerTokenHash, sessionId: ownership.priorSessionId, pid: ownership.priorPid, processStartIdentity: ownership.priorProcessStartIdentity, acquiredAt: ownership.priorAttachedAt } : null;
+      pushIssue(issues, "/owner/ownershipReceipt", observation?.kind === "process_identity_observation" && observation.hash === ownership.priorObservationHash && observation.hash === hashWithoutField(observation as unknown as Record<string, unknown>, "hash") && priorLock !== null && observation.lockMetadataHash === canonicalHash(priorLock) && observation.pid === ownership.priorPid && observation.processStartIdentity === ownership.priorProcessStartIdentity && ["dead_missing", "dead_reused"].includes(observation.disposition), "dead-owner attachment must retain exact durable prior process observation evidence");
+    }
+  }
   validateMapKeys(state.repositories, "repositoryId", "/repositories", issues);
   validateMapKeys(state.workItems, "workItemId", "/workItems", issues);
   validateMapKeys(state.gates, "gateId", "/gates", issues);
@@ -1003,6 +1129,15 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
   validateMapKeys(state.effects, "effectId", "/effects", issues);
   validateMapKeys(state.cancellations, "cancellationId", "/cancellations", issues);
   validateMapKeys(state.quarantine, "quarantineId", "/quarantine", issues);
+  validateMapKeys(state.idempotencySlots, "slotId", "/idempotencySlots", issues);
+  pushIssue(issues, "/idempotencySlots", new Set(Object.values(state.idempotencySlots).map(({ commandId }) => commandId)).size === Object.keys(state.idempotencySlots).length, "command IDs must be globally unique across natural idempotency slots");
+  pushIssue(issues, "/idempotencySlots", new Set(Object.values(state.idempotencySlots).map(({ idempotencyKey }) => idempotencyKey)).size === Object.keys(state.idempotencySlots).length, "idempotency keys must be globally unique across natural slots");
+  const appliedRevisions = Object.values(state.idempotencySlots).map(({ appliedRevision }) => appliedRevision).sort((left, right) => left - right);
+  pushIssue(issues, "/idempotencySlots", appliedRevisions.length === state.revision && appliedRevisions.every((revision, index) => revision === index + 1), "must contain exactly one durable applied input slot for every committed revision and no phantom/future slots");
+  if (state.revision > 0) {
+    const latestSlot = Object.values(state.idempotencySlots).find(({ appliedRevision }) => appliedRevision === state.revision);
+    pushIssue(issues, "/current/updatedByCommandId", latestSlot?.commandId === state.current.updatedByCommandId, "must match the exact command recorded for the current revision");
+  }
   validateMapKeys(state.integrationTrains, "repositoryId", "/integrationTrains", issues);
   validateMapKeys(state.integrationAttempts, "integrationAttemptId", "/integrationAttempts", issues);
   validateMapKeys(state.scheduler.activeNodeLanes, "workItemId", "/scheduler/activeNodeLanes", issues);
@@ -1027,9 +1162,10 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     pushIssue(issues, `/scheduler/reservations/${reservationId}/repositoryId`, Boolean(state.repositories[reservation.repositoryId]), "references an unknown repository");
     const item = state.workItems[reservation.workItemId];
     const planItem = context.plan.workItems.find(({ workItemId }) => workItemId === reservation.workItemId);
-    pushIssue(issues, `/scheduler/reservations/${reservationId}/candidateGeneration`, item?.candidateGeneration === reservation.candidateGeneration, "must bind the current work-item generation");
-    pushIssue(issues, `/scheduler/reservations/${reservationId}/ownerEpoch`, reservation.ownerEpoch === state.owner.ownerEpoch, "must bind the current conductor owner epoch");
-    pushIssue(issues, `/scheduler/reservations/${reservationId}/authorizationSetHash`, reservation.authorizationSetHash === state.identity.authorizationSet.hash && item?.authorizedStages.includes(reservation.stage), "must bind current authority for the reserved stage");
+    const reservationTerminal = ["released", "fenced"].includes(reservation.state);
+    pushIssue(issues, `/scheduler/reservations/${reservationId}/candidateGeneration`, reservationTerminal ? reservation.candidateGeneration <= (item?.candidateGeneration ?? -1) : item?.candidateGeneration === reservation.candidateGeneration, "active reservation must bind current generation; terminal reservation may retain an older fenced generation");
+    pushIssue(issues, `/scheduler/reservations/${reservationId}/ownerEpoch`, reservationTerminal ? reservation.ownerEpoch <= state.owner.ownerEpoch : reservation.ownerEpoch === state.owner.ownerEpoch, "active reservation must bind current owner epoch");
+    pushIssue(issues, `/scheduler/reservations/${reservationId}/authorizationSetHash`, reservationTerminal || (reservation.authorizationSetHash === state.identity.authorizationSet.hash && item?.authorizedStages.includes(reservation.stage)), "active reservation must bind current authority for the reserved stage");
     pushIssue(issues, `/scheduler/reservations/${reservationId}/repositoryId`, reservation.repositoryId === item?.writeRepositoryId, "must bind the work item's write repository");
     const expectedOperation: Record<string, string> = { F0: "conductor", F1: "implementation", F2: "evaluation", F3: "codification", F4: "verification", F5: "review", F6: "hardening", F7: "verification", F8: "conductor" };
     pushIssue(issues, `/scheduler/reservations/${reservationId}/operationKind`, reservation.operationKind === expectedOperation[reservation.stage], "must use the fixed F0-F8 operation class");
@@ -1091,7 +1227,7 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     pushIssue(issues, `${path}/authorizedStages`, isSortedUnique(item.authorizedStages), "must be sorted and deduplicated");
     if (item.currentStage) pushIssue(issues, `${path}/currentStage`, item.authorizedStages.includes(item.currentStage), "current stage must be within exact authorization scope");
     if (item.current === "ready") {
-      pushIssue(issues, `${path}/current`, item.desired === "run" && state.desired.run === "running", "ready work requires running desired state");
+      pushIssue(issues, `${path}/current`, item.desired === "run" && ["running", "paused"].includes(state.desired.run), "ready work requires runnable item intent; a global pause may retain readiness while blocking dispatch");
       pushIssue(issues, `${path}/current`, item.authorizedStages.includes("F0"), "ready work requires F0 authorization");
       pushIssue(issues, `${path}/precedenceIds`, item.precedenceIds.every((id) => state.precedence[id]?.state === "satisfied"), "ready work requires every causal predecessor integrated and satisfied");
       pushIssue(issues, `${path}/gateIds`, item.gateIds.every((id) => state.gates[id]?.state === "released"), "ready work requires every gate released");
@@ -1160,7 +1296,7 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
         pushIssue(issues, `${path}/candidate/producedByStageAttemptId`, Boolean(producingAttempt && ["F1", "F3"].includes(producingAttempt.stage) && producingAttempt.workItemId === workItemId && producingAttempt.reservedOutputGeneration === candidateFact.generation && producingAttempt.state === "sealed"), "candidate must be produced by an exact sealed F1/F3 output generation");
         pushIssue(issues, `${path}/candidate/git`, canonicalHash(candidateFact.base) === canonicalHash(item.candidate.base) && canonicalHash(candidateFact.git) === canonicalHash(item.candidate.git), "candidate fact must match the exact source base, commit, and tree");
       }
-    } else pushIssue(issues, `${path}/candidateGeneration`, item.candidateGeneration === 0, "must be zero while candidate is null");
+    } else pushIssue(issues, `${path}/candidateGeneration`, item.candidateGeneration === 0 || ["blocked", "cancelled", "superseded"].includes(item.current), "candidate-less positive generation is allowed only after an explicit fence");
     if (["integration_ready", "integrating", "complete"].includes(item.current)) {
       const readyRef = state.evidenceIndex.integrationReady[workItemId];
       pushIssue(issues, `${path}/integrationReadyReceipt`, item.integrationReadyReceipt !== null && readyRef?.hash === item.integrationReadyReceipt && readyRef?.kind === "integration_ready", "requires the exact indexed integration-ready receipt");
@@ -1260,7 +1396,7 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
   for (const [resourceId, resource] of Object.entries(state.resourcePools)) {
     const activeUnits = resource.leaseIds.reduce((sum, leaseId) => {
       const lease = state.leases[leaseId];
-      return sum + (lease?.state === "active" ? lease.units : 0);
+      return sum + (["active", "release_requested", "expired", "fenced"].includes(lease?.state ?? "") ? lease.units : 0);
     }, 0);
     pushIssue(issues, `/resourcePools/${resourceId}/allocatedUnits`, resource.allocatedUnits === activeUnits, "must equal active resource lease units");
     pushIssue(issues, `/resourcePools/${resourceId}/observedCapacity`, resource.observedCapacity <= resource.semanticMaximum, "cannot exceed the plan semantic maximum");
@@ -1303,7 +1439,36 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
       pushIssue(issues, `/effects/${effectId}/boundOwnerEpoch`, effect.boundOwnerEpoch === state.owner.ownerEpoch, "pending dispatch must bind current owner epoch");
       if (effect.subject.kind === "work_item") pushIssue(issues, `/effects/${effectId}/boundCandidateGeneration`, effect.boundCandidateGeneration === state.workItems[effect.subject.id]?.candidateGeneration, "pending dispatch must bind current work-item generation");
     }
+    if (effect.observationHash !== null) {
+      const observation = context.facts[effect.observationHash];
+      pushIssue(issues, `/effects/${effectId}/observationHash`, observation?.kind === "effect_reconciliation" && observation.hash === effect.observationHash && observation.hash === hashWithoutField(observation as unknown as Record<string, unknown>, "hash") && observation.planHash === state.identity.planHash && observation.runId === state.runId && observation.runNonce === state.runNonce && observation.effectId === effect.effectId && observation.requestHash === effect.requestHash && observation.reconciliation === effect.reconciliation, "must resolve exact canonical immutable effect reconciliation evidence");
+    }
     if (["unknown", "non_repeatable"].includes(effect.procedureClass) && effect.state === "ambiguous") pushIssue(issues, `/effects/${effectId}/blockerId`, effect.blockerId !== null && state.blockers[effect.blockerId]?.active, "ambiguous unknown/non-repeatable effect must have an active blocker");
+  }
+
+  for (const [cancellationId, cancellation] of Object.entries(state.cancellations)) {
+    pushIssue(issues, `/cancellations/${cancellationId}/cancellationId`, cancellation.cancellationId === cancellationId, "must match map key");
+    pushIssue(issues, `/cancellations/${cancellationId}/effectIds`, cancellation.effectIds.every((effectId) => state.effects[effectId]?.kind === "cancel_worker"), "must reference only exact cancel-worker effects");
+    pushIssue(issues, `/cancellations/${cancellationId}/resultHash`, cancellation.state === "closed" ? cancellation.resultHash !== null : cancellation.resultHash === null, "only a closed cancellation has a terminal result hash");
+    if (cancellation.scope === "run") pushIssue(issues, `/cancellations/${cancellationId}/subjectId`, cancellation.subjectId === state.runId, "run cancellation subject must be this run");
+    const fencedIds = Object.keys(cancellation.fencedGenerations).sort();
+    pushIssue(issues, `/cancellations/${cancellationId}/fencedGenerations`, fencedIds.every((id) => Boolean(state.workItems[id]) && cancellation.fencedGenerations[id] <= state.workItems[id].candidateGeneration), "must bind exact existing fenced work-item generations");
+    if (cancellation.scope === "work_item") pushIssue(issues, `/cancellations/${cancellationId}/subjectId`, fencedIds.length === 1 && fencedIds[0] === cancellation.subjectId, "work-item cancellation must bind exactly its subject generation");
+  }
+
+  for (const [quarantineId, entry] of Object.entries(state.quarantine)) {
+    pushIssue(issues, `/quarantine/${quarantineId}/quarantineId`, entry.quarantineId === quarantineId, "must match map key");
+    const quarantinedFact = context.facts[entry.fact.hash];
+    pushIssue(issues, `/quarantine/${quarantineId}/fact`, quarantinedFact?.hash === entry.fact.hash && quarantinedFact?.kind === entry.fact.kind, "must resolve the exact immutable fact kind and hash retained in quarantine");
+    pushIssue(issues, `/quarantine/${quarantineId}`, entry.state === "held" ? entry.adoptionReceipt === null && entry.rejectionReason === null : entry.state === "adopted" ? entry.adoptionReceipt !== null && entry.rejectionReason === null : entry.adoptionReceipt === null && entry.rejectionReason !== null, "quarantine disposition fields must exactly match held/adopted/rejected state");
+    if (entry.state === "adopted") {
+      const adoption = context.facts[entry.adoptionReceipt!];
+      const entryHash = canonicalHash({ quarantineId: entry.quarantineId, fact: entry.fact, reason: entry.reason, observedBindingHash: entry.observedBindingHash, expectedBindingHash: entry.expectedBindingHash, observedAt: entry.observedAt });
+      const authority = adoption?.kind === "quarantine_resolution" ? context.authorityReceipts?.[adoption.authorityReceiptHash] : undefined;
+      const exactAdoption = adoption?.kind === "quarantine_resolution" && adoption.hash === entry.adoptionReceipt && adoption.hash === hashWithoutField(adoption as unknown as Record<string, unknown>, "hash") && adoption.planHash === state.identity.planHash && adoption.runId === state.runId && adoption.runNonce === state.runNonce && adoption.quarantineId === entry.quarantineId && adoption.factHash === entry.fact.hash && adoption.quarantineEntryHash === entryHash && adoption.disposition === "adopted";
+      const exactAuthority = authority?.kind === "quarantine_authority" && authority.hash === adoption?.authorityReceiptHash && authority.hash === hashWithoutField(authority as unknown as Record<string, unknown>, "hash") && authority.planHash === state.identity.planHash && authority.runId === state.runId && authority.runNonce === state.runNonce && authority.quarantineId === entry.quarantineId && authority.factHash === entry.fact.hash && authority.quarantineEntryHash === entryHash && authority.decision === "adopt" && authority.issuedBy === "user" && Number.isFinite(utcTimestampOrderValue(authority.issuedAt)) && utcTimestampOrderValue(entry.observedAt) <= utcTimestampOrderValue(authority.issuedAt) && utcTimestampOrderValue(authority.issuedAt) <= utcTimestampOrderValue(state.updatedAt);
+      pushIssue(issues, `/quarantine/${quarantineId}/adoptionReceipt`, exactAdoption && exactAuthority, "adoption must resolve an exact external user-authority receipt and canonical immutable quarantine-resolution fact");
+    }
   }
 
   for (const [repositoryId, train] of Object.entries(state.integrationTrains)) {
@@ -1327,9 +1492,10 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
       pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/workItemId`, entry?.workItemId === planTrain?.members[ordinal]?.workItemId, "must follow exact plan train order");
       const item = entry ? state.workItems[entry.workItemId] : undefined;
       if (entry && item) {
-        pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/workItemId`, ["integration_ready", "integrating", "complete"].includes(item.current), "train entry requires an integration-ready or integrated work item");
-        pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/integrationReadyHash`, item.integrationReadyReceipt === entry.integrationReadyHash, "must bind the work item's exact integration-ready receipt");
-        pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/sourceCandidate`, item.candidate !== null && item.candidate.candidateHash === entry.sourceCandidate.candidateHash && item.candidateGeneration === entry.sourceCandidate.generation, "must bind the work item's current candidate generation and hash");
+        const entryTerminallyInvalidated = ["invalidated", "quarantined"].includes(entry.state);
+        pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/workItemId`, entryTerminallyInvalidated || ["integration_ready", "integrating", "complete"].includes(item.current), "active train entry requires an integration-ready or integrated work item");
+        pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/integrationReadyHash`, entryTerminallyInvalidated || item.integrationReadyReceipt === entry.integrationReadyHash, "active entry must bind the work item's exact integration-ready receipt");
+        pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/sourceCandidate`, entryTerminallyInvalidated || (item.candidate !== null && item.candidate.candidateHash === entry.sourceCandidate.candidateHash && item.candidateGeneration === entry.sourceCandidate.generation), "active entry must bind the work item's current candidate generation and hash");
         if (entry.state === "integrated") pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/integrationReceipt`, entry.integrationReceipt !== null && item.current === "complete" && item.integrationReceipt === entry.integrationReceipt, "integrated entry requires the work item's exact accepted integration receipt and completion");
       }
       if (headOrdinal >= 0 && ordinal > headOrdinal) pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/state`, entry?.state === "waiting", "future train entries must wait until every predecessor is landed and receipted");
