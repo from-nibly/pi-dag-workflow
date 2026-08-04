@@ -147,6 +147,49 @@ try {
   await fastManager.onAgentSettled();
   await fastManager.detach();
 
+  const cancellingSessionFile = join(root, "cancelling-session.jsonl");
+  await writeFile(cancellingSessionFile, `${JSON.stringify({ type: "session", version: 3, id: "cancelling-parent", timestamp: new Date().toISOString(), cwd: root })}\n`);
+  const cancellingPi = createFakeParentPi();
+  let releaseDelayedSpawn;
+  let delayedConfigReady;
+  const delayedSpawnGate = new Promise((resolveGate) => { releaseDelayedSpawn = resolveGate; });
+  const delayedConfig = new Promise((resolveConfig) => { delayedConfigReady = resolveConfig; });
+  const cancellingManager = new WorkerManager(cancellingPi, {
+    piCliPath: resolve("scripts/fixtures/fake-worker-rpc.mjs"),
+    watchIntervalMs: 1000,
+    cancelEscalationMs: 60_000,
+    spawnSupervisor: async (_supervisorPath, configPath) => {
+      const attemptConfig = await readJson(configPath);
+      const attemptMailbox = attemptPaths(root, attemptConfig.storageId, attemptConfig.workerId, attemptConfig.attemptNumber).mailbox;
+      await atomicWriteJson(attemptMailbox, {
+        schemaVersion: 1,
+        storageId: attemptConfig.storageId,
+        ownerSessionId: attemptConfig.ownerSessionId,
+        workerId: attemptConfig.workerId,
+        attemptNumber: attemptConfig.attemptNumber,
+        attemptNonce: attemptConfig.attemptNonce,
+        configHash: attemptConfig.configHash,
+        supervisorPid: process.pid,
+        supervisorStartIdentity: identity,
+        heartbeatAt: new Date().toISOString(),
+        status: "running",
+      });
+      delayedConfigReady(attemptConfig);
+      await delayedSpawnGate;
+      return { pid: process.pid, unref() {} };
+    },
+  });
+  await cancellingManager.attach(managerContext(root, "cancelling-parent", cancellingSessionFile));
+  const delayedLaunchPromise = cancellingManager.launch({ task: "Cancel while supervisor identity binding is delayed." });
+  const cancellingConfig = await delayedConfig;
+  const cancelDuringLaunch = await cancellingManager.cancel(cancellingConfig.workerId, "race fixture");
+  assert(cancelDuringLaunch.status === "cancelling", "cancellation is recorded while launch identity binding is delayed");
+  releaseDelayedSpawn();
+  const delayedLaunch = await delayedLaunchPromise;
+  const cancellingStatus = await cancellingManager.status(cancellingConfig.workerId);
+  assert(delayedLaunch.status === "cancelling" && cancellingStatus.status === "cancelling", "late supervisor identity binding preserves concurrent cancellation state");
+  await cancellingManager.detach();
+
   const valid = await runSupervisor(root, "valid", 2);
   assert(valid.terminalStatus === "succeeded" && valid.reportStatus === "valid", "supervisor captures a valid terminating report");
   const repaired = await runSupervisor(root, "repair", 2);

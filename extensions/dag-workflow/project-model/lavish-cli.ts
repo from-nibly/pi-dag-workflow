@@ -45,13 +45,19 @@ export class LavishCliAdapter {
       return { ...parseSession(result.stdout), raw: result.stdout };
     }
     const args = [...this.dedicatedOpenArgsPrefix, file, ...(input.reopen ? ["--reopen"] : [])];
-    const result = await runProcess(this.dedicatedOpenCommand, args, {
-      cwd: this.cwd,
-      env: { ...process.env, ...this.env },
-      signal: input.signal,
-      maxBytes: this.maxRawBytes,
-    });
-    return { ...parseSession(result.stdout), raw: result.stdout };
+    try {
+      const result = await runProcess(this.dedicatedOpenCommand, args, {
+        cwd: this.cwd,
+        env: { ...process.env, ...this.env },
+        signal: input.signal,
+        maxBytes: this.maxRawBytes,
+      });
+      return { ...parseSession(result.stdout), raw: result.stdout };
+    } catch (error: any) {
+      if (error?.code !== "ENOENT") throw error;
+      const result = await this.run([file, ...(input.reopen ? ["--reopen"] : [])], input.signal);
+      return { ...parseSession(result.stdout), raw: result.stdout };
+    }
   }
 
   async poll(file: string, input: { signal?: AbortSignal; agentReply?: string; timeoutMs?: number } = {}): Promise<LavishFeedback> {

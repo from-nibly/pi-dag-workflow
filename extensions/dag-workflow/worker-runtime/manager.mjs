@@ -199,7 +199,7 @@ export class WorkerManager {
       attempt.supervisorStartIdentity ??= supervisorStartIdentity;
       const isCurrent = current.currentAttempt === attemptNumber;
       const isTerminal = Boolean(attempt.ingestedAt) || TERMINAL_STATUSES.has(attempt.status);
-      if (isCurrent && !isTerminal) {
+      if (isCurrent && !isTerminal && current.status !== "cancelling") {
         attempt.status = supervisorStartIdentity ? "running" : "launch_ambiguous";
         current.status = supervisorStartIdentity ? "running" : "needs_attention";
         current.updatedAt = nowIso();

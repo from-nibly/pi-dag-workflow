@@ -8201,6 +8201,35 @@
       "updatedAt": "2026-08-04T14:00:59.007Z"
     },
     {
+      "body": "`LavishCliAdapter.open()` defaults interactive presentation to the ambient PATH command `lavish-open`, while the package declares only optional pinned `lavish-axi@0.1.43` and does not ship the helper. A fresh package install can therefore fail with ENOENT before reaching the pinned CLI fallback. Tests inject a fake helper and do not exercise the default packaged path.",
+      "createdAt": "2026-08-04T15:17:56.026Z",
+      "id": "DISC-dedicated-lavish-opener-is-not-packaged",
+      "implications": "Interactive opening must resolve a packaged helper or safely fall back to the pinned optional CLI; no-open polling/end behavior remains separately pinned.",
+      "introducedBy": "agent",
+      "proposedFollowup": "Package an extension-owned opener or add an explicit missing-helper fallback to the pinned CLI, then test with no ambient helper on PATH.",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DEC-pinned-optional-lavish-cli"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-independent-baseline-change-review"
+      ],
+      "state": "integrated",
+      "title": "Dedicated Lavish opening currently depends on an unshipped ambient helper",
+      "updatedAt": "2026-08-04T15:22:28.268Z"
+    },
+    {
       "body": "Planning, chunking, and execution integration details remain deferred until brainstorming is dogfooded.\n\n- Planning and chunking assign relevant prototypes: Prototypes are optional supporting context at the workflow level. Planning agents decide which plan sections reference prototypes. Chunking decides which referenced prototypes are required reading for particular nodes or flow steps.\n\n- Planning begins with the relevant functional spec: Planning begins with the spec.md for the product scope named by the user. Use spec/spec.md to orient or discover domains when scope is unclear, then follow explicit links as needed.\n\n- Let execution report discoveries while the conductor reconciles the model: Plans and DAG nodes reference accepted commitment/scenario IDs and generated slices. Workers may return structured discoveries, evidence, affected commitments/views, conflicts, and proposed responses, but cannot mutate human-owned intent or accepted decisions. The top-level conductor integrates discoveries as proposed/reopened model objects, produces divergence/consequence views, and requests human judgment when direction changes.",
       "createdAt": "2026-07-28T18:37:09.012Z",
       "id": "DISC-deferred-planning-execution",
@@ -8781,6 +8810,35 @@
       "state": "integrated",
       "title": "Long integration locks are a separate bottleneck from authoring capacity",
       "updatedAt": "2026-08-04T00:17:09.413Z"
+    },
+    {
+      "body": "The terminal-state race fix guards only ingested or terminal attempts. If cancellation changes the current worker to `cancelling` while launch waits for supervisor identity, the later launch mutation can set it back to `running`; cancellation escalation then exits because the worker no longer appears cancelling.",
+      "createdAt": "2026-08-04T15:17:56.027Z",
+      "id": "DISC-late-worker-identity-binding-can-regress-cancellation",
+      "implications": "Launch identity binding must enrich identity without overwriting cancellation/control intent, and a delayed-binding cancellation fixture is required.",
+      "introducedBy": "agent",
+      "proposedFollowup": "Preserve cancelling state in late launch binding and prove escalation remains armed under the race.",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DEC-run-pause-cancel-late-result-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-independent-baseline-change-review"
+      ],
+      "state": "integrated",
+      "title": "Late worker identity binding can overwrite a concurrent cancellation",
+      "updatedAt": "2026-08-04T15:22:28.269Z"
     },
     {
       "body": "The first real open detected the visually hidden skip link as viewport-unreachable and detected exact authority payloads nested inside radio labels as clipped text. Moving details outside labels and using a standard clip-path skip-link pattern removed the findings. Fixture/string scenarios had passed before the browser audit, so production validation should retain one real-browser layout gate in addition to deterministic renderer tests.",
@@ -10981,6 +11039,41 @@
       "updatedAt": "2026-07-31T13:47:32.909Z"
     },
     {
+      "body": "A no-edit review of commits `a366e87`, `0e779ab`, and `f0d14b6` found that interactive Lavish opening depends on an ambient unshipped `lavish-open` helper despite the pinned optional CLI contract, and that late supervisor identity binding can overwrite a concurrently recorded `cancelling` worker state. Model/spec checks and existing tests passed, but the new tests did not exercise either default packaged opening or cancellation racing launch binding.",
+      "confidence": "high",
+      "createdAt": "2026-08-04T15:17:56.026Z",
+      "id": "EV-independent-baseline-change-review",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DEC-pinned-optional-lavish-cli"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-run-pause-cancel-late-result-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "commit:0e779ab",
+        "commit:a366e87",
+        "commit:f0d14b6",
+        "worker-completion:completion-worker-mserz4fl-295c01e57d-1-134eabef1cb3"
+      ],
+      "state": "current",
+      "title": "Independent baseline review found two release-blocking integration races",
+      "updatedAt": "2026-08-04T15:17:56.026Z"
+    },
+    {
       "body": "Lavish 0.1.43 exposes file-oriented open, poll, end, export, and share CLI commands. Open canonicalizes the HTML path and derives a stable session key from it; saving the same file live-reloads the artifact. Poll waits for normalized prompts, user/agent end state, or browser-proven severe layout warnings. Interrupted polls can safely resume because queued feedback persists. User-ended sessions refuse ordinary reopen and require an explicit `--reopen`.",
       "confidence": "high",
       "createdAt": "2026-07-28T18:37:08.999Z",
@@ -12641,9 +12734,9 @@
         }
       ]
     },
-    "revision": 158,
+    "revision": 160,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-04T14:41:12.650Z"
+    "updatedAt": "2026-08-04T15:22:28.269Z"
   },
   "proposals": [
     {

@@ -102,6 +102,13 @@ process.stdout.write("session:\n  file: "+args[0]+"\n  status: opened\n");
     assert(JSON.stringify(JSON.parse(await readFile(dedicatedOpenLog, "utf8"))) === JSON.stringify(["/fixture/review.html", "--reopen"]), "dedicated opener receives file and explicit reopen");
     await dedicatedAdapter.open("/fixture/headless.html", { noOpen: true });
     assert(JSON.stringify(JSON.parse(await readFile(dedicatedOpenLog, "utf8"))) === JSON.stringify(["/fixture/review.html", "--reopen"]), "no-open mode bypasses the dedicated browser helper");
+    const missingDedicatedAdapter = new LavishCliAdapter({
+      command: process.execPath,
+      argsPrefix: [fakeLavish],
+      dedicatedOpenCommand: join(root, "missing-lavish-open"),
+    });
+    const fallbackOpened = await missingDedicatedAdapter.open("/fixture/fallback.html");
+    assert(fallbackOpened.status === "opened" && fallbackOpened.file === "/fixture/fallback.html", "missing dedicated opener falls back to the pinned/configured Lavish CLI");
 
     const feedbackManager = new ReviewPresentationManager(root, { cli: new LavishCliAdapter({ command: process.execPath, argsPrefix: [fakeLavish], env: { FAKE_MODE: "feedback" } }) });
     const phases = [];
@@ -184,6 +191,8 @@ process.stdout.write("session:\n  file: "+args[0]+"\n  status: opened\n");
             { id: "option-refresh-current", label: "Current", description: "Accept the candidate's current semantic payload.", objectId: "DEC-refresh-target", direction: { collection: "decisions", id: "DEC-refresh-target", state: "accepted" } },
             { id: "option-refresh-override", label: "Override", description: "Accept a deliberate body override while inheriting other current fields.", objectId: "DEC-refresh-target", direction: { collection: "decisions", id: "DEC-refresh-target", state: "accepted", value: { body: "Deliberate reviewed override." } } },
           ],
+          rejectDirection: { collection: "decisions", id: "DEC-refresh-target", state: "rejected", value: { body: "Rejected reviewed override." } },
+          deferDirection: { collection: "decisions", id: "DEC-refresh-target", state: "candidate", value: { body: "Deferred reviewed override." } },
         },
       ],
     });
@@ -197,12 +206,18 @@ process.stdout.write("session:\n  file: "+args[0]+"\n  status: opened\n");
     const overrideDirection = refreshedPoint.options.find(({ id }) => id === "option-refresh-override").direction;
     assert(currentDirection.value.title === "Refresh target revised" && currentDirection.value.body === "Revised candidate body.", "refresh rematerializes an existing direction from the current target");
     assert(overrideDirection.value.title === "Refresh target revised" && overrideDirection.value.body === "Deliberate reviewed override.", "refresh reapplies an explicit direction patch over the current target");
+    assert(refreshedPoint.rejectDirection.value.title === "Refresh target revised" && refreshedPoint.rejectDirection.value.body === "Rejected reviewed override.", "refresh reapplies an existing-target reject patch");
+    assert(refreshedPoint.deferDirection.value.title === "Refresh target revised" && refreshedPoint.deferDirection.value.body === "Deferred reviewed override.", "refresh reapplies an existing-target defer patch");
     assert(refreshedPoint.options.find(({ id }) => id === "option-refresh-override").directionValuePatch.body === "Deliberate reviewed override.", "partial resolution preserves private refresh metadata in the focus session");
+    await domain.sessions.mutate(focus.id, (session) => { delete session.activeReview.points[0].options.find(({ id }) => id === "option-refresh-current").directionValuePatch; });
     await domain.markReviewPresented(focus.id, refreshReview.review.id);
     await domain.update(focus.id, { patch: [{ id: "DEC-refresh-target", changes: { rationale: "The latest rationale." } }] });
     await domain.resolveReview(focus.id, { outcomes: [] }, "user-refresh-existing-again");
-    const refreshedAgain = (await domain.sessions.load(focus.id)).activeReview.points[0].options.find(({ id }) => id === "option-refresh-override");
+    const refreshedReviewAgain = (await domain.sessions.load(focus.id)).activeReview.points[0];
+    const refreshedAgain = refreshedReviewAgain.options.find(({ id }) => id === "option-refresh-override");
+    const legacyCurrentAgain = refreshedReviewAgain.options.find(({ id }) => id === "option-refresh-current");
     assert(refreshedAgain.direction.value.rationale === "The latest rationale." && refreshedAgain.direction.value.body === "Deliberate reviewed override.", "repeated refresh preserves the explicit patch while inheriting later target changes");
+    assert(legacyCurrentAgain.direction.value.rationale === "The latest rationale." && legacyCurrentAgain.direction.value.body === "Revised candidate body.", "legacy sessions without private patch metadata refresh from the current target");
     await domain.markReviewPresented(focus.id, refreshReview.review.id);
     const acceptedRefresh = await domain.resolveReview(focus.id, { outcomes: [{ pointId: "point-refresh-existing", action: "accept", optionId: "option-refresh-current" }] }, "user-accept-refresh");
     assert(acceptedRefresh.appliedPointIds.includes("point-refresh-existing"), "refreshed exact direction resolves successfully");
