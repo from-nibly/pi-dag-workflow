@@ -28,12 +28,17 @@ const files = [
   "extensions/dag-workflow/project-model/lavish-cli.ts",
   "extensions/dag-workflow/project-model/review-presentation.ts",
   "extensions/dag-workflow/project-model/migration.ts",
+  "extensions/dag-workflow/dag-runtime/common.ts",
+  "extensions/dag-workflow/dag-runtime/plan.ts",
+  "extensions/dag-workflow/dag-runtime/run-state.ts",
+  "extensions/dag-workflow/dag-runtime/index.ts",
   "extensions/dag-workflow/worker-runtime/core.mjs",
   "extensions/dag-workflow/worker-runtime/child-report.ts",
   "extensions/dag-workflow/worker-runtime/supervisor.mjs",
   "extensions/dag-workflow/worker-runtime/manager.mjs",
   "extensions/dag-workflow/worker-runtime/integration.ts",
   "scripts/project-model-test.mjs",
+  "scripts/dag-runtime-test.mjs",
   "scripts/worker-runtime-test.mjs",
   "scripts/fixtures/fake-worker-rpc.mjs",
   "scripts/migrate-brainstorm-to-project-model.mjs",
@@ -55,6 +60,8 @@ for (const file of files) await access(file);
 const execFileAsync = promisify(execFile);
 const productionModel = await execFileAsync(process.execPath, ["scripts/project-model-test.mjs"]);
 assertIncludes(productionModel.stdout, "Project model production tests OK", "production project-model tests pass");
+const dagRuntime = await execFileAsync(process.execPath, ["scripts/dag-runtime-test.mjs"]);
+assertIncludes(dagRuntime.stdout, "Canonical DAG plan and run-state schema tests OK", "canonical DAG schema tests pass");
 const workerRuntime = await execFileAsync(process.execPath, ["scripts/worker-runtime-test.mjs"], { timeout: 120_000 });
 assertIncludes(workerRuntime.stdout, "Owned worker core, supervisor, and manager tests OK", "owned worker runtime tests pass");
 const adapterPrototype = await execFileAsync(process.execPath, ["spec/prototypes/brainstorm-pi-adapter/scenario.mjs"]);
@@ -120,7 +127,7 @@ assertIncludes(readme, ".ai/worker-sessions/", "README documents durable worker 
 const packageJson = JSON.parse(await readFile("package.json", "utf8"));
 assert(!packageJson.dependencies?.["pi-subagents"], "pi-subagents dependency is removed");
 
-console.log(`Smoke OK: ${files.length} required files exist; project-model, owned-worker, and legacy read-only DAG checks passed`);
+console.log(`Smoke OK: ${files.length} required files exist; project-model, canonical DAG schema, owned-worker, and legacy read-only checks passed`);
 
 function testConfigMergeAndDagBase() {
   const userConfig = {

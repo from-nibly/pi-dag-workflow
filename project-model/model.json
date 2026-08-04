@@ -7957,6 +7957,43 @@
       "updatedAt": "2026-07-31T13:47:32.909Z"
     },
     {
+      "body": "The second rereview showed that exact fact hashes are insufficient when their procedure/catalog semantics, authorization validity, integration predecessor receipt, candidate lineage, or model category are not also joined. Active lifecycle state and blocked sticky-lane ownership must be derived from the same exact closure.",
+      "createdAt": "2026-08-04T16:24:12.902Z",
+      "id": "DISC-canonical-schema-second-review-required-exact-catalog-and-authority-joins",
+      "implications": "Closed by plan-bound content-addressed lifecycle/check catalogs, canonical immutable facts, exact authorization/effect joins, integrated-prefix receipts, sticky blocked lanes, merge-tree lineage, typed model refs, and F2 adoption identity.",
+      "introducedBy": "agent",
+      "proposedFollowup": "Repair each join, add adversarial regression fixtures, run a final independent rereview, and only then complete the schema slice.",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DEC-closed-atomic-dag-run-state-reducer-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-no-future-prefix-speculation-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-sticky-active-node-concurrency-lanes-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-canonical-runtime-schema-second-rereview"
+      ],
+      "state": "integrated",
+      "title": "Canonical runtime validation needs exact catalog, authority, prefix, and lineage joins",
+      "updatedAt": "2026-08-04T17:04:42.484Z"
+    },
+    {
       "body": "The user's concern combines two separate mechanisms. Parent-only services must be inert whenever the extension sees worker-role metadata, regardless of tool use. Separately, the child's active tool set should inherit normal capabilities but omit this extension's recursive launch/management tools and its DAG/project-model tools, while adding only `subagent_report`. This mirrors mature `pi-subagents`: normal tools/extensions remain, the parent extension returns early in child mode, and nested `subagent` exists only through explicit opt-in. It is not necessary to invent a broad security profile or guess at arbitrary third-party tool names.",
       "confidence": "high",
       "createdAt": "2026-07-30T15:35:03.249Z",
@@ -8540,6 +8577,43 @@
       "updatedAt": "2026-07-31T04:57:50.323Z"
     },
     {
+      "body": "Mutable booleans and matching attempt/receipt fields are insufficient for completion unless the run also resolves the exact predecessor prefix, plan-authorized composition/prefix/final profiles, immutable verification facts, every acceptance-oracle assertion's procedure and environment result, the sole legal post-F3 evidence-adoption transition, and the exact work-item effect-scope replay contract.",
+      "createdAt": "2026-08-04T16:50:31.253Z",
+      "id": "DISC-final-schema-review-required-profile-oracle-adoption-effect-closure",
+      "implications": "Closed by exact composition/prefix/final profile hashes and verification facts, F2 oracle assertion facts, one-generation post-F3 delta-attested adoption, item-local provider/kind/replay effect scopes, exact observed train targets, and year-zero-safe RFC 3339 arithmetic.",
+      "introducedBy": "agent",
+      "proposedFollowup": "Implement all five repairs, add focused adversarial fixtures, obtain a bounded final rereview, and only then commit the schema slice.",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DEC-closed-atomic-dag-run-state-reducer-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-explicit-base-merge-tree-synthetic-train-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-no-future-prefix-speculation-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-canonical-runtime-schema-final-rereview"
+      ],
+      "state": "integrated",
+      "title": "Completion needs exact integration profiles, oracle assertions, adoption lineage, and effect-scope closure",
+      "updatedAt": "2026-08-04T17:04:42.484Z"
+    },
+    {
       "body": "`DEC-defer-worker-widget-until-dag-redesign` explicitly supersedes `DEC-passive-live-dag-widget-v1`, but `spec/owned-worker-runtime/spec.md` renders both as governing direction. The projector's `isSpecEligible` checks accepted state and receipt hash only; it does not exclude objects targeted by an accepted `supersedes` relationship. Projection validation also requires every accepted receipt-valid object to retain canonical placement. The same issue leaves older per-run/DAG-coupled worker wording visible beside newer session-scoped DAG-agnostic decisions.",
       "confidence": "high",
       "createdAt": "2026-07-30T18:23:05.734Z",
@@ -8783,6 +8857,43 @@
       "state": "integrated",
       "title": "Independent validation produced real recovery value",
       "updatedAt": "2026-07-31T04:57:50.323Z"
+    },
+    {
+      "body": "Structural closure and root hashing do not prove execution invariants. The initial implementation can accept arbitrary evidence refs as stage passage, detach integration readiness from F8 and the current candidate, permit suffix integration ahead of the train head, and release sticky lanes without a terminal item disposition. Canonical JSON also loses `__proto__` when ordinary objects are used as parser/canonicalizer outputs.",
+      "createdAt": "2026-08-04T15:26:08.584Z",
+      "id": "DISC-initial-canonical-schemas-need-exact-semantic-joins",
+      "implications": "Closed in the strict canonical schema implementation: dangerous keys are preserved/rejected, all stage and completion claims require exact plan/fact joins, train suffixes cannot speculate, and sticky lane identity is durable.",
+      "introducedBy": "agent",
+      "proposedFollowup": "Repair canonical JSON, make precedence integration-only, encode the accepted merge-tree strategy, add plan/fact-aware validation, enforce exact F0–F8/current-candidate/train-head/sticky-lane invariants, and codify every adversarial probe.",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DEC-closed-atomic-dag-run-state-reducer-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-no-future-prefix-speculation-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-sticky-active-node-concurrency-lanes-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-canonical-runtime-schema-implementation-review"
+      ],
+      "state": "integrated",
+      "title": "Initial canonical schemas need exact plan, fact, lifecycle, train, and lane joins",
+      "updatedAt": "2026-08-04T17:04:42.483Z"
     },
     {
       "body": "The accepted per-repository integration lock spans authoritative composition through exact checks and receipt acceptance, but integration trains explicitly do not imply authoring precedence. Scheduler capacity must model integration as a repository-scoped resource/queue distinct from F1 authoring, F2/F5 independent evaluation, deterministic checks, and provider capacity; otherwise one long integration attempt would unnecessarily serialize all candidate creation.",
@@ -10300,6 +10411,150 @@
       "state": "current",
       "title": "Concrete schemaVersion 1 design exercise",
       "updatedAt": "2026-07-31T13:47:32.908Z"
+    },
+    {
+      "body": "A bounded independent retry on the final stable schema verified that borrowed scoped effects are rejected, detached train expected targets are rejected, active integration attempts bind the exact train target, post-F3 F2 adoption is satisfiable only across the exact F3 input/output generation, and historical F1 evidence remains legal only through its exact indexed produced candidate. The canonical runtime test suite also passed.",
+      "confidence": "high",
+      "createdAt": "2026-08-04T17:04:42.483Z",
+      "id": "EV-canonical-runtime-schema-closure-probe",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-closed-atomic-dag-run-state-reducer-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-exact-prefix-every-landing-long-lock-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-explicit-base-merge-tree-synthetic-train-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-sticky-active-node-concurrency-lanes-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "worker-completion:completion-worker-msewmtys-6eb96bf79b-2-1e9665153686"
+      ],
+      "state": "current",
+      "title": "Final canonical schema closure probe found no remaining task-108 blocker",
+      "updatedAt": "2026-08-04T17:04:42.483Z"
+    },
+    {
+      "body": "A final independent read-only review verified the prior activation, catalog, receipt, authorization, lane, model-ref, dangerous-key, path, and most timestamp repairs, then found five remaining gaps: completion did not resolve exact predecessor prefix or required prefix/final profile evidence; oracle passage named oracle IDs without assertion-scoped procedure/environment evidence; F2 adoption was not limited to the sole post-F3 evidence-only-delta transition; external effects could borrow another work item's globally authorized scope or replay class; and RFC 3339 year-zero leap-day validation used JavaScript's 1900 remapping.",
+      "confidence": "high",
+      "createdAt": "2026-08-04T16:50:31.253Z",
+      "id": "EV-canonical-runtime-schema-final-rereview",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-closed-atomic-dag-run-state-reducer-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-exact-prefix-every-landing-long-lock-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-explicit-base-merge-tree-synthetic-train-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "worker:worker-msev9oms-4f97f8e418"
+      ],
+      "state": "current",
+      "title": "Final schema rereview isolated five last completion and evidence gaps",
+      "updatedAt": "2026-08-04T16:50:31.253Z"
+    },
+    {
+      "body": "An independent no-edit review of the new TypeBox plan/run schemas found one canonical-JSON prototype-key collision and multiple semantic false acceptances: forged indexed stage evidence, integration readiness without exact F8/candidate closure, wrong detached-fact kinds, early causal release, later train-entry speculation, sticky-lane release/state mismatches, and legacy integration strategies. Existing positive tests passed, showing that closed structural schemas alone are insufficient without exact cross-record and plan/fact joins.",
+      "confidence": "high",
+      "createdAt": "2026-08-04T15:26:08.583Z",
+      "id": "EV-canonical-runtime-schema-implementation-review",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-closed-atomic-dag-run-state-reducer-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-closed-content-hashed-plan-envelope-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "worker-completion:completion-worker-msesuj8w-e2fb6eeedb-1-1d8c2321603f"
+      ],
+      "state": "current",
+      "title": "Initial canonical runtime schemas remain fail-open under adversarial probes",
+      "updatedAt": "2026-08-04T15:26:08.583Z"
+    },
+    {
+      "body": "A second independent no-edit adversarial rereview found that the first repair still allowed active stages to bypass predecessor stages, fixed producers, or causal readiness; stage evidence hashes were not resolved through plan-bound procedure, environment, and check catalogs; later train entries could trust forged predecessor receipt strings; authorization validity, train-prefix closure, and effect authorization joins were incomplete; blocked admitted work could shed sticky lanes; merge-tree lineage and F2 evidence adoption were underrepresented; model refs erased collection/category semantics; and portable path plus RFC 3339 edge handling remained incomplete.",
+      "confidence": "high",
+      "createdAt": "2026-08-04T16:24:12.901Z",
+      "id": "EV-canonical-runtime-schema-second-rereview",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-closed-atomic-dag-run-state-reducer-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-explicit-base-merge-tree-synthetic-train-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-sticky-active-node-concurrency-lanes-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "worker-completion:completion-worker-msetvty0-d0f7fcc92a-1-84c80d7066ad"
+      ],
+      "state": "current",
+      "title": "Second canonical schema rereview found residual activation, catalog, receipt, authorization, lane, lineage, and model-ref gaps",
+      "updatedAt": "2026-08-04T16:24:12.901Z"
     },
     {
       "body": "`package.json` pins `pi-subagents` 0.25.0 and `extensions/dag-workflow/dag-subagent.ts` imports package-private `src/**` modules for discovery, execution, watchers, notifications, settings, schemas, and state. The current extension entry point does not import or register `registerDagSubagentTool`; dependency analysis finds no importer. The post-cutover runtime therefore does not currently launch workers, but still installs the dependency and retains tightly coupled dead integration code.",
@@ -12734,9 +12989,9 @@
         }
       ]
     },
-    "revision": 160,
+    "revision": 164,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-04T15:22:28.269Z"
+    "updatedAt": "2026-08-04T17:04:42.484Z"
   },
   "proposals": [
     {

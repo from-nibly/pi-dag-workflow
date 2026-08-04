@@ -8,6 +8,7 @@
   "scripts": {
     "smoke": "node scripts/smoke-test.mjs",
     "test:model": "node scripts/project-model-test.mjs",
+    "test:dag-runtime": "node scripts/dag-runtime-test.mjs",
     "test:workers": "node scripts/worker-runtime-test.mjs",
     "migrate:model": "node scripts/migrate-brainstorm-to-project-model.mjs",
     "pack:dry": "npm pack --dry-run"
