@@ -14,8 +14,10 @@ export function registerWorkerRuntime(pi: ExtensionAPI) {
     description: "Launch an always-asynchronous process-isolated Pi worker. Returns immediately; completion is delivered later through the serial completion queue.",
     parameters: Type.Object({
       task: Type.String({ minLength: 1, maxLength: 65536 }),
+      launchKey: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
       label: Type.Optional(Type.String({ maxLength: 256 })),
       cwd: Type.Optional(Type.String()),
+      disposableRootToken: Type.Optional(Type.String({ minLength: 1 })),
       provider: Type.Optional(Type.String()),
       model: Type.Optional(Type.String()),
       thinking: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("minimal"), Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("xhigh"), Type.Literal("max")])),
@@ -24,7 +26,55 @@ export function registerWorkerRuntime(pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       assertAttached(attachError);
       const result = await manager.launch(params, ctx);
-      return toolResult(`Started asynchronous worker ${result.workerId} (attempt ${result.attemptNumber}).`, result);
+      return toolResult(`${result.idempotentReplay ? "Reused" : "Started"} asynchronous worker ${result.workerId} (attempt ${result.attemptNumber}).`, result);
+    },
+  });
+
+  pi.registerTool({
+    name: "subagent_approve_disposable_root",
+    label: "Approve Disposable Worker Root",
+    description: "Approve an exact path/inode below a configured disposable-root parent and return an owner-bound launch token.",
+    parameters: Type.Object({ cwd: Type.String({ minLength: 1 }) }),
+    async execute(_id, params) {
+      assertAttached(attachError);
+      const result = await manager.approveDisposableWorkingRoot(params.cwd);
+      return jsonToolResult(result, { approvalId: result.approvalId });
+    },
+  });
+
+  pi.registerTool({
+    name: "subagent_retire_disposable_root",
+    label: "Retire Disposable Worker Root",
+    description: "Retire an owner-bound disposable-root approval after no active worker uses it.",
+    parameters: Type.Object({ disposableRootToken: Type.String({ minLength: 1 }) }),
+    async execute(_id, params) {
+      assertAttached(attachError);
+      const result = await manager.retireDisposableWorkingRoot(params.disposableRootToken);
+      return jsonToolResult(result, result);
+    },
+  });
+
+  pi.registerTool({
+    name: "subagent_results",
+    label: "Enumerate Durable Worker Results",
+    description: "Enumerate durable immutable worker results independently of completion delivery and acknowledgement.",
+    parameters: Type.Object({ launchKey: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })) }),
+    async execute(_id, params) {
+      assertAttached(attachError);
+      const result = await manager.listResults(params);
+      return jsonToolResult(result, { count: result.length });
+    },
+  });
+
+  pi.registerTool({
+    name: "subagent_result_by_launch_key",
+    label: "Read Worker Result By Launch Key",
+    description: "Read the latest immutable terminal result for an opaque launch key.",
+    parameters: Type.Object({ launchKey: Type.String({ minLength: 1, maxLength: 512 }) }),
+    async execute(_id, params) {
+      assertAttached(attachError);
+      const result = await manager.resultByLaunchKey(params.launchKey);
+      return jsonToolResult(result, { found: result !== null });
     },
   });
 

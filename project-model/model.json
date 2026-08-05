@@ -10298,12 +10298,40 @@
       },
       "sourceRefs": [
         "/tmp/pi-dag-run-state-adversarial-review.md",
-        "extensions/dag-workflow/worker-runtime/manager.mjs:223",
+        "EV-owned-worker-runtime-final-closure",
+        "extensions/dag-workflow/worker-runtime/manager.mjs",
         "worker-msdjuqwb-087a6ef082"
       ],
-      "state": "investigating",
+      "state": "integrated",
       "title": "Generic lost status does not yet prove retry safety",
-      "updatedAt": "2026-08-03T18:26:03.016Z"
+      "updatedAt": "2026-08-05T02:28:09.563Z"
+    },
+    {
+      "body": "Implementation confirms that a valid or synthesized terminal result cannot itself authorize retry: the detached supervisor may still be live, a child identity may be absent or reused, or the process group may remain present. Retry authorization therefore needs a separately published immutable disposition fact joining the exact attempt, supervisor and child PID/start identities, process-group observation, owner, and observation time; missing or corrupt proof must block retry even when terminal status is already durable.",
+      "createdAt": "2026-08-04T22:28:46.724Z",
+      "id": "DISC-worker-runtime-hardening-needs-immutable-process-proof-not-terminal-inference",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-generic-worker-idempotent-consumer-contract-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-worker-lost-status-does-not-prove-retry-safety",
+        "EV-owned-worker-runtime-hardening-implementation",
+        "extensions/dag-workflow/worker-runtime/manager.mjs"
+      ],
+      "state": "integrated",
+      "title": "Worker retry safety needs immutable process proof rather than terminal inference",
+      "updatedAt": "2026-08-04T22:28:46.724Z"
     },
     {
       "body": "`WorkerSessionStore.queue` serializes mutations inside one JavaScript manager instance but does not exclude a second Pi process from loading the same revision and winning an atomic-rename last-writer race. Initialization, ownership claim/transfer, launch reservation, ingest, and future DAG conductor takeover need process-shared locking plus expected revision/state-hash CAS; PID identity and atomic rename alone are insufficient.",
@@ -10325,12 +10353,13 @@
       },
       "sourceRefs": [
         "/tmp/pi-dag-run-state-adversarial-review.md",
-        "extensions/dag-workflow/worker-runtime/core.mjs:332",
+        "EV-owned-worker-runtime-final-closure",
+        "extensions/dag-workflow/worker-runtime/core.mjs",
         "worker-msdjuqwb-087a6ef082"
       ],
-      "state": "investigating",
+      "state": "integrated",
       "title": "Worker session mutation serialization is process-local only",
-      "updatedAt": "2026-08-03T18:26:03.016Z"
+      "updatedAt": "2026-08-05T02:28:09.563Z"
     },
     {
       "body": "Git worktrees protect working directories, indexes, and branch state, but agents can still conflict through contracts, schemas, generated sources, external services, ports, databases, caches, credentials, staging environments, or combined behavior. Runtime resources need namespacing or capacity constraints, and future merged states need direct validation.",
@@ -11846,6 +11875,96 @@
       "updatedAt": "2026-08-04T14:05:47.214Z"
     },
     {
+      "body": "Task 110 closed the generic owned-worker consumer boundary after four independent read-only closure rounds. The final tree serializes process-shared session mutation with exact PID/start identity and revision/hash CAS; reserves launches by launchKey plus normalized request hash; binds supervisor authority only to the actual spawn result; separates terminal status from immutable retry-safety proof; fences disposable roots by canonical repository containment and dev/inode identity; arbitrates cancellation, recovery publication, and result adoption under store-locked authority; preserves durable results, launch replay, quarantine, and archived inspection under bounded mutable retention; and queues explicit and coalesced timer scans without stale-return or starvation behavior. Focused fixtures cover crash windows, copied/PID-reused locks, concurrent retry replay, detached cwd/nonce/uninspectable descendants, root replacement/retirement races, forged pre-binding artifacts, timestamp/report conflicts, completion-less retention, cancellation/result races, scan backlogs, dispatch-in-progress recovery, and stale unbound scan snapshots. The exact stale-snapshot closure review reported no release blockers after 30 consecutive worker-suite passes.",
+      "createdAt": "2026-08-05T02:28:09.563Z",
+      "id": "EV-owned-worker-runtime-final-closure",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-generic-worker-idempotent-consumer-contract-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "completion-worker-msf87pev-c0e11caed9-1-c77701423a4b",
+        "completion-worker-msf9fee4-ae34cef1d6-1-e91046e3b75e",
+        "completion-worker-msfbkzsf-60a6fb9a10-1-9711e9f44ca7",
+        "completion-worker-msfcoymc-1f4cfbda68-1-21ce056f68b8",
+        "completion-worker-msfdinoy-2468bbfcee-1-564b1c524d07",
+        "completion-worker-msffg43l-e5cd43f6d9-1-5381f5d29ded",
+        "completion-worker-msfgsx0p-d918450419-1-cc5c57f40da3",
+        "extensions/dag-workflow/worker-runtime/core.mjs",
+        "extensions/dag-workflow/worker-runtime/integration.ts",
+        "extensions/dag-workflow/worker-runtime/manager.mjs",
+        "extensions/dag-workflow/worker-runtime/supervisor.mjs",
+        "scripts/worker-runtime-test.mjs"
+      ],
+      "state": "current",
+      "title": "Owned-worker consumer boundary passed adversarial release closure",
+      "updatedAt": "2026-08-05T02:28:09.563Z"
+    },
+    {
+      "body": "The first independent read-only review found ten process-service blockers involving detached descendants, conflicting mailbox identities, weak terminal envelopes and timestamps, PID reuse, disposable-root replacement, forced teardown, concurrent retry replay, late recovery artifacts, mutable retention, and missing consumer APIs. Subsequent closure rounds also exposed pre-binding spawn-authority forgery, incomplete terminal/report joins, completion-less retention, stale scan returns, cancellation/result races, timer starvation, dispatch-in-progress recovery, and stale unbound scan snapshots. Each finding now has a focused fail-closed repair and deterministic fixture; final closure evidence is recorded separately.",
+      "createdAt": "2026-08-04T22:59:28.160Z",
+      "id": "EV-owned-worker-runtime-first-closure-review",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "completion-worker-msf87pev-c0e11caed9-1-c77701423a4b",
+        "extensions/dag-workflow/worker-runtime/core.mjs",
+        "extensions/dag-workflow/worker-runtime/integration.ts",
+        "extensions/dag-workflow/worker-runtime/manager.mjs",
+        "extensions/dag-workflow/worker-runtime/supervisor.mjs",
+        "scripts/worker-runtime-test.mjs"
+      ],
+      "state": "current",
+      "title": "First owned-worker closure review exposed ten process-service blockers",
+      "updatedAt": "2026-08-05T02:28:09.563Z"
+    },
+    {
+      "body": "Task 110 adds process-shared worker-session locking with exact PID/start identity and stale/recovery-lock quarantine; snapshot revision/hash CAS; launchKey plus normalized request hashing and reserve-or-return-existing behavior; durable launch crash recovery; exact config/owner/supervisor/child identities; immutable process-disposition facts distinct from terminal results; retry-safe owner tokens with concurrent replay; result enumeration by launch key independent of completion acknowledgement; exact quarantine of late, corrupt, conflicting, recovery, mailbox, and post-cancellation artifacts; canonical owner-bound disposable-root approval and inode rechecks; bounded terminal-worker archives and mutable metadata; serialized cancellation/recovery/result authority; queued explicit and coalesced timer scans; and real-child crash/concurrency/descendant/retention/stale-snapshot fixtures. Thirty consecutive worker-runtime passes plus DAG-runtime, model, smoke, package, syntax, spec, and diff checks pass; the final exact-reproduction closure review reports no release blockers.",
+      "createdAt": "2026-08-04T22:28:46.723Z",
+      "id": "EV-owned-worker-runtime-hardening-implementation",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-generic-worker-idempotent-consumer-contract-v1",
+        "EV-owned-worker-runtime-first-closure-review",
+        "extensions/dag-workflow/worker-runtime/core.mjs",
+        "extensions/dag-workflow/worker-runtime/integration.ts",
+        "extensions/dag-workflow/worker-runtime/manager.mjs",
+        "extensions/dag-workflow/worker-runtime/supervisor.mjs",
+        "scripts/fixtures/fake-worker-rpc.mjs",
+        "scripts/fixtures/worker-manager-crash-child.mjs",
+        "scripts/fixtures/worker-store-child.mjs",
+        "scripts/worker-runtime-test.mjs"
+      ],
+      "state": "current",
+      "title": "Owned worker runtime now exercises process-shared idempotent recovery boundaries",
+      "updatedAt": "2026-08-05T02:28:09.563Z"
+    },
+    {
       "body": "Primary and mature-system sources converge on typed dependencies, resource pools, isolation, speculative validation, and ordered integration rather than hard file ownership. Ninja distinguishes dependency kinds, dynamic dependencies, and pools; PostgreSQL SSI provides an evidence-bearing conflict-serializability analogy with abort/retry; Crystal demonstrates higher-order conflicts after clean textual merges; Git worktrees and merge-tree isolate and simulate without proving semantics; schema systems require staged expand/adopt/contract protocols; Airflow and Dask separate readiness from capacity/priority; Zuul and GitLab merge trains speculatively test ordered future integration prefixes and invalidate successors after failures. Structured merge reduces textual false positives but still requires review and behavioral validation.",
       "confidence": "high",
       "createdAt": "2026-07-31T04:32:22.977Z",
@@ -12698,28 +12817,40 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "The immutable canonical plan/schema layer and the foundational atomic run-state kernel are implemented. CanonicalDagPlanV1 remains static authority; DagRunStateV1 changes only through closed guarded inputs with exact natural-slot receipts, owner-epoch fencing, persisted effect intents, and deterministic snapshot hashes. The store supplies process-shared exact-identity exclusion, explicit current-owner transfer, idle/dead-owner recovery, atomic archive/current publication, bounded archive retention, durable immutable facts, externally authorized quarantine adoption, corruption envelopes, and crash-resumable initialization/recovery. Cancellation advances generations before cancellation dispatch, blocks overlapping/post-fence work, quarantines late non-cancel results without adopting them, and retains sticky resources until all workers and affected effects are terminally reconciled. This remains non-authoritative implementation understanding grounded in the accepted runtime decisions and closure evidence; worker adapter ingestion, Git transactions, and scheduler/conductor surfaces remain downstream.",
-      "generatedAt": "2026-08-04T19:39:41.494Z",
+      "body": "Current non-authoritative understanding: task 109's atomic DAG run-state kernel is complete and pushed. Task 110's generic owned-worker consumer boundary is release-closed: process-shared PID/start-identity locking and revision/hash CAS; launch-key/request idempotency; actual-spawn-only supervisor authority; strict mailbox, process, timestamp, report, cancellation, and recovery joins; immutable retry-safety facts covering direct identities, process groups, cwd users, inherited nonce, and newly uninspectable processes; owner-bound replay-safe retries; canonical disposable-root and inode fencing; symmetric immutable quarantine; bounded archives with durable result/replay APIs; and serialized explicit/coalesced timer scans now have adversarial fixtures. Thirty consecutive worker suites, the full project matrix, and the exact stale-snapshot closure review pass with no release blocker. Git integration and scheduler/conductor execution remain downstream.",
+      "generatedAt": "2026-08-05T02:28:09.564Z",
       "sourceObjects": [
         {
-          "id": "DEC-closed-atomic-dag-run-state-reducer-v1",
-          "semanticHash": "sha256:391a92bee11fe8d56ee53c9e5af37411e06e1fbeae4c5be908b59b88aec4f636"
+          "id": "DEC-generic-worker-idempotent-consumer-contract-v1",
+          "semanticHash": "sha256:7752b13a4fcd0681af20facd5ac79e3b4ce89cea1ac3ff611d6adf49db756956"
         },
         {
-          "id": "DEC-process-shared-dag-conductor-ownership-v1",
-          "semanticHash": "sha256:3d63bc48e1deb3bc48a92e228ef76d60eff45744af5e427f4d58874112262288"
+          "id": "EV-owned-worker-runtime-hardening-implementation",
+          "semanticHash": "sha256:6073a3f82c903f2d5158478103f69118397b87d4d1a7cdfa8d0badd1c687db47"
         },
         {
-          "id": "DEC-run-pause-cancel-late-result-v1",
-          "semanticHash": "sha256:62feb57ad25fe6680246a05d7aa5b9c61bfef41402eb745485b985c460d10e86"
+          "id": "EV-owned-worker-runtime-first-closure-review",
+          "semanticHash": "sha256:cc475cbe99a114413afdafd302da8a4d423a6a3943133e5c1645279e654a6863"
+        },
+        {
+          "id": "EV-owned-worker-runtime-final-closure",
+          "semanticHash": "sha256:e59951e6a031545df603079a516d39b3ad7b712a9e9065921abe56bf1fbcfe9d"
+        },
+        {
+          "id": "DISC-worker-runtime-hardening-needs-immutable-process-proof-not-terminal-inference",
+          "semanticHash": "sha256:f468924c062ebdb0c3441d3d55ec0b91cecb9f69a597fa93eeee7348b29e76b8"
+        },
+        {
+          "id": "DISC-worker-session-serialization-is-only-process-local",
+          "semanticHash": "sha256:91263ededd352113835cf7b22825a38f4d3bfc93711753387df4757c9d484c4e"
+        },
+        {
+          "id": "DISC-worker-lost-status-does-not-prove-retry-safety",
+          "semanticHash": "sha256:e644fc7c7166a9bc4a55f49d9d413a2ed59755539b7aede2d89b0152e9f8cde2"
         },
         {
           "id": "EV-run-state-kernel-hardening-and-closure",
           "semanticHash": "sha256:4ac4dbb552ab820f9bb6bae250f4aa2ec2cd795e39ba6655b3756387368a41fb"
-        },
-        {
-          "id": "DISC-run-state-kernel-needs-crash-resumable-proof-bound-foundation",
-          "semanticHash": "sha256:ed5069ad240152ad5bc4faedb450b877eade7e5a9fd16d2e30ad3902d76e7592"
         }
       ]
     },
@@ -13059,9 +13190,9 @@
         }
       ]
     },
-    "revision": 166,
+    "revision": 169,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-04T19:39:41.494Z"
+    "updatedAt": "2026-08-05T02:28:09.564Z"
   },
   "proposals": [
     {

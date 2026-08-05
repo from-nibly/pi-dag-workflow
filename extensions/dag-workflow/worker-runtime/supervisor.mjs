@@ -52,6 +52,8 @@ let forceTimer;
 const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0 };
 const eventCounts = {};
 
+const launchReceiptPayload = { schemaVersion: 1, kind: "worker_supervisor_launch", storageId: config.storageId, ownerSessionId: config.ownerSessionId, workerId: config.workerId, attemptNumber: config.attemptNumber, attemptNonce: config.attemptNonce, configHash: config.configHash, supervisorPid: process.pid, supervisorStartIdentity: supervisorIdentity, observedAt: config.createdAt };
+await writeImmutableJson(paths.launchReceipt, { ...launchReceiptPayload, receiptHash: sha256(launchReceiptPayload) }, { maxBytes: 64 * 1024 });
 await writeMailbox("starting");
 child = spawn(process.execPath, buildPiArgs(config), {
   cwd: config.cwd,
@@ -206,8 +208,7 @@ async function finalize(exitCode, signal) {
 
   let terminalStatus = terminalIntent;
   if (cancelRequested) terminalStatus = "cancelled";
-  else if (modelError || protocolError || (!terminalIntent && (exitCode !== 0 || signal)) || (!terminalIntent && !report)) terminalStatus = "failed";
-  else if (exitCode !== 0 && !teardownForced) terminalStatus = "failed";
+  else if (modelError || protocolError || teardownForced || exitCode !== 0 || signal || (!terminalIntent && !report)) terminalStatus = "failed";
   if (!terminalStatus) terminalStatus = "failed";
   const reportStatus = report ? (repairsUsed ? "repaired" : "valid") : "missing";
   if (reportStatus === "missing" && terminalStatus === "succeeded") terminalStatus = "needs_attention";
