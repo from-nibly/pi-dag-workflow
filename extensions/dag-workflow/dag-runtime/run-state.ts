@@ -270,12 +270,53 @@ export interface IntegrationReadyFactBindingV1 {
   findingsClosed: boolean;
 }
 
+export interface GitTransactionFactBindingV1 {
+  kind: "git_transaction";
+  hash: string;
+  factType: "repository_binding" | "private_ref" | "composition" | "proposal_verification" | "landing" | "quarantine";
+  planHash: string;
+  runId: string;
+  runNonce: string;
+  authorizationSetHash: string;
+  repositoryId: string;
+  integrationAttemptId: string | null;
+  effectId: string | null;
+  requestHash: string;
+  ownerEpoch: number;
+  commonDirIdentityHash: string;
+  worktreeIdentityHash: string;
+  gitConfigHash: string;
+  gitVersionHash: string;
+  objectFormat: "sha1" | "sha256";
+  targetRef: string | null;
+  commit: string | null;
+  tree: string | null;
+  parentCommit: string | null;
+  reconciliation: "not_started" | "applied_exact" | "proven_absent" | "conflict" | "unknown";
+  detailsHash: string;
+  observedAt: string;
+}
+
+export interface GitIntegrationReceiptFactBindingV1 {
+  kind: "git_integration_receipt";
+  hash: string;
+  planHash: string;
+  runId: string;
+  runNonce: string;
+  authorizationSetHash: string;
+  repositoryId: string;
+  integrationAttemptId: string;
+  transactionReceiptHash: string;
+  receipt: Record<string, unknown>;
+}
+
 export interface IntegrationFactBindingV1 {
   kind: "integration";
   hash: string;
   planHash: string;
   runId: string;
   runNonce: string;
+  authorizationSetHash: string;
   workItemId: string;
   repositoryId: string;
   integrationAttemptId: string;
@@ -286,6 +327,7 @@ export interface IntegrationFactBindingV1 {
   expectedTarget: GitTreeRefV1;
   prefixEvidenceHashes: readonly string[];
   finalEvidenceHashes: readonly string[];
+  environmentClosureHash: string;
   sourceBase: GitTreeRefV1;
   sourceCandidate: GitTreeRefV1;
   syntheticParentCommit: string;
@@ -293,9 +335,18 @@ export interface IntegrationFactBindingV1 {
   landed: GitTreeRefV1;
   combinedStateVerified: boolean;
   reconciled: boolean;
+  acceptingOwnerEpoch: number;
+  commonDirIdentityHash: string;
+  worktreeIdentityHash: string;
+  gitConfigHash: string;
+  gitVersionHash: string;
+  objectFormat: "sha1" | "sha256";
+  transactionReceiptHash: string;
+  transactionReceiptFactHash: string;
+  landingObservationHash: string;
 }
 
-export type DagRunFactBindingV1 = ProcessIdentityObservationBindingV1 | CorruptFactEnvelopeBindingV1 | StageAttemptInputFactBindingV1 | WorkerResultFactBindingV1 | StageEvidenceFactBindingV1 | CheckDispositionFactBindingV1 | VerificationFactBindingV1 | OracleAssertionFactBindingV1 | EffectReconciliationFactBindingV1 | QuarantineResolutionFactBindingV1 | OwnershipFactBindingV1 | CandidateFactBindingV1 | EvidenceAdoptionFactBindingV1 | IntegrationReadyFactBindingV1 | IntegrationFactBindingV1;
+export type DagRunFactBindingV1 = GitTransactionFactBindingV1 | GitIntegrationReceiptFactBindingV1 | ProcessIdentityObservationBindingV1 | CorruptFactEnvelopeBindingV1 | StageAttemptInputFactBindingV1 | WorkerResultFactBindingV1 | StageEvidenceFactBindingV1 | CheckDispositionFactBindingV1 | VerificationFactBindingV1 | OracleAssertionFactBindingV1 | EffectReconciliationFactBindingV1 | QuarantineResolutionFactBindingV1 | OwnershipFactBindingV1 | CandidateFactBindingV1 | EvidenceAdoptionFactBindingV1 | IntegrationReadyFactBindingV1 | IntegrationFactBindingV1;
 export interface DagRunAuthorizationBindingV1 {
   hash: string;
   planHash: string;
@@ -378,10 +429,10 @@ const QuarantineReasonSchema = Type.Enum(["identity_mismatch", "stale_generation
 const QuarantineStateSchema = Type.Enum(["held", "adopted", "rejected"]);
 const TrainEntryStateSchema = Type.Enum(["waiting", "eligible", "reserved", "composing", "verifying_prefix", "landing", "integrated", "blocked", "invalidated", "quarantined"]);
 const ConflictClassSchema = Type.Enum(["none", "mechanical", "semantic", "ambiguous"]);
-const LandingStateSchema = Type.Enum(["none", "intended", "dispatching", "observed", "reconciled", "ambiguous"]);
+const LandingStateSchema = Type.Enum(["none", "intended", "dispatching", "observed", "reconciled", "landed", "ambiguous"]);
 const CancellationScopeSchema = Type.Enum(["run", "work_item", "stage_attempt", "integration_attempt"]);
 const CancellationStateSchema = Type.Enum(["requested", "dispatching", "observed", "ambiguous", "closed"]);
-const FactKindSchema = Type.Enum(["plan_review", "plan_authorization", "authorization_set", "staleness", "stage_attempt_input", "worker_result", "candidate", "stage_evidence", "check_disposition", "oracle_assertion", "finding", "finding_resolution", "waiver", "invalidation", "adoption", "effect_intent", "effect_reconciliation", "corrupt_fact", "process_identity_observation", "quarantine_resolution", "quarantine_authority", "integration_ready", "integration", "ownership", "gate_release", "repository_observation", "verification"]);
+const FactKindSchema = Type.Enum(["plan_review", "plan_authorization", "authorization_set", "staleness", "stage_attempt_input", "worker_result", "candidate", "stage_evidence", "check_disposition", "oracle_assertion", "finding", "finding_resolution", "waiver", "invalidation", "adoption", "effect_intent", "effect_reconciliation", "corrupt_fact", "process_identity_observation", "quarantine_resolution", "quarantine_authority", "integration_ready", "integration", "ownership", "gate_release", "repository_observation", "verification", "git_transaction", "git_integration_receipt"]);
 const StageAttemptInputFactBindingV1Schema = StrictObject({
   kind: Type.Literal("stage_attempt_input"), hash: HashSchema, planHash: HashSchema, runId: IdSchema,
   runNonce: Type.String({ minLength: 16, maxLength: 256 }), workItemId: IdSchema, stage: PlanStageIdSchema,
@@ -474,16 +525,42 @@ const IntegrationReadyFactBindingV1Schema = StrictObject({
   candidateGeneration: NonNegativeIntegerSchema, candidateHash: HashSchema, f8EvidenceHash: HashSchema,
   allRequiredChecksPassed: Type.Boolean(), effectsReconciled: Type.Boolean(), findingsClosed: Type.Boolean(),
 });
+const GitTransactionFactBindingV1Schema = StrictObject({
+  kind: Type.Literal("git_transaction"), hash: HashSchema,
+  factType: Type.Enum(["repository_binding", "private_ref", "composition", "proposal_verification", "landing", "quarantine"]),
+  planHash: HashSchema, runId: IdSchema, runNonce: Type.String({ minLength: 16, maxLength: 256 }), authorizationSetHash: HashSchema, repositoryId: IdSchema,
+  integrationAttemptId: Nullable(IdSchema), effectId: Nullable(IdSchema), requestHash: HashSchema, ownerEpoch: NonNegativeIntegerSchema,
+  commonDirIdentityHash: HashSchema, worktreeIdentityHash: HashSchema, gitConfigHash: HashSchema, gitVersionHash: HashSchema, objectFormat: Type.Enum(["sha1", "sha256"]),
+  targetRef: Nullable(Type.String({ minLength: 1, maxLength: 512 })), commit: Nullable(GitOidSchema), tree: Nullable(GitOidSchema), parentCommit: Nullable(GitOidSchema),
+  reconciliation: Type.Enum(["not_started", "applied_exact", "proven_absent", "conflict", "unknown"]), detailsHash: HashSchema, observedAt: TimestampSchema,
+});
+const GitIntegrationReceiptPayloadV1Schema = StrictObject({
+  schemaVersion: Type.Literal(1), kind: Type.Literal("IntegrationReceiptV1"), transactionId: IdSchema, runId: IdSchema,
+  runNonce: Type.String({ minLength: 16, maxLength: 256 }), planHash: HashSchema, authorizationSetHash: HashSchema, ownerEpoch: NonNegativeIntegerSchema,
+  repositoryId: IdSchema, commonDirIdentityHash: HashSchema, worktreeIdentityHash: HashSchema, gitVersion: Type.String({ minLength: 1, maxLength: 256 }), configHash: HashSchema, objectFormat: Type.Enum(["sha1", "sha256"]), targetRef: Type.String({ minLength: 1, maxLength: 512 }),
+  sourceBase: GitTreeRefV1Schema, candidate: GitTreeRefV1Schema, expectedPrefix: GitTreeRefV1Schema, composed: GitTreeRefV1Schema,
+  workItemId: IdSchema, candidateGeneration: PositiveIntegerSchema, compositionProfileHash: HashSchema, prefixValidationProfileHash: HashSchema, finalValidationProfileHash: HashSchema,
+  prefixEvidenceHashes: Type.Array(HashSchema, { minItems: 1 }), finalEvidenceHashes: Type.Array(HashSchema, { minItems: 1 }), environmentClosureHash: HashSchema,
+  privateRefs: Type.Record(Type.String({ minLength: 1, maxLength: 128 }), Type.String({ minLength: 1, maxLength: 512 })),
+  landing: StrictObject({ expectedOldOid: GitOidSchema, newOid: GitOidSchema, reconciliation: Type.Literal("applied_exact"), targetObservationHash: HashSchema }),
+  sealedAt: TimestampSchema, receiptHash: HashSchema,
+});
+const GitIntegrationReceiptFactBindingV1Schema = StrictObject({
+  kind: Type.Literal("git_integration_receipt"), hash: HashSchema, planHash: HashSchema, runId: IdSchema, runNonce: Type.String({ minLength: 16, maxLength: 256 }), authorizationSetHash: HashSchema,
+  repositoryId: IdSchema, integrationAttemptId: IdSchema, transactionReceiptHash: HashSchema, receipt: GitIntegrationReceiptPayloadV1Schema,
+});
 const IntegrationFactBindingV1Schema = StrictObject({
   kind: Type.Literal("integration"), hash: HashSchema, planHash: HashSchema, runId: IdSchema,
-  runNonce: Type.String({ minLength: 16, maxLength: 256 }), workItemId: IdSchema, repositoryId: IdSchema, integrationAttemptId: IdSchema,
+  runNonce: Type.String({ minLength: 16, maxLength: 256 }), authorizationSetHash: HashSchema, workItemId: IdSchema, repositoryId: IdSchema, integrationAttemptId: IdSchema,
   candidateHash: HashSchema, strategy: Type.Literal("merge_tree_one_parent"), compositionProfileHash: HashSchema,
   expectedPrefix: GitTreeRefV1Schema, expectedTarget: GitTreeRefV1Schema,
-  prefixEvidenceHashes: Type.Array(HashSchema, { minItems: 1 }), finalEvidenceHashes: Type.Array(HashSchema, { minItems: 1 }),
+  prefixEvidenceHashes: Type.Array(HashSchema, { minItems: 1 }), finalEvidenceHashes: Type.Array(HashSchema, { minItems: 1 }), environmentClosureHash: HashSchema,
   sourceBase: GitTreeRefV1Schema, sourceCandidate: GitTreeRefV1Schema, syntheticParentCommit: GitOidSchema,
-  sourceToIntegratedLineageHash: HashSchema, landed: GitTreeRefV1Schema, combinedStateVerified: Type.Boolean(), reconciled: Type.Boolean(),
+  sourceToIntegratedLineageHash: HashSchema, landed: GitTreeRefV1Schema, combinedStateVerified: Type.Boolean(), reconciled: Type.Boolean(), acceptingOwnerEpoch: NonNegativeIntegerSchema,
+  commonDirIdentityHash: HashSchema, worktreeIdentityHash: HashSchema, gitConfigHash: HashSchema, gitVersionHash: HashSchema, objectFormat: Type.Enum(["sha1", "sha256"]),
+  transactionReceiptHash: HashSchema, transactionReceiptFactHash: HashSchema, landingObservationHash: HashSchema,
 });
-const DagRunFactBindingV1Schema = Type.Union([ProcessIdentityObservationBindingV1Schema, CorruptFactEnvelopeBindingV1Schema, StageAttemptInputFactBindingV1Schema, WorkerResultFactBindingV1Schema, StageEvidenceFactBindingV1Schema, CheckDispositionFactBindingV1Schema, VerificationFactBindingV1Schema, OracleAssertionFactBindingV1Schema, EffectReconciliationFactBindingV1Schema, QuarantineResolutionFactBindingV1Schema, OwnershipFactBindingV1Schema, CandidateFactBindingV1Schema, EvidenceAdoptionFactBindingV1Schema, IntegrationReadyFactBindingV1Schema, IntegrationFactBindingV1Schema]);
+const DagRunFactBindingV1Schema = Type.Union([GitTransactionFactBindingV1Schema, GitIntegrationReceiptFactBindingV1Schema, ProcessIdentityObservationBindingV1Schema, CorruptFactEnvelopeBindingV1Schema, StageAttemptInputFactBindingV1Schema, WorkerResultFactBindingV1Schema, StageEvidenceFactBindingV1Schema, CheckDispositionFactBindingV1Schema, VerificationFactBindingV1Schema, OracleAssertionFactBindingV1Schema, EffectReconciliationFactBindingV1Schema, QuarantineResolutionFactBindingV1Schema, OwnershipFactBindingV1Schema, CandidateFactBindingV1Schema, EvidenceAdoptionFactBindingV1Schema, IntegrationReadyFactBindingV1Schema, IntegrationFactBindingV1Schema]);
 const ProcedureCatalogBindingV1Schema = StrictObject({
   hash: HashSchema, procedureId: IdSchema, purpose: Type.Enum(["lifecycle", "evidence_only_delta_attestation"]), stages: Type.Array(PlanStageIdSchema, { minItems: 1 }),
   producerKinds: Type.Array(ProducerKindSchema, { minItems: 1 }), readOnly: Type.Boolean(), environmentProfileHash: HashSchema,
@@ -909,10 +986,16 @@ const IntegrationAttemptProjectionV1Schema = StrictObject({
   conflictClass: ConflictClassSchema,
   prefixEvidenceHashes: Type.Array(HashSchema),
   finalEvidenceHashes: Type.Array(HashSchema),
+  environmentClosureHash: Nullable(HashSchema),
   landingEffectId: Nullable(IdSchema),
   landingState: LandingStateSchema,
   intendedLandedTree: Nullable(GitTreeRefV1Schema),
   integrationReceipt: Nullable(HashSchema),
+  repositoryBindingFactHash: Nullable(HashSchema),
+  privateRefFactHashes: Type.Array(HashSchema),
+  compositionFactHash: Nullable(HashSchema),
+  proposalVerificationFactHash: Nullable(HashSchema),
+  landingObservationFactHash: Nullable(HashSchema),
 });
 const FreshnessProjectionV1Schema = StrictObject({
   class: FreshnessClassSchema,
@@ -934,6 +1017,13 @@ const CompletionProjectionV1Schema = StrictObject({
   completedRepositoryIds: StringSet(),
   completedAt: Nullable(TimestampSchema),
 });
+const OperationalCapacityV1Schema = StrictObject({
+  namespace: IdSchema,
+  observedCapacity: NonNegativeIntegerSchema,
+  allocatedUnits: NonNegativeIntegerSchema,
+  reservationIds: StringSet(),
+  observationHash: HashSchema,
+});
 const SchedulerReservationV1Schema = StrictObject({
   reservationId: IdSchema,
   reservationSequence: PositiveIntegerSchema,
@@ -949,6 +1039,7 @@ const SchedulerReservationV1Schema = StrictObject({
   leaseIds: StringSet(),
   mutexGroupIds: StringSet(),
   resourceUnits: Type.Record(IdSchema, NonNegativeIntegerSchema),
+  operationalUnits: Type.Record(IdSchema, NonNegativeIntegerSchema),
   workerRole: Type.Enum(["none", "implementation", "evaluator", "reviewer"]),
   repositoryId: IdSchema,
   createdAt: TimestampSchema,
@@ -992,6 +1083,7 @@ const SchedulerProjectionV1Schema = StrictObject({
   fairnessCounters: Type.Record(IdSchema, NonNegativeIntegerSchema),
   dynamicExclusions: IdMap(DynamicExclusionV1Schema),
   providerHoldIds: StringSet(),
+  operationalCapacities: IdMap(OperationalCapacityV1Schema),
 });
 
 export const DagRunStateV1Schema = StrictObject({
@@ -1167,8 +1259,8 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     pushIssue(issues, `/scheduler/reservations/${reservationId}/ownerEpoch`, reservationTerminal ? reservation.ownerEpoch <= state.owner.ownerEpoch : reservation.ownerEpoch === state.owner.ownerEpoch, "active reservation must bind current owner epoch");
     pushIssue(issues, `/scheduler/reservations/${reservationId}/authorizationSetHash`, reservationTerminal || (reservation.authorizationSetHash === state.identity.authorizationSet.hash && item?.authorizedStages.includes(reservation.stage)), "active reservation must bind current authority for the reserved stage");
     pushIssue(issues, `/scheduler/reservations/${reservationId}/repositoryId`, reservation.repositoryId === item?.writeRepositoryId, "must bind the work item's write repository");
-    const expectedOperation: Record<string, string> = { F0: "conductor", F1: "implementation", F2: "evaluation", F3: "codification", F4: "verification", F5: "review", F6: "hardening", F7: "verification", F8: "conductor" };
-    pushIssue(issues, `/scheduler/reservations/${reservationId}/operationKind`, reservation.operationKind === expectedOperation[reservation.stage], "must use the fixed F0-F8 operation class");
+    const expectedOperation: Record<string, string[]> = { F0: ["conductor"], F1: ["implementation"], F2: ["evaluation"], F3: ["codification"], F4: ["verification"], F5: ["review"], F6: ["hardening"], F7: ["verification"], F8: item?.current === "integration_ready" || item?.current === "integrating" ? ["integration"] : ["conductor"] };
+    pushIssue(issues, `/scheduler/reservations/${reservationId}/operationKind`, expectedOperation[reservation.stage].includes(reservation.operationKind), "must use the fixed F0-F8/integration operation class");
     const expectedMutexes = context.plan.constraints.semanticMutexes.filter((mutex) => mutex.members.some((member) => member.workItemId === reservation.workItemId && member.phases.includes(reservation.stage))).map(({ mutexGroupId }) => mutexGroupId).sort();
     pushIssue(issues, `/scheduler/reservations/${reservationId}/mutexGroupIds`, expectedMutexes.every((id) => reservation.mutexGroupIds.includes(id)), "must reserve every applicable plan semantic mutex");
     for (const demand of planItem?.resourceDemands.filter(({ phases }) => phases.includes(reservation.stage)) ?? []) {
@@ -1179,6 +1271,7 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     reservation.leaseIds.forEach((leaseId) => pushIssue(issues, `/scheduler/reservations/${reservationId}/leaseIds`, Boolean(state.leases[leaseId]), "references an unknown lease"));
     reservation.mutexGroupIds.forEach((mutexId) => pushIssue(issues, `/scheduler/reservations/${reservationId}/mutexGroupIds`, Boolean(state.mutexes[mutexId]), "references an unknown mutex"));
     for (const resourceId of Object.keys(reservation.resourceUnits)) pushIssue(issues, `/scheduler/reservations/${reservationId}/resourceUnits/${resourceId}`, Boolean(state.resourcePools[resourceId]), "references an unknown resource pool");
+    for (const namespace of Object.keys(reservation.operationalUnits)) pushIssue(issues, `/scheduler/reservations/${reservationId}/operationalUnits/${namespace}`, Boolean(state.scheduler.operationalCapacities[namespace]), "references an unknown operational capacity");
     pushIssue(issues, `/scheduler/reservations/${reservationId}/reservationSequence`, reservation.reservationSequence < state.scheduler.nextReservationSequence, "must be lower than nextReservationSequence");
     pushIssue(issues, `/scheduler/reservations/${reservationId}/releasedAt`, ["released", "fenced"].includes(reservation.state) ? reservation.releasedAt !== null : reservation.releasedAt === null, "terminal reservation state and releasedAt must change together");
     if (!["released", "fenced"].includes(reservation.state)) pushIssue(issues, `/scheduler/reservations/${reservationId}/workItemId`, activeLaneIds.includes(reservation.workItemId), "current reservation requires a sticky active-node lane");
@@ -1193,6 +1286,14 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     }
   }
   state.scheduler.providerHoldIds.forEach((blockerId) => pushIssue(issues, "/scheduler/providerHoldIds", state.blockers[blockerId]?.active, "must reference an active blocker"));
+  for (const [namespace, capacity] of Object.entries(state.scheduler.operationalCapacities)) {
+    pushIssue(issues, `/scheduler/operationalCapacities/${namespace}/namespace`, capacity.namespace === namespace, "must equal map key");
+    const activeLeases = Object.values(state.leases).filter((lease) => lease.kind === "resource" && lease.subject.id === namespace && ["active", "release_requested", "expired"].includes(lease.state));
+    const activeIds = [...new Set(activeLeases.flatMap((lease) => Object.values(state.scheduler.reservations).filter((reservation) => reservation.leaseIds.includes(lease.leaseId)).map(({ reservationId }) => reservationId)))].sort();
+    const allocated = activeLeases.reduce((sum, lease) => sum + lease.units, 0);
+    pushIssue(issues, `/scheduler/operationalCapacities/${namespace}/reservationIds`, sameStrings(capacity.reservationIds, activeIds), "must list exact active operational reservations");
+    pushIssue(issues, `/scheduler/operationalCapacities/${namespace}/allocatedUnits`, capacity.allocatedUnits === allocated, "must equal active operational reservation units");
+  }
 
   validateEvidenceIndex(state, issues);
 
@@ -1222,7 +1323,7 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
 
   pushIssue(issues, "/workItems", new Set(Object.values(state.workItems).map(({ implementationLineageHash }) => implementationLineageHash)).size === Object.keys(state.workItems).length, "implementation lineage hashes must be unique per work item");
   for (const [workItemId, item] of Object.entries(state.workItems)) {
-    const path = `/workItems/${workItemId}`;
+    const path = `/workItems/${workItemId}`; const integrationConflictFence = exactIntegrationConflictFence(state, context, item);
     pushIssue(issues, `${path}/writeRepositoryId`, Boolean(state.repositories[item.writeRepositoryId]), "references an unknown repository");
     pushIssue(issues, `${path}/authorizedStages`, isSortedUnique(item.authorizedStages), "must be sorted and deduplicated");
     if (item.currentStage) pushIssue(issues, `${path}/currentStage`, item.authorizedStages.includes(item.currentStage), "current stage must be within exact authorization scope");
@@ -1296,7 +1397,7 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
         pushIssue(issues, `${path}/candidate/producedByStageAttemptId`, Boolean(producingAttempt && ["F1", "F3"].includes(producingAttempt.stage) && producingAttempt.workItemId === workItemId && producingAttempt.reservedOutputGeneration === candidateFact.generation && producingAttempt.state === "sealed"), "candidate must be produced by an exact sealed F1/F3 output generation");
         pushIssue(issues, `${path}/candidate/git`, canonicalHash(candidateFact.base) === canonicalHash(item.candidate.base) && canonicalHash(candidateFact.git) === canonicalHash(item.candidate.git), "candidate fact must match the exact source base, commit, and tree");
       }
-    } else pushIssue(issues, `${path}/candidateGeneration`, item.candidateGeneration === 0 || ["blocked", "cancelled", "superseded"].includes(item.current), "candidate-less positive generation is allowed only after an explicit fence");
+    } else pushIssue(issues, `${path}/candidateGeneration`, item.candidateGeneration === 0 || ["blocked", "cancelled", "superseded"].includes(item.current) || integrationConflictFence !== null, "candidate-less positive generation is allowed only after an explicit fence");
     if (["integration_ready", "integrating", "complete"].includes(item.current)) {
       const readyRef = state.evidenceIndex.integrationReady[workItemId];
       pushIssue(issues, `${path}/integrationReadyReceipt`, item.integrationReadyReceipt !== null && readyRef?.hash === item.integrationReadyReceipt && readyRef?.kind === "integration_ready", "requires the exact indexed integration-ready receipt");
@@ -1326,10 +1427,13 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
         pushIssue(issues, `${path}/integrationReceipt`, integrationAttempt?.integrationReceipt === item.integrationReceipt && integrationAttempt?.landingState === "landed" && integrationEntry?.workItemId === workItemId && integrationEntry.state === "integrated" && integrationEntry.integrationReceipt === item.integrationReceipt, "integration receipt must be produced by the exact landed current train entry attempt");
         if (integrationAttempt) {
           pushIssue(issues, `${path}/integrationReceipt`, integrationAttempt.strategy === "merge_tree_one_parent" && integrationFact.strategy === integrationAttempt.strategy && integrationFact.compositionProfileHash === integrationAttempt.compositionProfileHash, "integration must use the exact accepted merge-tree composition profile");
-          pushIssue(issues, `${path}/integrationReceipt`, canonicalHash(integrationFact.expectedPrefix) === canonicalHash(integrationAttempt.expectedPrefix) && canonicalHash(integrationFact.expectedTarget) === canonicalHash(integrationAttempt.expectedTarget) && sameStrings([...integrationFact.prefixEvidenceHashes], [...integrationAttempt.prefixEvidenceHashes]) && sameStrings([...integrationFact.finalEvidenceHashes], [...integrationAttempt.finalEvidenceHashes]), "integration receipt must bind exact source prefix, target, prefix checks, and final checks");
+          pushIssue(issues, `${path}/integrationReceipt`, canonicalHash(integrationFact.expectedPrefix) === canonicalHash(integrationAttempt.expectedPrefix) && canonicalHash(integrationFact.expectedTarget) === canonicalHash(integrationAttempt.expectedTarget) && sameStrings([...integrationFact.prefixEvidenceHashes], [...integrationAttempt.prefixEvidenceHashes]) && sameStrings([...integrationFact.finalEvidenceHashes], [...integrationAttempt.finalEvidenceHashes]) && integrationFact.environmentClosureHash === integrationAttempt.environmentClosureHash, "integration receipt must bind exact source prefix, target, prefix checks, and final checks");
           pushIssue(issues, `${path}/integrationReceipt`, canonicalHash(integrationFact.sourceBase) === canonicalHash(integrationAttempt.sourceBase) && canonicalHash(integrationFact.sourceBase) === canonicalHash(item.candidate.base) && canonicalHash(integrationFact.sourceCandidate) === canonicalHash(integrationAttempt.sourceCandidate) && canonicalHash(integrationFact.sourceCandidate) === canonicalHash(item.candidate.git), "integration must bind exact candidate source base and current source candidate");
           pushIssue(issues, `${path}/integrationReceipt`, integrationAttempt.syntheticParentCommit === integrationAttempt.expectedPrefix.commit && integrationFact.syntheticParentCommit === integrationAttempt.syntheticParentCommit, "synthetic commit must have exactly the accepted prefix as its one parent");
           pushIssue(issues, `${path}/integrationReceipt`, integrationAttempt.sourceToIntegratedLineageHash === integrationFact.sourceToIntegratedLineageHash && integrationAttempt.composedTree !== null && canonicalHash(integrationAttempt.composedTree) === canonicalHash(integrationFact.landed), "receipt must bind exact source-to-integrated lineage and composed landed tree");
+          const transactionFact = context.facts[integrationFact.transactionReceiptFactHash]; const receipt = transactionFact?.kind === "git_integration_receipt" ? transactionFact.receipt as any : null; const bindingFact = context.facts[integrationAttempt.repositoryBindingFactHash] as any;
+          pushIssue(issues, `${path}/integrationReceipt`, transactionFact?.kind === "git_integration_receipt" && transactionFact.hash === integrationFact.transactionReceiptFactHash && transactionFact.hash === hashWithoutField(transactionFact as unknown as Record<string, unknown>, "hash") && transactionFact.transactionReceiptHash === integrationFact.transactionReceiptHash && transactionFact.planHash === state.identity.planHash && transactionFact.runId === state.runId && transactionFact.runNonce === state.runNonce && transactionFact.authorizationSetHash === state.identity.authorizationSet.hash && transactionFact.repositoryId === item.writeRepositoryId && transactionFact.integrationAttemptId === integrationAttempt.integrationAttemptId, "integration must resolve the exact immutable transaction-receipt binding");
+          pushIssue(issues, `${path}/integrationReceipt`, receipt?.receiptHash === integrationFact.transactionReceiptHash && receipt?.receiptHash === hashWithoutField(receipt as Record<string, unknown>, "receiptHash") && receipt?.transactionId === integrationAttempt.integrationAttemptId && receipt?.ownerEpoch === integrationFact.acceptingOwnerEpoch && receipt?.commonDirIdentityHash === bindingFact?.commonDirIdentityHash && receipt?.worktreeIdentityHash === bindingFact?.worktreeIdentityHash && receipt?.configHash === bindingFact?.gitConfigHash && canonicalHash(receipt?.gitVersion) === bindingFact?.gitVersionHash && receipt?.objectFormat === bindingFact?.objectFormat && canonicalHash(receipt?.composed) === canonicalHash(integrationFact.landed) && receipt?.landing?.targetObservationHash === (context.facts[integrationFact.landingObservationHash] as any)?.detailsHash && canonicalHash(Object.keys(receipt?.privateRefs ?? {}).sort()) === canonicalHash(["baseline", "candidate", "composed", "prefix", "proposal"]) && canonicalHash(Object.values(receipt?.privateRefs ?? {}).sort()) === canonicalHash(integrationAttempt.privateRefFactHashes.map((hash) => (context.facts[hash] as any)?.targetRef).sort()), "transaction receipt content must bind exact owner, repository environment, composed target, and landing observation");
         }
         pushIssue(issues, `${path}/integrationReceipt`, integrationFact.candidateHash === item.candidate.candidateHash && integrationFact.combinedStateVerified && integrationFact.reconciled, "integration receipt must prove the current candidate, combined state, and reconciliation");
         pushIssue(issues, `${path}/integrationReceipt`, canonicalHash(state.repositories[item.writeRepositoryId].observedTarget) === canonicalHash(integrationFact.landed), "observed target must equal the reconciled landed tree");
@@ -1354,7 +1458,8 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
       pushIssue(issues, `${path}/attemptInput`, inputFact.producerKind === attempt.producerKind && inputFact.implementationLineageHash === attempt.implementationLineageHash, "attempt input must bind exact producer and implementation lineage");
       if (!["F0", "F1", "F3"].includes(attempt.stage)) {
         const adoptedF2Input = attempt.stage === "F2" && item?.stages.F2.adoptionReceipt !== null && inputFact.candidateGeneration + 1 === item?.candidateGeneration;
-        pushIssue(issues, `${path}/attemptInput`, item?.candidate !== null && (inputFact.candidateHash === item?.candidate?.candidateHash || adoptedF2Input), "non-producing stage input must bind the current candidate hash or exact one-generation F2 adoption source");
+        const isCurrentAttempt = item?.stages[attempt.stage].currentAttemptId === attemptId; const historicalCandidate = inputFact.candidateHash ? context.facts[inputFact.candidateHash] : undefined; const exactHistoricalInput = !isCurrentAttempt && historicalCandidate?.kind === "candidate" && historicalCandidate.planHash === state.identity.planHash && historicalCandidate.runId === state.runId && historicalCandidate.runNonce === state.runNonce && historicalCandidate.workItemId === attempt.workItemId && historicalCandidate.generation === inputFact.candidateGeneration && state.evidenceIndex.candidates[inputFact.candidateHash!]?.hash === inputFact.candidateHash;
+        pushIssue(issues, `${path}/attemptInput`, (isCurrentAttempt && item?.candidate !== null && (inputFact.candidateHash === item?.candidate?.candidateHash || adoptedF2Input)) || exactHistoricalInput, "non-producing current input must bind the current candidate/adoption; historical input must resolve its exact immutable candidate generation");
       }
     }
     if (attempt.launchIntentId) pushIssue(issues, `${path}/launchIntentId`, state.launchIntents[attempt.launchIntentId]?.stageAttemptId === attemptId, "must reference a matching launch intent");
@@ -1471,6 +1576,12 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     }
   }
 
+  const activeCommonDirLocks = new Map<string, string>();
+  for (const repository of Object.values(state.repositories)) if (repository.integrationLockLeaseId) {
+    const lease = state.leases[repository.integrationLockLeaseId]; const commonDir = repository.workspace.gitCommonDirIdentityHash;
+    if (lease && lease.state !== "released" && commonDir) { const prior = activeCommonDirLocks.get(commonDir); pushIssue(issues, `/repositories/${repository.repositoryId}/integrationLockLeaseId`, prior === undefined, "only one repository identity may hold an active integration lock for an exact Git common directory"); if (!prior) activeCommonDirLocks.set(commonDir, repository.repositoryId); }
+  }
+
   for (const [repositoryId, train] of Object.entries(state.integrationTrains)) {
     pushIssue(issues, `/integrationTrains/${repositoryId}/expectedTarget/repositoryId`, train.expectedTarget.repositoryId === repositoryId && canonicalHash(train.expectedTarget) === canonicalHash(state.repositories[repositoryId].observedTarget), "must match repository key and exact current observed target");
     pushIssue(issues, `/integrationTrains/${repositoryId}/acceptedPrefix/repositoryId`, train.acceptedPrefix.repositoryId === repositoryId, "must match repository key");
@@ -1523,12 +1634,24 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     const predecessorReceipt = predecessorEntry?.integrationReceipt ? context.facts[predecessorEntry.integrationReceipt] : undefined;
     const expectedSourcePrefix = entryOrdinal === 0 ? state.repositories[train!.repositoryId].baseline : predecessorReceipt?.kind === "integration" ? predecessorReceipt.landed : null;
     pushIssue(issues, `/integrationAttempts/${attemptId}/integrationAttemptId`, attempt.integrationAttemptId === attemptId, "must match map key");
-    pushIssue(issues, `/integrationAttempts/${attemptId}/entryId`, Boolean(trainEntry) && trainEntry!.attemptIds.includes(attemptId) && (trainEntry!.currentAttemptId === attemptId || trainEntry!.integrationReceipt === attempt.integrationReceipt), "must be listed by the exact train entry as current or receipted attempt");
+    pushIssue(issues, `/integrationAttempts/${attemptId}/entryId`, Boolean(trainEntry) && trainEntry!.attemptIds.includes(attemptId) && (trainEntry!.currentAttemptId === attemptId || trainEntry!.integrationReceipt === attempt.integrationReceipt || attempt.conflictClass !== "none"), "must be listed by the exact train entry as current, conflicted, or receipted attempt");
     pushIssue(issues, `/integrationAttempts/${attemptId}/strategy`, attempt.strategy === "merge_tree_one_parent" && planTrain?.strategy === attempt.strategy, "must use accepted explicit-base merge-tree composition");
     pushIssue(issues, `/integrationAttempts/${attemptId}/compositionProfileHash`, attempt.compositionProfileHash === planTrain?.compositionProfileHash && attempt.prefixValidationProfileHash === planTrain?.prefixValidationProfileHash && attempt.finalValidationProfileHash === planTrain?.finalValidationProfileHash, "must bind exact plan-authorized composition, prefix, and final profiles");
     pushIssue(issues, `/integrationAttempts/${attemptId}/expectedPrefix`, expectedSourcePrefix !== null && canonicalHash(attempt.expectedPrefix) === canonicalHash(expectedSourcePrefix) && canonicalHash(attempt.expectedTarget) === canonicalHash(attempt.expectedPrefix), "must bind the exact integrated predecessor prefix and matching observed target");
     if (attempt.landingState !== "landed") pushIssue(issues, `/integrationAttempts/${attemptId}/expectedTarget`, canonicalHash(attempt.expectedTarget) === canonicalHash(train?.expectedTarget), "active integration attempt must bind the train's exact current expected target");
-    pushIssue(issues, `/integrationAttempts/${attemptId}/sourceCandidate`, attempt.sourceCandidateHash === trainEntry?.sourceCandidate.candidateHash && canonicalHash(attempt.sourceBase) === canonicalHash(trainEntry?.sourceCandidate.base) && canonicalHash(attempt.sourceCandidate) === canonicalHash(trainEntry?.sourceCandidate.git), "must bind the train entry's exact candidate hash, source base, and Git source");
+    const historicalConflictCandidate = attempt.conflictClass !== "none" ? context.facts[attempt.sourceCandidateHash] : undefined; const sourceMatchesEntry = attempt.sourceCandidateHash === trainEntry?.sourceCandidate.candidateHash && canonicalHash(attempt.sourceBase) === canonicalHash(trainEntry?.sourceCandidate.base) && canonicalHash(attempt.sourceCandidate) === canonicalHash(trainEntry?.sourceCandidate.git); const sourceMatchesHistoricalConflict = historicalConflictCandidate?.kind === "candidate" && historicalConflictCandidate.workItemId === trainEntry?.workItemId && canonicalHash(historicalConflictCandidate.base) === canonicalHash(attempt.sourceBase) && canonicalHash(historicalConflictCandidate.git) === canonicalHash(attempt.sourceCandidate);
+    pushIssue(issues, `/integrationAttempts/${attemptId}/sourceCandidate`, sourceMatchesEntry || sourceMatchesHistoricalConflict, "must bind the current train-entry candidate or exact immutable historical conflict candidate");
+    const bindingFact = attempt.repositoryBindingFactHash ? context.facts[attempt.repositoryBindingFactHash] : undefined;
+    pushIssue(issues, `/integrationAttempts/${attemptId}/repositoryBindingFactHash`, isExactGitTransactionFact(bindingFact, state, "repository_binding", train?.repositoryId, null), "must resolve the exact repository/common-dir binding fact");
+    if (attempt.compositionFactHash) pushIssue(issues, `/integrationAttempts/${attemptId}/compositionFactHash`, isExactGitTransactionFact(context.facts[attempt.compositionFactHash], state, "composition", train?.repositoryId, attemptId), "must resolve exact composition fact");
+    for (const hash of attempt.privateRefFactHashes) pushIssue(issues, `/integrationAttempts/${attemptId}/privateRefFactHashes`, isExactGitTransactionFact(context.facts[hash], state, "private_ref", train?.repositoryId, attemptId), "must resolve exact immutable private-ref fact");
+    if (attempt.proposalVerificationFactHash) pushIssue(issues, `/integrationAttempts/${attemptId}/proposalVerificationFactHash`, isExactGitTransactionFact(context.facts[attempt.proposalVerificationFactHash], state, "proposal_verification", train?.repositoryId, attemptId), "must resolve exact proposal-verification fact");
+    if (attempt.landingObservationFactHash) pushIssue(issues, `/integrationAttempts/${attemptId}/landingObservationFactHash`, isExactGitTransactionFact(context.facts[attempt.landingObservationFactHash], state, "landing", train?.repositoryId, attemptId), "must resolve exact landing-observation fact");
+    const integrationLock = train?.lockLeaseId ? state.leases[train.lockLeaseId] : undefined;
+    const landingObservation = attempt.landingObservationFactHash ? context.facts[attempt.landingObservationFactHash] : undefined;
+    const exactTargetConflict = landingObservation?.kind === "git_transaction" && landingObservation.factType === "landing" && landingObservation.reconciliation === "conflict";
+    if (attempt.landingState !== "landed" && attempt.conflictClass === "none" && !exactTargetConflict) pushIssue(issues, `/integrationAttempts/${attemptId}`, integrationLock?.kind === "integration_lock" && integrationLock.state === "active" && integrationLock.holderIntegrationAttemptId === attemptId && integrationLock.ownerEpoch === state.owner.ownerEpoch && integrationLock.subject.kind === "repository" && integrationLock.subject.id === train?.repositoryId && state.repositories[train!.repositoryId].integrationLockLeaseId === integrationLock.leaseId, "active integration attempt requires one exact current-owner common-repository lock lease");
+    if (attempt.conflictClass !== "none" || exactTargetConflict) pushIssue(issues, `/integrationAttempts/${attemptId}`, integrationLock?.holderIntegrationAttemptId !== attemptId, "exact composition/target-conflict attempt must release its integration lock");
     pushIssue(issues, `/integrationAttempts/${attemptId}/compositionEffectId`, state.effects[attempt.compositionEffectId]?.kind === "compose_candidate", "must reference a compose_candidate effect");
     if (attempt.landingEffectId) pushIssue(issues, `/integrationAttempts/${attemptId}/landingEffectId`, state.effects[attempt.landingEffectId]?.kind === "land_target", "must reference a land_target effect");
     pushIssue(issues, `/integrationAttempts/${attemptId}/integrationReceipt`, attempt.integrationReceipt === null || Boolean(state.evidenceIndex.integrationReceipts[attemptId]), "must match indexed integration receipt");
@@ -1538,7 +1661,10 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     };
     pushIssue(issues, `/integrationAttempts/${attemptId}/prefixEvidenceHashes`, isSortedUnique([...attempt.prefixEvidenceHashes]) && attempt.prefixEvidenceHashes.every((hash) => validateVerification(hash, "prefix", planTrain?.prefixValidationProfileId, planTrain?.prefixValidationProfileHash)), "prefix evidence must resolve to exact passing composed-tree profile facts");
     pushIssue(issues, `/integrationAttempts/${attemptId}/finalEvidenceHashes`, isSortedUnique([...attempt.finalEvidenceHashes]) && attempt.finalEvidenceHashes.every((hash) => validateVerification(hash, "final", planTrain?.finalValidationProfileId, planTrain?.finalValidationProfileHash)), "final evidence must resolve to exact passing composed-tree profile facts");
-    if (attempt.landingState === "landed") pushIssue(issues, `/integrationAttempts/${attemptId}`, attempt.composedTree !== null && attempt.intendedLandedTree !== null && canonicalHash(attempt.composedTree) === canonicalHash(attempt.intendedLandedTree) && attempt.syntheticParentCommit === attempt.expectedPrefix.commit && attempt.sourceToIntegratedLineageHash !== null && attempt.integrationReceipt !== null && attempt.prefixEvidenceHashes.length > 0 && attempt.finalEvidenceHashes.length > 0, "landed attempt requires exact composed/intended tree, one synthetic parent, source lineage, required profile evidence, and receipt");
+    if (attempt.landingState === "landed") {
+      const receipt = attempt.integrationReceipt ? context.facts[attempt.integrationReceipt] : undefined;
+      pushIssue(issues, `/integrationAttempts/${attemptId}`, attempt.composedTree !== null && attempt.intendedLandedTree !== null && canonicalHash(attempt.composedTree) === canonicalHash(attempt.intendedLandedTree) && attempt.syntheticParentCommit === attempt.expectedPrefix.commit && attempt.sourceToIntegratedLineageHash !== null && attempt.environmentClosureHash !== null && attempt.integrationReceipt !== null && attempt.prefixEvidenceHashes.length > 0 && attempt.finalEvidenceHashes.length > 0 && receipt?.kind === "integration" && receipt.transactionReceiptHash && receipt.landingObservationHash === attempt.landingObservationFactHash, "landed attempt requires exact composed/intended tree, one synthetic parent, source lineage, required profile evidence, transaction/landing receipts, and accepted integration fact");
+    }
   }
 
   const expectedCurrent = {
@@ -1789,9 +1915,23 @@ function joinEntityMap(stateValues: Record<string, any>, planValues: readonly an
   pushIssue(issues, path, sameStrings(Object.keys(stateValues).sort(), expectedIds), "must contain exactly the corresponding plan entities");
   for (const value of planValues) if (stateValues[value[idField]]) pushIssue(issues, `${path}/${value[idField]}/planEntityHash`, stateValues[value[idField]].planEntityHash === value[hashField], "must match the plan entity hash");
 }
+function exactIntegrationConflictFence(state: DagRunStateV1, context: DagRunValidationContextV1, item: any): any | null {
+  if (item.current !== "active" || item.currentStage !== "F1" || item.candidate !== null) return null;
+  for (const train of Object.values(state.integrationTrains)) for (const entry of Object.values(train.entries)) {
+    if (entry.workItemId !== item.workItemId || entry.state !== "invalidated" || !entry.currentAttemptId) continue;
+    const attempt = state.integrationAttempts[entry.currentAttemptId]; const fact = attempt?.compositionFactHash ? context.facts[attempt.compositionFactHash] : undefined;
+    if (attempt?.conflictClass !== "none" && fact?.kind === "git_transaction" && fact.factType === "composition" && fact.reconciliation === "conflict" && isExactGitTransactionFact(fact, state, "composition", train.repositoryId, attempt.integrationAttemptId) && item.candidateGeneration === entry.sourceCandidate.generation + 1) return entry;
+  }
+  return null;
+}
+
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
+function isExactGitTransactionFact(fact: any, state: DagRunStateV1, factType: string, repositoryId: string | undefined, integrationAttemptId: string | null): boolean {
+  return Boolean(fact && fact.kind === "git_transaction" && fact.factType === factType && fact.hash === hashWithoutField(fact as Record<string, unknown>, "hash") && fact.planHash === state.identity.planHash && fact.runId === state.runId && fact.runNonce === state.runNonce && fact.authorizationSetHash === state.identity.authorizationSet.hash && fact.repositoryId === repositoryId && fact.integrationAttemptId === integrationAttemptId);
+}
+
 function validateEvidenceIndex(state: DagRunStateV1, issues: ValidationIssue[]): void {
   const expectedKinds: Record<string, string> = {
     stageAttemptInputs: "stage_attempt_input", workerResults: "worker_result", candidates: "candidate", stageEvidence: "stage_evidence",

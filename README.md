@@ -115,20 +115,42 @@ Direct forks and clones transfer the complete worker session and completion queu
 
 Obsolete `pi-subagents` artifacts are not adopted or deleted automatically. Historical sibling directories named `*-dag-subagents` and temporary `/tmp/pi-subagents-*` trees may be removed manually only after confirming that no legacy worker process still owns them.
 
-## Deferred workflows
+## Canonical DAG execution
 
-These commands currently report that model-aware replacements are deferred:
+Model-aware planning remains deferred, but pre-authorized canonical plans now have a guarded execution surface. The conductor binds one exact run to the current Pi session and branch; it never selects a “latest” run.
+
+Read-only tools:
+
+- `dag_run_status`
+- `dag_run_diagram`
+- `dag_run_inspect`
+- `dag_run_tail`
+- `dag_run_explain`
+
+Guarded mutation tools:
+
+- `dag_run_start`
+- `dag_run_control` (`pause`, `resume`, or `cancel`)
+- `dag_run_retry`
+- `dag_run_reattach`
+
+Every post-start mutation carries the exact run nonce, owner epoch, revision, snapshot hash, command/idempotency identity, and explicit timestamp; start itself binds immutable plan/genesis/context artifacts and an explicit run identity. Interactive TUI sessions show a passive bounded DAG widget; headless modes expose the same semantic projection without rendering a widget.
+
+The deterministic scheduler separates correctness readiness from lane/resource/mutex admission. `maxActiveNodes` lanes remain sticky through phase waits, repairs, blocking, and integration. Generic worker status affects DAG projection only through an exact run-state worker binding.
+
+Real-Git integration uses core-only repository preflight, immutable private refs, explicit-base `merge-tree`, deterministic one-parent `commit-tree`, exact prefix/final verification, and a guarded ordinary fast-forward in the clean session-bound worktree. Target old/new/third reconciliation and immutable receipts make every failpoint recoverable without reset, stash, force update, or conductor conflict edits.
+
+These planning and lifecycle-authoring commands remain deferred:
 
 ```text
 /dag plan
 /dag chunk
-/dag run
 /dag review
 /dag retro
 /dag archive
 ```
 
-GrillMe, promotion, legacy prompt workflows, the dormant `dag_subagent` adapter, the `pi-subagents` dependency, and model-unaware mutating DAG tools are removed.
+`/dag run` explains how to use the exact conductor start tool. GrillMe, promotion, legacy prompt workflows, the dormant `dag_subagent` adapter, the `pi-subagents` dependency, and model-unaware mutating DAG tools are removed.
 
 Clearly labeled read-only diagnostics remain for pre-cutover artifacts:
 
@@ -168,6 +190,8 @@ The candidate does not become authoritative until its semantic mappings, omissio
 ```nu
 npm run smoke
 npm run test:model
+npm run test:dag-runtime
+npm run test:git-integration
 npm run test:workers
 # Only while project-model/model.json is still a non-authoritative candidate:
 node scripts/migrate-brainstorm-to-project-model.mjs --force

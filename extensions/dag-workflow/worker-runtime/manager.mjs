@@ -983,6 +983,17 @@ export class WorkerManager {
     return this.inspect(selected.completionId);
   }
 
+  async readBoundAttempts(bindings) {
+    this.#assertAttached(); const repositoryRoot = resolve(this.context.cwd); const outputs = [];
+    for (const binding of [...bindings].sort((a, b) => a.workerStorageId.localeCompare(b.workerStorageId) || a.workerId.localeCompare(b.workerId) || a.attemptNumber - b.attemptNumber)) {
+      const store = new WorkerSessionStore(repositoryRoot, binding.workerStorageId); const state = await store.load(); if (state.storageId !== binding.workerStorageId || state.ownerSessionId !== binding.launchOwnerSessionId) continue;
+      let worker = state.workers[binding.workerId]; if (!worker) { const record = (state.launchRecords ?? []).find(({ workerId }) => workerId === binding.workerId); if (record?.archivedWorkerPath) worker = await readArchivedWorker(state, record); }
+      const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash); if (!attempt) continue; const config = await readJson(resolve(repositoryRoot, attempt.configPath)); if (config.ownerSessionId !== binding.launchOwnerSessionId) continue;
+      outputs.push({ storageId: state.storageId, launchOwnerSessionId: config.ownerSessionId, workerId: worker.id, attemptNumber: attempt.attemptNumber, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash, terminalStatus: attempt.ingestedAt ? attempt.status : null, processDisposition: attempt.processDisposition ?? "ambiguous", retrySafe: Boolean(attempt.retrySafe), resultHash: attempt.resultHash ?? null });
+    }
+    return outputs;
+  }
+
   async status(workerId) {
     this.#assertAttached();
     const state = await this.store.load();

@@ -46,6 +46,8 @@ export {
   type EvidenceAdoptionFactBindingV1,
   type DagRunStateV1,
   type DagRunValidationContextV1,
+  type GitTransactionFactBindingV1,
+  type GitIntegrationReceiptFactBindingV1,
   type IntegrationFactBindingV1,
   type IntegrationReadyFactBindingV1,
   type OracleAssertionFactBindingV1,
@@ -71,6 +73,59 @@ export {
   type DagRunRejectCodeV1,
   type DagRunTransitionNoticeV1,
 } from "./reducer.ts";
+export {
+  DAG_SCHEDULER_POLICY_HASH_V1,
+  DAG_SCHEDULER_POLICY_VERSION_V1,
+  DAG_SCHEDULER_POLICY_V1,
+  buildSchedulerPlanIndexV1,
+  projectDagExecutionV1,
+  requireSchedulerDispatchIntentV1,
+  scheduleDagRunV1,
+  type DagExecutionNodeV1,
+  type DagExecutionProjectionV1,
+  type DagSchedulerAdmissionCodeV1,
+  type DagSchedulerBlockerCodeV1,
+  type DagSchedulerDecisionV1,
+  type DagSchedulerReservationProposalV1,
+  type DagSchedulerSlotV1,
+  type DagWorkerProjectionInputV1,
+} from "./scheduler.ts";
+export {
+  DagConductorServiceV1,
+  type DagConductorContextV1,
+  type DagMutationGuardV1,
+  type DagRunStartInputV1,
+  type DagSessionRunBindingV1,
+} from "./conductor.ts";
+export {
+  registerCanonicalDagRuntime,
+} from "./integration.ts";
+export {
+  renderDagWidgetV1,
+  type DagWidgetLayoutV1,
+} from "./widget.ts";
+export {
+  DurableGitIntegrationRuntimeV1,
+  ExactGitIntegrationV1,
+  GitIntegrationBlockedError,
+  acquireGitIntegrationLockV1,
+  composeGitProposalV1,
+  ensurePrivateGitRefV1,
+  landOrReconcileBoundWorktreeV1,
+  preflightBoundRepositoryV1,
+  readRepositoryBindingIdentityV1,
+  type GitIntegrationFailpointV1,
+  type GitIntegrationIntentV1,
+  type GitIntegrationObservationV1,
+  type GitIntegrationReceiptV1,
+  type GitIntegrationRequestV1,
+  type GitIntegrationRuntimeV1,
+  type GitIntegrationRuntimeDelegateV1,
+  type GitIntegrationLockHandleV1,
+  type GitOperationGuardV1,
+  type GitVerificationResultV1,
+  type RepositoryBindingV1,
+} from "./git-integration.ts";
 export {
   DagRunSnapshotStoreV1,
   DagRunStoreCorruptError,

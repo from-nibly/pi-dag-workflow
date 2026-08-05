@@ -1,5 +1,6 @@
 import { Type, type Static } from "typebox";
 import {
+  GitTreeRefV1Schema,
   HashSchema,
   IdSchema,
   NonNegativeIntegerSchema,
@@ -14,6 +15,8 @@ import {
   validateTimestampFields,
   type ValidationIssue,
 } from "./common.ts";
+import { PLAN_STAGE_IDS } from "./plan.ts";
+import { scheduleDagRunV1 } from "./scheduler.ts";
 import {
   EffectProjectionV1Schema,
   HashRefV1Schema,
@@ -25,6 +28,8 @@ import {
 } from "./run-state.ts";
 
 const RunDesiredSchema = Type.Enum(["running", "paused"]);
+const PlanStageSchema = Type.Enum(["F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8"]);
+const SchedulerOperationSchema = Type.Enum(["conductor", "implementation", "evaluation", "codification", "verification", "review", "hardening", "integration"]);
 
 const AttachOwnerPayloadSchema = StrictObject({
   ownerTokenHash: HashSchema, sessionId: IdSchema, pid: PositiveIntegerSchema,
@@ -57,6 +62,33 @@ const RecordCancellationPayloadSchema = StrictObject({
 const QuarantineFactPayloadSchema = StrictObject({ quarantine: QuarantineProjectionV1Schema });
 const AdoptQuarantinePayloadSchema = StrictObject({ quarantineId: IdSchema, adoptionReceipt: HashSchema });
 const RejectQuarantinePayloadSchema = StrictObject({ quarantineId: IdSchema, reason: Type.String({ minLength: 1, maxLength: 4096 }) });
+const SchedulerReservationPayloadSchema = StrictObject({
+  reservationId: IdSchema, reservationSequence: PositiveIntegerSchema, slotId: IdSchema, workItemId: IdSchema,
+  repositoryId: IdSchema, stage: PlanStageSchema, operationKind: SchedulerOperationSchema,
+  itemGeneration: NonNegativeIntegerSchema, attemptOrdinal: PositiveIntegerSchema, normalizedRequestHash: HashSchema,
+  mutexGroupIds: Type.Array(IdSchema), resourceUnits: Type.Record(IdSchema, NonNegativeIntegerSchema), operationalUnits: Type.Record(IdSchema, NonNegativeIntegerSchema),
+  workerRole: Type.Enum(["none", "implementation", "evaluator", "reviewer"]),
+});
+const ReserveSchedulerBatchPayloadSchema = StrictObject({
+  decisionHash: HashSchema, decisionSequence: PositiveIntegerSchema, policyHash: HashSchema, normalizedIndexHash: HashSchema,
+  inputSnapshotHash: HashSchema, reservations: Type.Array(SchedulerReservationPayloadSchema, { minItems: 1 }), bypassSlotIds: Type.Array(IdSchema),
+});
+const MarkSchedulerReservationDispatchPayloadSchema = StrictObject({ reservationId: IdSchema, normalizedRequestHash: HashSchema });
+const RecordSchedulerReservationDispatchPayloadSchema = StrictObject({ reservationId: IdSchema, normalizedRequestHash: HashSchema, disposition: Type.Enum(["active", "launch_ambiguous"]) });
+const ReleaseSchedulerReservationPayloadSchema = StrictObject({ reservationId: IdSchema, disposition: Type.Enum(["released", "fenced"]), reason: Type.String({ minLength: 1, maxLength: 4096 }) });
+const AuthorizeRetryPayloadSchema = StrictObject({ retryKey: HashSchema, expectedCount: NonNegativeIntegerSchema, workItemId: IdSchema, stage: PlanStageSchema, dimension: Type.Enum(["product_repair", "test_rework", "review_rework", "hardening_rework", "infrastructure", "worker_replacement", "integration"]), fingerprint: HashSchema, candidateGeneration: NonNegativeIntegerSchema });
+const ReserveIntegrationAttemptPayloadSchema = StrictObject({
+  integrationAttemptId: IdSchema, entryId: IdSchema, repositoryId: IdSchema, workItemId: IdSchema, retryOrdinal: NonNegativeIntegerSchema, retryAuthorizationKey: Type.Union([HashSchema, Type.Null()]),
+  sourceCandidateHash: HashSchema, sourceBase: GitTreeRefV1Schema, sourceCandidate: GitTreeRefV1Schema,
+  expectedPrefix: GitTreeRefV1Schema, expectedTarget: GitTreeRefV1Schema, temporaryRef: Type.String({ minLength: 1, maxLength: 512 }),
+  repositoryBindingFactHash: HashSchema, lockLeaseId: IdSchema, compositionEffect: EffectProjectionV1Schema,
+});
+const RecordGitCompositionPayloadSchema = StrictObject({ integrationAttemptId: IdSchema, compositionFactHash: HashSchema, composedTree: GitTreeRefV1Schema, syntheticParentCommit: Type.String({ pattern: "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }), sourceToIntegratedLineageHash: HashSchema, conflictClass: Type.Enum(["none", "mechanical", "semantic", "ambiguous"]), privateRefFactHashes: Type.Array(HashSchema, { minItems: 1 }) });
+const RecordGitCompositionConflictPayloadSchema = StrictObject({ integrationAttemptId: IdSchema, compositionFactHash: HashSchema, conflictClass: Type.Enum(["mechanical", "semantic", "ambiguous"]) });
+const RecordProposalVerificationPayloadSchema = StrictObject({ integrationAttemptId: IdSchema, proposalVerificationFactHash: HashSchema, prefixEvidenceHashes: Type.Array(HashSchema, { minItems: 1 }), finalEvidenceHashes: Type.Array(HashSchema, { minItems: 1 }), environmentClosureHash: HashSchema });
+const PrepareGitLandingPayloadSchema = StrictObject({ integrationAttemptId: IdSchema, landingEffect: EffectProjectionV1Schema, intendedLandedTree: GitTreeRefV1Schema });
+const RecordGitLandingPayloadSchema = StrictObject({ integrationAttemptId: IdSchema, landingObservationFactHash: HashSchema, reconciliation: Type.Enum(["applied_exact", "proven_absent", "conflict", "unknown"]) });
+const AcceptIntegrationReceiptPayloadSchema = StrictObject({ integrationAttemptId: IdSchema, integrationReceiptHash: HashSchema, transactionReceiptHash: HashSchema, transactionReceiptFactHash: HashSchema });
 
 const variant = <T extends string, P extends Record<string, any>>(type: T, kind: "command" | "observation", payload: P) => StrictObject({
   schemaVersion: Type.Literal(1), kind: Type.Literal(kind), type: Type.Literal(type),
@@ -79,6 +111,18 @@ export const DagRunInputV1Schema = Type.Union([
   variant("quarantine_fact", "observation", QuarantineFactPayloadSchema),
   variant("adopt_quarantined_fact", "observation", AdoptQuarantinePayloadSchema),
   variant("reject_quarantined_fact", "command", RejectQuarantinePayloadSchema),
+  variant("reserve_scheduler_batch", "command", ReserveSchedulerBatchPayloadSchema),
+  variant("mark_scheduler_reservation_dispatch", "command", MarkSchedulerReservationDispatchPayloadSchema),
+  variant("record_scheduler_reservation_dispatch", "observation", RecordSchedulerReservationDispatchPayloadSchema),
+  variant("release_scheduler_reservation", "observation", ReleaseSchedulerReservationPayloadSchema),
+  variant("authorize_retry", "command", AuthorizeRetryPayloadSchema),
+  variant("reserve_integration_attempt", "command", ReserveIntegrationAttemptPayloadSchema),
+  variant("record_git_composition", "observation", RecordGitCompositionPayloadSchema),
+  variant("record_git_composition_conflict", "observation", RecordGitCompositionConflictPayloadSchema),
+  variant("record_proposal_verification", "observation", RecordProposalVerificationPayloadSchema),
+  variant("prepare_git_landing", "command", PrepareGitLandingPayloadSchema),
+  variant("record_git_landing_reconciliation", "observation", RecordGitLandingPayloadSchema),
+  variant("accept_integration_receipt", "observation", AcceptIntegrationReceiptPayloadSchema),
 ]);
 export type DagRunInputV1 = Static<typeof DagRunInputV1Schema>;
 export const DAG_RUN_INPUT_SCHEMA_HASH = canonicalHash(JSON.parse(JSON.stringify(DagRunInputV1Schema)));
@@ -231,6 +275,230 @@ function applyInput(
       notices.push(notice(state, "desired_changed", state.runId, input.payloadHash));
       return null;
     }
+    case "reserve_scheduler_batch": {
+      const exactDecision = scheduleDagRunV1(context.plan, state);
+      if (payload.decisionHash !== exactDecision.decisionHash || payload.decisionSequence !== exactDecision.decisionSequence || payload.policyHash !== exactDecision.policyHash || payload.normalizedIndexHash !== exactDecision.normalizedIndexHash || payload.inputSnapshotHash !== exactDecision.inputSnapshotHash || canonicalHash(payload.reservations) !== canonicalHash(exactDecision.selected) || canonicalHash([...payload.bypassSlotIds].sort()) !== canonicalHash([...exactDecision.bypassIncrements].sort())) return precondition("scheduler reservation must exactly reproduce the deterministic bound plan/run/policy decision");
+      if (!state.owner.sessionId || !state.owner.lockIdentity) return precondition("scheduler reservation requires one exact attached owner");
+      if (state.desired.run !== "running" || !["active", "integration"].includes(state.current.run)) return precondition("only an active running run may reserve scheduler work");
+      if (payload.policyHash !== state.scheduler.policyHash || payload.normalizedIndexHash !== state.scheduler.normalizedIndexHash || payload.inputSnapshotHash !== input.expectedSnapshotHash) return precondition("scheduler decision bindings differ from the current run snapshot");
+      if (payload.decisionSequence !== state.scheduler.decisionSequence + 1) return precondition("scheduler decision sequence is not the exact successor");
+      const activeLanes = Object.values(state.scheduler.activeNodeLanes).filter(({ releaseDisposition }) => releaseDisposition === null).length;
+      const newLaneIds = [...new Set(payload.reservations.map((reservation: any) => reservation.workItemId).filter((id: string) => !state.scheduler.activeNodeLanes[id] || state.scheduler.activeNodeLanes[id].releaseDisposition !== null))];
+      if (activeLanes + newLaneIds.length > state.scheduler.maxActiveNodes) return precondition("scheduler batch exceeds sticky active-node lanes");
+      const batchMutexes = new Set<string>();
+      const batchResourceUnits: Record<string, number> = {};
+      const batchOperationalUnits: Record<string, number> = {};
+      for (const reservation of payload.reservations) {
+        const item = state.workItems[reservation.workItemId];
+        if (!item || item.writeRepositoryId !== reservation.repositoryId || item.candidateGeneration !== reservation.itemGeneration || !item.authorizedStages.includes(reservation.stage) || ["complete", "cancelled", "superseded"].includes(item.current)) return precondition("scheduler reservation does not bind one exact runnable work item generation");
+        if (state.scheduler.reservations[reservation.reservationId] || Object.values(state.scheduler.reservations).some((current) => current.workItemId === reservation.workItemId && !["released", "fenced"].includes(current.state))) return precondition("scheduler natural reservation slot is already occupied");
+        if (reservation.reservationSequence !== state.scheduler.nextReservationSequence + payload.reservations.indexOf(reservation)) return precondition("scheduler reservation sequence is not contiguous");
+        const expectedOperation: Record<string, string[]> = { F0: ["conductor"], F1: ["implementation"], F2: ["evaluation"], F3: ["codification"], F4: ["verification"], F5: ["review"], F6: ["hardening"], F7: ["verification"], F8: item.current === "integration_ready" || item.current === "integrating" ? ["integration"] : ["conductor"] };
+        if (!expectedOperation[reservation.stage].includes(reservation.operationKind)) return precondition("scheduler reservation violates the fixed lifecycle operation class");
+        for (const mutexId of reservation.mutexGroupIds) {
+          if (!state.mutexes[mutexId] || state.mutexes[mutexId].activeLeaseId || batchMutexes.has(mutexId)) return precondition("scheduler reservation conflicts with an active semantic mutex");
+          batchMutexes.add(mutexId);
+        }
+        for (const [resourceId, units] of Object.entries(reservation.resourceUnits) as Array<[string, number]>) {
+          const pool = state.resourcePools[resourceId];
+          if (!pool || pool.allocatedUnits + (batchResourceUnits[resourceId] ?? 0) + units > Math.min(pool.observedCapacity, pool.semanticMaximum)) return precondition("scheduler reservation exceeds exact vector resource capacity");
+          batchResourceUnits[resourceId] = (batchResourceUnits[resourceId] ?? 0) + units;
+        }
+        for (const [namespace, units] of Object.entries(reservation.operationalUnits) as Array<[string, number]>) {
+          const pool = state.scheduler.operationalCapacities[namespace];
+          if (!pool || pool.allocatedUnits + (batchOperationalUnits[namespace] ?? 0) + units > pool.observedCapacity) return precondition("scheduler reservation exceeds exact operational capacity");
+          batchOperationalUnits[namespace] = (batchOperationalUnits[namespace] ?? 0) + units;
+        }
+        const conflictingExclusion = Object.values(state.scheduler.dynamicExclusions).find((exclusion) => exclusion.state === "active" && exclusion.workItemIds.includes(reservation.workItemId) && exclusion.phases.includes(reservation.stage) && exclusion.workItemIds.some((id) => payload.reservations.some((candidate: any) => candidate.workItemId === id && candidate.workItemId !== reservation.workItemId) || Object.values(state.scheduler.reservations).some((candidate) => candidate.workItemId === id && !["released", "fenced"].includes(candidate.state))));
+        if (conflictingExclusion) return precondition(`scheduler reservation conflicts with dynamic exclusion ${conflictingExclusion.exclusionId}`);
+      }
+      for (const reservation of payload.reservations) {
+        const item = state.workItems[reservation.workItemId];
+        if (!state.scheduler.activeNodeLanes[item.workItemId] || state.scheduler.activeNodeLanes[item.workItemId].releaseDisposition !== null) {
+          state.scheduler.activeNodeLanes[item.workItemId] = { workItemId: item.workItemId, admissionSequence: reservation.reservationSequence, admittedAt: input.occurredAt, releaseDisposition: null, releasedAt: null };
+          item.laneAdmissionSequence = reservation.reservationSequence; item.admittedAt = input.occurredAt;
+        }
+        item.current = reservation.operationKind === "integration" ? "integrating" : "active"; item.currentStage = reservation.stage;
+        const leaseIds: string[] = [];
+        const stageLeaseId = `${reservation.reservationId}-stage`;
+        state.leases[stageLeaseId] = { leaseId: stageLeaseId, kind: "stage_claim", subject: { kind: "work_item", id: item.workItemId }, holderStageAttemptId: null, holderIntegrationAttemptId: null, candidateGeneration: item.candidateGeneration, units: 1, ownerEpoch: state.owner.ownerEpoch, state: "active", acquiredAt: input.occurredAt, expiresAt: null, releasedAt: null, releaseReason: null };
+        leaseIds.push(stageLeaseId);
+        for (const mutexId of reservation.mutexGroupIds) {
+          const leaseId = `${reservation.reservationId}-mutex-${canonicalHash(mutexId).slice(7, 15)}`;
+          state.leases[leaseId] = { leaseId, kind: "semantic_mutex", subject: { kind: "mutex", id: mutexId }, holderStageAttemptId: null, holderIntegrationAttemptId: null, candidateGeneration: item.candidateGeneration, units: 1, ownerEpoch: state.owner.ownerEpoch, state: "active", acquiredAt: input.occurredAt, expiresAt: null, releasedAt: null, releaseReason: null };
+          state.mutexes[mutexId].activeLeaseId = leaseId; leaseIds.push(leaseId);
+        }
+        for (const [resourceId, units] of Object.entries(reservation.resourceUnits) as Array<[string, number]>) {
+          const leaseId = `${reservation.reservationId}-resource-${canonicalHash(resourceId).slice(7, 15)}`;
+          state.leases[leaseId] = { leaseId, kind: "resource", subject: { kind: "resource", id: resourceId }, holderStageAttemptId: null, holderIntegrationAttemptId: null, candidateGeneration: item.candidateGeneration, units, ownerEpoch: state.owner.ownerEpoch, state: "active", acquiredAt: input.occurredAt, expiresAt: null, releasedAt: null, releaseReason: null };
+          state.resourcePools[resourceId].leaseIds = [...state.resourcePools[resourceId].leaseIds, leaseId].sort(); state.resourcePools[resourceId].allocatedUnits += units; leaseIds.push(leaseId);
+        }
+        for (const [namespace, units] of Object.entries(reservation.operationalUnits) as Array<[string, number]>) {
+          const leaseId = `${reservation.reservationId}-operational-${canonicalHash(namespace).slice(7, 15)}`;
+          state.leases[leaseId] = { leaseId, kind: "resource", subject: { kind: "resource", id: namespace }, holderStageAttemptId: null, holderIntegrationAttemptId: null, candidateGeneration: item.candidateGeneration, units, ownerEpoch: state.owner.ownerEpoch, state: "active", acquiredAt: input.occurredAt, expiresAt: null, releasedAt: null, releaseReason: null };
+          const pool = state.scheduler.operationalCapacities[namespace]; pool.allocatedUnits += units; pool.reservationIds = [...pool.reservationIds, reservation.reservationId].sort(); leaseIds.push(leaseId);
+        }
+        item.activeLeaseIds = [...new Set([...item.activeLeaseIds, ...leaseIds])].sort();
+        state.scheduler.reservations[reservation.reservationId] = { reservationId: reservation.reservationId, reservationSequence: reservation.reservationSequence, workItemId: item.workItemId, stage: reservation.stage, attemptOrdinal: reservation.attemptOrdinal, operationKind: reservation.operationKind, state: "reserved", candidateGeneration: reservation.itemGeneration, ownerEpoch: state.owner.ownerEpoch, authorizationSetHash: state.identity.authorizationSet.hash, normalizedRequestHash: reservation.normalizedRequestHash, leaseIds: leaseIds.sort(), mutexGroupIds: [...reservation.mutexGroupIds].sort(), resourceUnits: Object.fromEntries(Object.entries(reservation.resourceUnits).sort(([a], [b]) => a.localeCompare(b))), operationalUnits: Object.fromEntries(Object.entries(reservation.operationalUnits).sort(([a], [b]) => a.localeCompare(b))), workerRole: reservation.workerRole, repositoryId: reservation.repositoryId, createdAt: input.occurredAt, releasedAt: null };
+        state.scheduler.bypassCounters[reservation.slotId] = 0;
+      }
+      for (const slotId of payload.bypassSlotIds) state.scheduler.bypassCounters[slotId] = (state.scheduler.bypassCounters[slotId] ?? 0) + 1;
+      state.scheduler.decisionSequence = payload.decisionSequence; state.scheduler.nextReservationSequence += payload.reservations.length; state.scheduler.lastDecisionCommandId = input.commandId;
+      notices.push(notice(state, "scheduler_reserved", state.runId, payload.decisionHash));
+      return null;
+    }
+    case "mark_scheduler_reservation_dispatch": {
+      const reservation = state.scheduler.reservations[payload.reservationId]; if (!reservation || reservation.state !== "reserved" || reservation.normalizedRequestHash !== payload.normalizedRequestHash) return precondition("only an exact durable reserved scheduler operation may enter dispatch intent"); reservation.state = "dispatch_intent"; effects.push({ effectId: reservation.reservationId, kind: `scheduler_${reservation.operationKind}`, requestHash: reservation.normalizedRequestHash }); notices.push(notice(state, "scheduler_dispatch_intended", reservation.reservationId, reservation.normalizedRequestHash)); return null;
+    }
+    case "record_scheduler_reservation_dispatch": {
+      const reservation = state.scheduler.reservations[payload.reservationId]; if (!reservation || reservation.state !== "dispatch_intent" || reservation.normalizedRequestHash !== payload.normalizedRequestHash) return precondition("scheduler dispatch observation must bind the exact persisted dispatch intent"); reservation.state = payload.disposition; if (payload.disposition === "launch_ambiguous") { const blockerId = `launch-ambiguous-${reservation.reservationId}`; state.blockers[blockerId] = { blockerId, kind: "launch_ambiguous", subject: { kind: "work_item", id: reservation.workItemId }, stage: reservation.stage, sourceId: reservation.reservationId, sourceHash: reservation.normalizedRequestHash, release: "immutable_fact", active: true, createdAt: input.occurredAt, releasedAt: null, releaseReceipt: null }; if (!state.workItems[reservation.workItemId].blockerIds.includes(blockerId)) state.workItems[reservation.workItemId].blockerIds.push(blockerId); } notices.push(notice(state, "scheduler_dispatch_observed", reservation.reservationId, payload.normalizedRequestHash)); return null;
+    }
+    case "release_scheduler_reservation": {
+      const reservation = state.scheduler.reservations[payload.reservationId];
+      if (!reservation || ["released", "fenced"].includes(reservation.state)) return precondition("scheduler reservation is not active");
+      reservation.state = payload.disposition; reservation.releasedAt = input.occurredAt;
+      const item = state.workItems[reservation.workItemId];
+      for (const leaseId of reservation.leaseIds) {
+        const lease = state.leases[leaseId]; if (!lease || !["active", "release_requested"].includes(lease.state)) return precondition("reservation lease is missing or already terminal");
+        lease.state = payload.disposition === "fenced" ? "fenced" : "released"; lease.releasedAt = input.occurredAt; lease.releaseReason = payload.reason;
+        item.activeLeaseIds = item.activeLeaseIds.filter((id) => id !== leaseId);
+        if (lease.kind === "resource" && state.resourcePools[lease.subject.id]) { const pool = state.resourcePools[lease.subject.id]; pool.allocatedUnits -= lease.units; pool.leaseIds = pool.leaseIds.filter((id) => id !== leaseId); }
+        if (lease.kind === "resource" && state.scheduler.operationalCapacities[lease.subject.id]) { const pool = state.scheduler.operationalCapacities[lease.subject.id]; pool.allocatedUnits -= lease.units; pool.reservationIds = pool.reservationIds.filter((id) => id !== reservation.reservationId); }
+        if (lease.kind === "semantic_mutex" && state.mutexes[lease.subject.id]?.activeLeaseId === leaseId) state.mutexes[lease.subject.id].activeLeaseId = null;
+      }
+      notices.push(notice(state, "scheduler_released", reservation.reservationId, input.payloadHash));
+      return null;
+    }
+    case "authorize_retry": {
+      const entry = state.retryLedger[payload.retryKey]; const item = state.workItems[payload.workItemId];
+      if (!entry || !item || entry.workItemId !== payload.workItemId || entry.stage !== payload.stage || entry.dimension !== payload.dimension || entry.fingerprint !== payload.fingerprint || item.candidateGeneration !== payload.candidateGeneration) return precondition("retry request does not bind an existing exact retry ledger slot");
+      if (entry.count !== payload.expectedCount || entry.count >= entry.ceiling || entry.stop !== "none") return precondition("retry count, ceiling, or stop disposition rejects authorization");
+      if (Object.values(state.effects).some((effect) => effect.subject.kind === "work_item" && effect.subject.id === item.workItemId && !["applied_exact", "compensated", "proven_absent"].includes(effect.reconciliation))) return precondition("retry requires every prior effect reconciled");
+      entry.count += 1; entry.lastRetryCommandId = input.commandId;
+      notices.push(notice(state, "retry_authorized", payload.workItemId, payload.retryKey));
+      return null;
+    }
+    case "reserve_integration_attempt": {
+      if (state.desired.run !== "running" || state.freshness.blocksIntegration) return precondition("integration reservation requires a running integration-fresh run");
+      const item = state.workItems[payload.workItemId]; const repository = state.repositories[payload.repositoryId]; const train = state.integrationTrains[payload.repositoryId];
+      const planTrain = context.plan.constraints.integrationTrains.find(({ repositoryId }) => repositoryId === payload.repositoryId);
+      const member = planTrain?.members.find(({ workItemId }) => workItemId === payload.workItemId);
+      if (!item || !repository || !train || !planTrain || !member || item.writeRepositoryId !== payload.repositoryId || item.current !== "integration_ready" || !item.integrationReadyReceipt || !item.candidate || item.candidate.candidateHash !== payload.sourceCandidateHash) return precondition("integration attempt does not bind one exact integration-ready train member and candidate");
+      const headOrdinal = train.entryOrder.filter((entryId) => train.entries[entryId]?.state === "integrated").length;
+      if (member.ordinal !== headOrdinal || train.activeIntegrationAttemptId || state.integrationAttempts[payload.integrationAttemptId]) return precondition("only the exact current train head may reserve one integration attempt");
+      const retryAuthorization = payload.retryAuthorizationKey ? state.retryLedger[payload.retryAuthorizationKey] : null;
+      if ((payload.retryOrdinal === 0) !== (payload.retryAuthorizationKey === null) || (payload.retryOrdinal > 0 && (!retryAuthorization || retryAuthorization.workItemId !== item.workItemId || retryAuthorization.dimension !== "integration" || retryAuthorization.count !== payload.retryOrdinal || retryAuthorization.lastRetryCommandId === null))) return precondition("integration retry must bind an exact previously authorized integration retry ledger slot");
+      if (canonicalHash(payload.sourceBase) !== canonicalHash(item.candidate.base) || canonicalHash(payload.sourceCandidate) !== canonicalHash(item.candidate.git) || canonicalHash(payload.expectedPrefix) !== canonicalHash(train.acceptedPrefix) || canonicalHash(payload.expectedTarget) !== canonicalHash(train.expectedTarget)) return precondition("integration source, prefix, or target identity differs from current authority");
+      const readyFact = context.facts[item.integrationReadyReceipt] as any;
+      if (readyFact?.kind !== "integration_ready" || readyFact.hash !== item.integrationReadyReceipt || readyFact.workItemId !== item.workItemId || readyFact.candidateGeneration !== item.candidateGeneration || readyFact.candidateHash !== item.candidate.candidateHash) return precondition("integration readiness fact is missing or stale");
+      const bindingFact = context.facts[payload.repositoryBindingFactHash] as any;
+      if (!exactGitFact(bindingFact, state, "repository_binding", payload.repositoryId, null) || bindingFact.reconciliation !== "applied_exact" || bindingFact.ownerEpoch !== state.owner.ownerEpoch || bindingFact.targetRef !== repository.targetRef || bindingFact.commit !== payload.expectedTarget.commit || bindingFact.tree !== payload.expectedTarget.tree || bindingFact.objectFormat !== (payload.expectedTarget.commit.length === 40 ? "sha1" : "sha256")) return precondition("repository binding fact does not prove the exact current target/common-dir identity");
+      if (repository.workspace.gitCommonDirIdentityHash && repository.workspace.gitCommonDirIdentityHash !== bindingFact.commonDirIdentityHash) return precondition("repository common-dir identity conflicts with prior session binding");
+      if (Object.values(state.repositories).some((candidate) => candidate.repositoryId !== repository.repositoryId && candidate.integrationLockLeaseId !== null && candidate.workspace.gitCommonDirIdentityHash === bindingFact.commonDirIdentityHash && state.leases[candidate.integrationLockLeaseId]?.state !== "released")) return precondition("another repository identity already holds the exact same Git common-directory integration lock");
+      const effect = payload.compositionEffect;
+      if (effect.kind !== "compose_candidate" || effect.effectId !== `${payload.integrationAttemptId}-compose` || effect.subject.kind !== "train" || effect.subject.id !== planTrain.trainId || effect.state !== "intended" || effect.dispatchCount !== 0 || effect.createdRevision !== state.revision + 1 || effect.createdAt !== input.occurredAt || effect.boundOwnerEpoch !== state.owner.ownerEpoch || effect.boundAuthorizationSetHash !== state.identity.authorizationSet.hash || effect.boundFreshnessReceiptHash !== state.freshness.receipt.hash) return precondition("integration composition effect must be one pristine current-authority intent");
+      const lockLease = { leaseId: payload.lockLeaseId, kind: "integration_lock" as const, subject: { kind: "repository" as const, id: payload.repositoryId }, holderStageAttemptId: null, holderIntegrationAttemptId: payload.integrationAttemptId, candidateGeneration: item.candidateGeneration, units: 1, ownerEpoch: state.owner.ownerEpoch, state: "active" as const, acquiredAt: input.occurredAt, expiresAt: null, releasedAt: null, releaseReason: null };
+      if (state.leases[payload.lockLeaseId] || repository.integrationLockLeaseId || train.lockLeaseId) return precondition("repository integration lock lease slot is already occupied");
+      state.leases[payload.lockLeaseId] = lockLease; repository.integrationLockLeaseId = payload.lockLeaseId; train.lockLeaseId = payload.lockLeaseId;
+      repository.workspace.gitCommonDirIdentityHash = bindingFact.commonDirIdentityHash; repository.workspace.gitWorktreeIdentityHash = bindingFact.worktreeIdentityHash; repository.workspace.observationReceipt = bindingFact.hash; repository.observationReceipt = bindingFact.hash; repository.observedTarget = payload.expectedTarget; repository.observedTargetAt = bindingFact.observedAt; state.freshness.repositoryObservationHashes[payload.repositoryId] = bindingFact.hash;
+      const priorEntry = train.entries[payload.entryId];
+      if (priorEntry && (priorEntry.workItemId !== item.workItemId || priorEntry.ordinal !== member.ordinal || priorEntry.state !== "invalidated" || state.integrationAttempts[priorEntry.currentAttemptId ?? ""]?.conflictClass === "none")) return precondition("integration entry natural slot is not an exact retryable conflict");
+      if (priorEntry) { const priorAttempt = state.integrationAttempts[priorEntry.currentAttemptId!]; const conflictFact = priorAttempt?.compositionFactHash ? context.facts[priorAttempt.compositionFactHash] as any : null; const candidateFact = context.facts[item.candidate.candidateHash] as any; const producerAttempt = state.stageAttempts[item.candidate.producedByStageAttemptId]; if (item.candidate.generation !== priorEntry.sourceCandidate.generation + 1 || candidateFact?.kind !== "candidate" || candidateFact.producedByStageAttemptId !== item.candidate.producedByStageAttemptId || producerAttempt?.stage !== "F1" || producerAttempt.state !== "sealed" || producerAttempt.reservedOutputGeneration !== item.candidate.generation || !conflictFact || utcTimestampOrderValue(producerAttempt.createdAt) < utcTimestampOrderValue(conflictFact.observedAt)) return precondition("integration retry requires a fresh exact post-conflict F1 candidate generation"); }
+      if (Object.values(state.integrationAttempts).some((candidate) => candidate.entryId === payload.entryId && candidate.retryOrdinal === payload.retryOrdinal)) return precondition("integration retry ordinal/authorization has already been consumed by an immutable attempt");
+      if (priorEntry) { priorEntry.state = "reserved"; priorEntry.attemptIds = [...priorEntry.attemptIds, payload.integrationAttemptId]; priorEntry.currentAttemptId = payload.integrationAttemptId; priorEntry.integrationReadyHash = item.integrationReadyReceipt; priorEntry.sourceCandidate = structuredClone(item.candidate); }
+      else { train.entries[payload.entryId] = { entryId: payload.entryId, workItemId: item.workItemId, ordinal: member.ordinal, state: "reserved", integrationReadyHash: item.integrationReadyReceipt, sourceCandidate: structuredClone(item.candidate), attemptIds: [payload.integrationAttemptId], currentAttemptId: payload.integrationAttemptId, integrationReceipt: null, blockerIds: [] }; train.entryOrder = [...train.entryOrder, payload.entryId]; }
+      train.activeIntegrationAttemptId = payload.integrationAttemptId;
+      state.effects[effect.effectId] = structuredClone(effect);
+      state.integrationAttempts[payload.integrationAttemptId] = { integrationAttemptId: payload.integrationAttemptId, entryId: payload.entryId, retryOrdinal: payload.retryOrdinal, sourceCandidateHash: payload.sourceCandidateHash, strategy: "merge_tree_one_parent", compositionProfileHash: planTrain.compositionProfileHash, prefixValidationProfileHash: planTrain.prefixValidationProfileHash, finalValidationProfileHash: planTrain.finalValidationProfileHash, sourceBase: structuredClone(payload.sourceBase), sourceCandidate: structuredClone(payload.sourceCandidate), expectedPrefix: structuredClone(payload.expectedPrefix), expectedTarget: structuredClone(payload.expectedTarget), temporaryRef: payload.temporaryRef, temporaryWorkspaceReceipt: null, compositionEffectId: effect.effectId, composedTree: null, syntheticParentCommit: null, sourceToIntegratedLineageHash: null, conflictClass: "none", prefixEvidenceHashes: [], finalEvidenceHashes: [], environmentClosureHash: null, landingEffectId: null, landingState: "none", intendedLandedTree: null, integrationReceipt: null, repositoryBindingFactHash: bindingFact.hash, privateRefFactHashes: [], compositionFactHash: null, proposalVerificationFactHash: null, landingObservationFactHash: null };
+      item.integrationEntryId = payload.entryId; item.current = "integrating"; train.entries[payload.entryId].state = "composing";
+      notices.push(notice(state, "integration_reserved", payload.integrationAttemptId, bindingFact.hash));
+      return null;
+    }
+    case "record_git_composition": {
+      const attempt = state.integrationAttempts[payload.integrationAttemptId]; const train = Object.values(state.integrationTrains).find(({ entries }) => Boolean(entries[attempt?.entryId])); const entry = train?.entries[attempt?.entryId];
+      if (!attempt || !train || !entry || entry.currentAttemptId !== attempt.integrationAttemptId || entry.state !== "composing" || payload.conflictClass !== "none") return precondition("composition observation must bind the active clean train attempt");
+      const fact = context.facts[payload.compositionFactHash] as any; const bindingFact = context.facts[attempt.repositoryBindingFactHash] as any; const effect = state.effects[attempt.compositionEffectId];
+      if (!sameGitRepositoryBinding(fact, bindingFact) || effect?.state !== "dispatching" || effect.dispatchCount < 1 || !exactGitFact(fact, state, "composition", train.repositoryId, attempt.integrationAttemptId) || fact.effectId !== effect?.effectId || fact.requestHash !== effect?.requestHash || fact.ownerEpoch !== effect?.boundOwnerEpoch || fact.reconciliation !== "applied_exact" || fact.commit !== payload.composedTree.commit || fact.tree !== payload.composedTree.tree || fact.parentCommit !== payload.syntheticParentCommit || payload.syntheticParentCommit !== attempt.expectedPrefix.commit) return precondition("composition fact does not prove exact one-parent composed commit/tree");
+      for (const hash of payload.privateRefFactHashes) { const anchor = context.facts[hash] as any; if (!exactGitFact(anchor, state, "private_ref", train.repositoryId, attempt.integrationAttemptId) || anchor.ownerEpoch !== effect.boundOwnerEpoch || anchor.commonDirIdentityHash !== fact.commonDirIdentityHash || anchor.worktreeIdentityHash !== fact.worktreeIdentityHash || anchor.gitConfigHash !== fact.gitConfigHash || anchor.gitVersionHash !== fact.gitVersionHash || anchor.objectFormat !== fact.objectFormat || anchor.reconciliation !== "applied_exact") return precondition("composition private-ref fact is missing or conflicting"); }
+      effect.state = "reconciled"; effect.reconciliation = "applied_exact";
+      attempt.composedTree = structuredClone(payload.composedTree); attempt.syntheticParentCommit = payload.syntheticParentCommit; attempt.sourceToIntegratedLineageHash = payload.sourceToIntegratedLineageHash; attempt.conflictClass = "none"; attempt.compositionFactHash = fact.hash; attempt.privateRefFactHashes = [...payload.privateRefFactHashes].sort();
+      entry.state = "verifying_prefix"; notices.push(notice(state, "integration_composed", attempt.integrationAttemptId, fact.hash)); return null;
+    }
+    case "record_git_composition_conflict": {
+      const attempt = state.integrationAttempts[payload.integrationAttemptId]; const train = Object.values(state.integrationTrains).find(({ entries }) => Boolean(entries[attempt?.entryId])); const entry = train?.entries[attempt?.entryId]; const item = entry ? state.workItems[entry.workItemId] : null; const effect = attempt ? state.effects[attempt.compositionEffectId] : null;
+      if (!attempt || !train || !entry || !item || entry.currentAttemptId !== attempt.integrationAttemptId || entry.state !== "composing" || effect?.state !== "dispatching" || effect.dispatchCount < 1) return precondition("composition conflict must bind the exact active dispatched train attempt");
+      const fact = context.facts[payload.compositionFactHash] as any; const bindingFact = context.facts[attempt.repositoryBindingFactHash] as any;
+      if (!sameGitRepositoryBinding(fact, bindingFact) || !exactGitFact(fact, state, "composition", train.repositoryId, attempt.integrationAttemptId) || fact.effectId !== effect.effectId || fact.requestHash !== effect.requestHash || fact.ownerEpoch !== effect.boundOwnerEpoch || fact.reconciliation !== "conflict" || fact.commit !== null || fact.tree !== null) return precondition("composition conflict fact must prove an exact no-result conflict observation");
+      attempt.conflictClass = payload.conflictClass; attempt.compositionFactHash = fact.hash; effect.state = "failed"; effect.reconciliation = "conflict"; entry.state = "invalidated"; train.activeIntegrationAttemptId = null;
+      item.candidateGeneration += 1; item.candidate = null; item.integrationReadyReceipt = null; item.integrationEntryId = null; item.current = "active"; item.currentStage = "F1";
+      for (const stageId of PLAN_STAGE_IDS.slice(1)) { const stage = item.stages[stageId]; stage.state = "pending"; stage.currentAttemptId = null; stage.currentEvidence = null; stage.adoptionReceipt = null; stage.lastDisposition = null; stage.blockerIds = []; }
+      releaseIntegrationLock(state, train.repositoryId, attempt.integrationAttemptId, input.occurredAt, "exact composition conflict");
+      notices.push(notice(state, "integration_conflict", attempt.integrationAttemptId, fact.hash)); return null;
+    }
+    case "record_proposal_verification": {
+      const attempt = state.integrationAttempts[payload.integrationAttemptId]; const train = Object.values(state.integrationTrains).find(({ entries }) => Boolean(entries[attempt?.entryId])); const entry = train?.entries[attempt?.entryId];
+      if (!attempt || !train || !entry || entry.state !== "verifying_prefix" || !attempt.composedTree) return precondition("proposal verification requires one exact composed train attempt");
+      const fact = context.facts[payload.proposalVerificationFactHash] as any; const bindingFact = context.facts[attempt.repositoryBindingFactHash] as any;
+      if (!sameGitRepositoryBinding(fact, bindingFact) || !exactGitFact(fact, state, "proposal_verification", train.repositoryId, attempt.integrationAttemptId) || fact.ownerEpoch !== state.effects[attempt.compositionEffectId]?.boundOwnerEpoch || fact.reconciliation !== "applied_exact" || fact.commit !== attempt.composedTree.commit || fact.tree !== attempt.composedTree.tree || fact.detailsHash !== canonicalHash({ prefixEvidenceHashes: [...payload.prefixEvidenceHashes].sort(), finalEvidenceHashes: [...payload.finalEvidenceHashes].sort(), environmentClosureHash: payload.environmentClosureHash }) || payload.prefixEvidenceHashes.length === 0 || payload.finalEvidenceHashes.length === 0) return precondition("proposal verification fact does not bind exact composed prefix/final evidence");
+      for (const hash of [...payload.prefixEvidenceHashes, ...payload.finalEvidenceHashes]) { const evidence = context.facts[hash] as any; if (evidence?.kind !== "verification" || evidence.hash !== hash || evidence.planHash !== state.identity.planHash || evidence.runId !== state.runId || evidence.runNonce !== state.runNonce || evidence.integrationAttemptId !== attempt.integrationAttemptId || canonicalHash(evidence.tree) !== canonicalHash(attempt.composedTree) || evidence.disposition !== "PASS") return precondition("proposal verification evidence is absent, stale, or non-PASS"); }
+      for (const hash of [...payload.prefixEvidenceHashes, ...payload.finalEvidenceHashes]) { const evidence = context.facts[hash] as any; state.evidenceIndex.verifications[hash] = { kind: "verification", schemaVersion: 1, id: evidence.id ?? `verification-${hash.slice(7, 19)}`, hash, bytes: Buffer.byteLength(canonicalStringify(evidence)), mediaType: "application/json", sensitivity: "internal", retention: "run", locator: null }; }
+      attempt.prefixEvidenceHashes = [...payload.prefixEvidenceHashes].sort(); attempt.finalEvidenceHashes = [...payload.finalEvidenceHashes].sort(); attempt.environmentClosureHash = payload.environmentClosureHash; attempt.proposalVerificationFactHash = fact.hash; entry.state = "landing";
+      notices.push(notice(state, "integration_verified", attempt.integrationAttemptId, fact.hash)); return null;
+    }
+    case "prepare_git_landing": {
+      const attempt = state.integrationAttempts[payload.integrationAttemptId]; const train = Object.values(state.integrationTrains).find(({ entries }) => Boolean(entries[attempt?.entryId])); const entry = train?.entries[attempt?.entryId]; const effect = payload.landingEffect;
+      if (!attempt || !train || !entry || entry.state !== "landing" || !attempt.composedTree || !attempt.proposalVerificationFactHash || attempt.prefixEvidenceHashes.length === 0 || attempt.finalEvidenceHashes.length === 0 || canonicalHash(payload.intendedLandedTree) !== canonicalHash(attempt.composedTree)) return precondition("landing intent requires exact current composed and fully verified proposal");
+      if (effect.kind !== "land_target" || effect.effectId !== `${attempt.integrationAttemptId}-land` || effect.subject.kind !== "repository" || effect.subject.id !== train.repositoryId || effect.state !== "intended" || effect.dispatchCount !== 0 || effect.createdRevision !== state.revision + 1 || effect.createdAt !== input.occurredAt || effect.boundOwnerEpoch !== state.owner.ownerEpoch || effect.boundAuthorizationSetHash !== state.identity.authorizationSet.hash || effect.boundFreshnessReceiptHash !== state.freshness.receipt.hash) return precondition("landing effect must be one pristine current-authority intent");
+      state.effects[effect.effectId] = structuredClone(effect); attempt.landingEffectId = effect.effectId; attempt.landingState = "intended"; attempt.intendedLandedTree = structuredClone(payload.intendedLandedTree);
+      notices.push(notice(state, "landing_intended", attempt.integrationAttemptId, effect.requestHash)); return null;
+    }
+    case "record_git_landing_reconciliation": {
+      const attempt = state.integrationAttempts[payload.integrationAttemptId]; const train = Object.values(state.integrationTrains).find(({ entries }) => Boolean(entries[attempt?.entryId])); const effect = attempt?.landingEffectId ? state.effects[attempt.landingEffectId] : null;
+      if (!attempt || !train || !effect || effect.state !== "dispatching" || effect.dispatchCount < 1 || !attempt.intendedLandedTree || !["intended", "dispatching", "observed", "ambiguous"].includes(attempt.landingState)) return precondition("landing observation has no exact current landing intent");
+      const fact = context.facts[payload.landingObservationFactHash] as any; const bindingFact = context.facts[attempt.repositoryBindingFactHash] as any;
+      if (!sameGitRepositoryBinding(fact, bindingFact) || !exactGitFact(fact, state, "landing", train.repositoryId, attempt.integrationAttemptId) || fact.effectId !== effect.effectId || fact.requestHash !== effect.requestHash || fact.ownerEpoch !== effect.boundOwnerEpoch || fact.reconciliation !== payload.reconciliation) return precondition("landing observation fact does not bind exact effect and reconciliation");
+      attempt.landingObservationFactHash = fact.hash; effect.reconciliation = payload.reconciliation;
+      if (payload.reconciliation === "applied_exact") {
+        if (fact.commit !== attempt.intendedLandedTree.commit || fact.tree !== attempt.intendedLandedTree.tree) return precondition("applied landing observation differs from exact intended commit/tree");
+        attempt.landingState = "reconciled"; effect.state = "reconciled";
+      } else if (payload.reconciliation === "proven_absent") {
+        if (fact.commit !== attempt.expectedTarget.commit || fact.tree !== attempt.expectedTarget.tree) return precondition("proven-absent landing must observe the exact expected old target identity");
+        attempt.landingState = "observed"; effect.state = "reconciled";
+      } else {
+        if (payload.reconciliation === "conflict" && (fact.commit === null || fact.tree === null || (fact.commit === attempt.expectedTarget.commit && fact.tree === attempt.expectedTarget.tree) || (fact.commit === attempt.intendedLandedTree.commit && fact.tree === attempt.intendedLandedTree.tree))) return precondition("landing conflict must observe a concrete third target identity");
+        attempt.landingState = "ambiguous";
+        if (payload.reconciliation === "conflict") {
+          effect.state = "failed"; const entry = train.entries[attempt.entryId]; const item = entry ? state.workItems[entry.workItemId] : null; const blockerId = `integration-target-third-${attempt.integrationAttemptId}`;
+          if (entry && item) { entry.state = "blocked"; train.activeIntegrationAttemptId = null; item.current = "integration_ready"; if (!item.blockerIds.includes(blockerId)) item.blockerIds.push(blockerId); state.blockers[blockerId] = { blockerId, kind: "integration_drift", subject: { kind: "work_item", id: item.workItemId }, stage: "F8", sourceId: attempt.integrationAttemptId, sourceHash: fact.hash, release: "successor_plan", active: true, createdAt: input.occurredAt, releasedAt: null, releaseReceipt: null }; releaseIntegrationLock(state, train.repositoryId, attempt.integrationAttemptId, input.occurredAt, "exact third-target conflict"); }
+        } else effect.state = "ambiguous";
+      }
+      notices.push(notice(state, "landing_observed", attempt.integrationAttemptId, fact.hash)); return null;
+    }
+    case "accept_integration_receipt": {
+      const attempt = state.integrationAttempts[payload.integrationAttemptId]; const train = Object.values(state.integrationTrains).find(({ entries }) => Boolean(entries[attempt?.entryId])); const entry = train?.entries[attempt?.entryId]; const item = entry ? state.workItems[entry.workItemId] : null;
+      if (!attempt || !train || !entry || !item || attempt.landingState !== "reconciled" || !attempt.landingObservationFactHash || !attempt.intendedLandedTree) return precondition("integration receipt acceptance requires exact applied landing reconciliation");
+      const fact = context.facts[payload.integrationReceiptHash] as any; const bindingFact = context.facts[attempt.repositoryBindingFactHash] as any; const transactionFact = context.facts[payload.transactionReceiptFactHash] as any; const receipt = transactionFact?.receipt as any;
+      const receiptHashExact = receipt?.receiptHash === payload.transactionReceiptHash && receipt?.receiptHash === canonicalHash(Object.fromEntries(Object.entries(receipt ?? {}).filter(([key]) => key !== "receiptHash")));
+      const transactionBindingExact = transactionFact?.kind === "git_integration_receipt" && transactionFact.hash === payload.transactionReceiptFactHash && transactionFact.hash === canonicalHash(Object.fromEntries(Object.entries(transactionFact).filter(([key]) => key !== "hash"))) && transactionFact.planHash === state.identity.planHash && transactionFact.runId === state.runId && transactionFact.runNonce === state.runNonce && transactionFact.authorizationSetHash === state.identity.authorizationSet.hash && transactionFact.repositoryId === train.repositoryId && transactionFact.integrationAttemptId === attempt.integrationAttemptId && transactionFact.transactionReceiptHash === payload.transactionReceiptHash;
+      const receiptExact = receiptHashExact && receipt?.transactionId === attempt.integrationAttemptId && receipt?.runId === state.runId && receipt?.runNonce === state.runNonce && receipt?.planHash === state.identity.planHash && receipt?.authorizationSetHash === state.identity.authorizationSet.hash && receipt?.ownerEpoch === state.owner.ownerEpoch && receipt?.repositoryId === train.repositoryId && receipt?.commonDirIdentityHash === bindingFact?.commonDirIdentityHash && receipt?.worktreeIdentityHash === bindingFact?.worktreeIdentityHash && receipt?.configHash === bindingFact?.gitConfigHash && canonicalHash(receipt?.gitVersion) === bindingFact?.gitVersionHash && receipt?.objectFormat === bindingFact?.objectFormat && receipt?.targetRef === state.repositories[train.repositoryId].targetRef && receipt?.workItemId === item.workItemId && receipt?.candidateGeneration === item.candidateGeneration && canonicalHash(receipt?.sourceBase) === canonicalHash(attempt.sourceBase) && canonicalHash(receipt?.candidate) === canonicalHash(attempt.sourceCandidate) && canonicalHash(receipt?.expectedPrefix) === canonicalHash(attempt.expectedPrefix) && canonicalHash(receipt?.composed) === canonicalHash(attempt.intendedLandedTree) && receipt?.compositionProfileHash === attempt.compositionProfileHash && receipt?.prefixValidationProfileHash === attempt.prefixValidationProfileHash && receipt?.finalValidationProfileHash === attempt.finalValidationProfileHash && receipt?.environmentClosureHash === attempt.environmentClosureHash && canonicalHash([...(receipt?.prefixEvidenceHashes ?? [])].sort()) === canonicalHash(attempt.prefixEvidenceHashes) && canonicalHash([...(receipt?.finalEvidenceHashes ?? [])].sort()) === canonicalHash(attempt.finalEvidenceHashes) && receipt?.landing?.expectedOldOid === attempt.expectedTarget.commit && receipt?.landing?.newOid === attempt.intendedLandedTree.commit && receipt?.landing?.reconciliation === "applied_exact" && receipt?.landing?.targetObservationHash === (context.facts[attempt.landingObservationFactHash] as any)?.detailsHash && canonicalHash(Object.keys(receipt?.privateRefs ?? {}).sort()) === canonicalHash(["baseline", "candidate", "composed", "prefix", "proposal"]) && canonicalHash(Object.values(receipt?.privateRefs ?? {}).sort()) === canonicalHash(attempt.privateRefFactHashes.map((hash) => (context.facts[hash] as any)?.targetRef).sort());
+      if (!transactionBindingExact || !receiptExact) return precondition("transaction receipt fact does not resolve the exact immutable real-Git transaction receipt/content authority");
+      if (fact?.kind !== "integration" || fact.hash !== payload.integrationReceiptHash || fact.hash !== canonicalHash(Object.fromEntries(Object.entries(fact).filter(([key]) => key !== "hash"))) || fact.planHash !== state.identity.planHash || fact.runId !== state.runId || fact.runNonce !== state.runNonce || fact.authorizationSetHash !== state.identity.authorizationSet.hash || fact.workItemId !== item.workItemId || fact.repositoryId !== train.repositoryId || fact.integrationAttemptId !== attempt.integrationAttemptId || fact.candidateHash !== attempt.sourceCandidateHash || fact.strategy !== attempt.strategy || fact.compositionProfileHash !== attempt.compositionProfileHash || canonicalHash(fact.expectedPrefix) !== canonicalHash(attempt.expectedPrefix) || canonicalHash(fact.expectedTarget) !== canonicalHash(attempt.expectedTarget) || canonicalHash(fact.landed) !== canonicalHash(attempt.intendedLandedTree) || fact.syntheticParentCommit !== attempt.expectedPrefix.commit || fact.sourceToIntegratedLineageHash !== attempt.sourceToIntegratedLineageHash || fact.environmentClosureHash !== attempt.environmentClosureHash || !fact.combinedStateVerified || !fact.reconciled || fact.acceptingOwnerEpoch !== state.owner.ownerEpoch || fact.commonDirIdentityHash !== bindingFact?.commonDirIdentityHash || fact.worktreeIdentityHash !== bindingFact?.worktreeIdentityHash || fact.gitConfigHash !== bindingFact?.gitConfigHash || fact.gitVersionHash !== bindingFact?.gitVersionHash || fact.objectFormat !== bindingFact?.objectFormat || fact.transactionReceiptHash !== payload.transactionReceiptHash || fact.transactionReceiptFactHash !== payload.transactionReceiptFactHash || fact.landingObservationHash !== attempt.landingObservationFactHash) return precondition("integration receipt does not duplicate the exact current source/composition/verification/landing transaction");
+      attempt.integrationReceipt = fact.hash; attempt.landingState = "landed"; entry.integrationReceipt = fact.hash; entry.state = "integrated"; entry.currentAttemptId = null;
+      item.integrationReceipt = fact.hash; item.current = "complete"; item.completedAt = input.occurredAt; item.currentStage = "F8";
+      state.evidenceIndex.integrationReceipts[attempt.integrationAttemptId] = { kind: "integration", schemaVersion: 1, id: attempt.integrationAttemptId, hash: fact.hash, bytes: Buffer.byteLength(canonicalStringify(fact)), mediaType: "application/json", sensitivity: "internal", retention: "project", locator: null };
+      train.acceptedPrefix = structuredClone(fact.landed); train.expectedTarget = structuredClone(fact.landed); train.acceptedPrefixOrdinal = entry.ordinal + 1; train.acceptedPrefixReceipt = fact.hash; train.activeIntegrationAttemptId = null;
+      const repository = state.repositories[train.repositoryId]; repository.observedTarget = structuredClone(fact.landed); repository.observedTargetAt = input.occurredAt; repository.observationReceipt = attempt.landingObservationFactHash; state.freshness.repositoryObservationHashes[train.repositoryId] = attempt.landingObservationFactHash;
+      const lockLease = train.lockLeaseId ? state.leases[train.lockLeaseId] : null; if (lockLease) { lockLease.state = "released"; lockLease.releasedAt = input.occurredAt; lockLease.releaseReason = "integration receipt accepted"; }
+      repository.integrationLockLeaseId = null; train.lockLeaseId = null;
+      const lane = state.scheduler.activeNodeLanes[item.workItemId]; if (lane?.releaseDisposition === null) { lane.releaseDisposition = "integrated"; lane.releasedAt = input.occurredAt; }
+      for (const reservation of Object.values(state.scheduler.reservations).filter((candidate) => candidate.workItemId === item.workItemId && !["released", "fenced"].includes(candidate.state))) { reservation.state = "released"; reservation.releasedAt = input.occurredAt; for (const leaseId of reservation.leaseIds) { const lease = state.leases[leaseId]; if (lease && !["released", "fenced"].includes(lease.state)) { lease.state = "released"; lease.releasedAt = input.occurredAt; lease.releaseReason = "integration receipt accepted"; } } }
+      item.activeLeaseIds = [];
+      for (const edge of Object.values(state.precedence).filter(({ predecessorWorkItemId }) => predecessorWorkItemId === item.workItemId)) { edge.state = "satisfied"; edge.satisfyingReceipt = fact.hash; }
+      state.completion.completeWorkItemIds = [...new Set([...state.completion.completeWorkItemIds, item.workItemId])].sort(); state.completion.remainingAuthorizedWorkItemIds = state.completion.remainingAuthorizedWorkItemIds.filter((id) => id !== item.workItemId);
+      if (train.entryOrder.every((entryId) => train.entries[entryId]?.state === "integrated")) state.completion.completedRepositoryIds = [...new Set([...state.completion.completedRepositoryIds, train.repositoryId])].sort();
+      if (!state.completion.remainingAuthorizedWorkItemIds.length) { state.completion.state = state.completion.unauthorizedWorkItemIds.length ? "authorized_scope_complete" : "plan_complete"; state.completion.completedAt = input.occurredAt; }
+      notices.push(notice(state, "integration_accepted", item.workItemId, fact.hash)); return null;
+    }
     case "put_effect_intent": {
       const effect = payload.effect;
       if (state.effects[effect.effectId]) return precondition("effect ID collides with an existing immutable effect slot");
@@ -253,7 +521,8 @@ function applyInput(
     }
     case "retry_effect_dispatch": {
       const effect = state.effects[payload.effectId];
-      if (!effect || !["dispatching", "ambiguous"].includes(effect.state) || effect.dispatchCount !== payload.expectedDispatchCount) return precondition("uncertain effect is not retryable at the expected dispatch count");
+      const replayableProvenAbsentLanding = effect?.kind === "land_target" && effect.state === "reconciled" && effect.reconciliation === "proven_absent";
+      if (!effect || (!replayableProvenAbsentLanding && !["dispatching", "ambiguous"].includes(effect.state)) || effect.dispatchCount !== payload.expectedDispatchCount) return precondition("uncertain/proven-absent landing effect is not retryable at the expected dispatch count");
       if (!["pure", "idempotent"].includes(effect.procedureClass)) return precondition("compensatable/non-repeatable/unknown effect requires exact reconciliation rather than redispatch");
       if (state.desired.run === "paused" && !["cancel_worker", "reconcile_external_effect"].includes(effect.kind)) return precondition("pause blocks uncertain effect redispatch");
       effect.state = "dispatching"; effect.dispatchCount += 1; effect.lastDispatchAt = input.occurredAt;
@@ -362,6 +631,15 @@ function applyInput(
   }
 }
 
+function exactGitFact(fact: any, state: DagRunStateV1, factType: string, repositoryId: string, integrationAttemptId: string | null): boolean {
+  if (!fact || fact.kind !== "git_transaction" || fact.factType !== factType || fact.hash !== canonicalHash(Object.fromEntries(Object.entries(fact).filter(([key]) => key !== "hash")))) return false;
+  return fact.planHash === state.identity.planHash && fact.runId === state.runId && fact.runNonce === state.runNonce && fact.authorizationSetHash === state.identity.authorizationSet.hash && fact.repositoryId === repositoryId && fact.integrationAttemptId === integrationAttemptId;
+}
+
+function sameGitRepositoryBinding(fact: any, binding: any): boolean {
+  return Boolean(fact && binding && fact.commonDirIdentityHash === binding.commonDirIdentityHash && fact.worktreeIdentityHash === binding.worktreeIdentityHash && fact.gitConfigHash === binding.gitConfigHash && fact.gitVersionHash === binding.gitVersionHash && fact.objectFormat === binding.objectFormat);
+}
+
 function naturalSlotId(input: DagRunInputV1): string {
   const payload: any = input.payload;
   const naturalIdentity = (() => {
@@ -379,6 +657,18 @@ function naturalSlotId(input: DagRunInputV1): string {
       case "quarantine_fact": return payload.quarantine.quarantineId;
       case "adopt_quarantined_fact": return payload.quarantineId;
       case "reject_quarantined_fact": return payload.quarantineId;
+      case "reserve_scheduler_batch": return `${payload.decisionSequence}/${payload.decisionHash}`;
+      case "mark_scheduler_reservation_dispatch": return payload.reservationId;
+      case "record_scheduler_reservation_dispatch": return `${payload.reservationId}/${payload.disposition}`;
+      case "release_scheduler_reservation": return `${payload.reservationId}/${payload.disposition}`;
+      case "authorize_retry": return `${payload.retryKey}/${payload.expectedCount}`;
+      case "reserve_integration_attempt": return payload.integrationAttemptId;
+      case "record_git_composition": return `${payload.integrationAttemptId}/${payload.compositionFactHash}`;
+      case "record_git_composition_conflict": return `${payload.integrationAttemptId}/${payload.compositionFactHash}`;
+      case "record_proposal_verification": return `${payload.integrationAttemptId}/${payload.proposalVerificationFactHash}`;
+      case "prepare_git_landing": return `${payload.integrationAttemptId}/${payload.landingEffect.effectId}`;
+      case "record_git_landing_reconciliation": return `${payload.integrationAttemptId}/${payload.landingObservationFactHash}`;
+      case "accept_integration_receipt": return `${payload.integrationAttemptId}/${payload.integrationReceiptHash}`;
     }
   })();
   return canonicalHash({ type: input.type, naturalIdentity });
@@ -441,6 +731,19 @@ function closeCancelledWorkItem(state: DagRunStateV1, workItemId: string, at: st
   item.activeLeaseIds = [];
   for (const mutex of Object.values(state.mutexes)) if (mutex.activeLeaseId && state.leases[mutex.activeLeaseId]?.state === "released") mutex.activeLeaseId = null;
   for (const resource of Object.values(state.resourcePools)) resource.allocatedUnits = resource.leaseIds.reduce((sum, leaseId) => sum + (["active", "release_requested", "expired", "fenced"].includes(state.leases[leaseId]?.state ?? "") ? state.leases[leaseId].units : 0), 0);
+  for (const [namespace, capacity] of Object.entries(state.scheduler.operationalCapacities)) {
+    const activeLeases = Object.values(state.leases).filter((lease) => lease.kind === "resource" && lease.subject.id === namespace && ["active", "release_requested", "expired"].includes(lease.state));
+    capacity.allocatedUnits = activeLeases.reduce((sum, lease) => sum + lease.units, 0);
+    capacity.reservationIds = [...new Set(activeLeases.flatMap((lease) => Object.values(state.scheduler.reservations).filter((reservation) => reservation.leaseIds.includes(lease.leaseId)).map(({ reservationId }) => reservationId)))].sort();
+  }
+}
+
+function releaseIntegrationLock(state: DagRunStateV1, repositoryId: string, integrationAttemptId: string, at: string, reason: string): void {
+  const repository = state.repositories[repositoryId]; const train = state.integrationTrains[repositoryId]; const leaseId = repository?.integrationLockLeaseId;
+  if (!repository || !train || !leaseId || train.lockLeaseId !== leaseId) return;
+  const lease = state.leases[leaseId];
+  if (lease?.kind === "integration_lock" && lease.holderIntegrationAttemptId === integrationAttemptId && lease.state !== "released") { lease.state = "released"; lease.releasedAt = at; lease.releaseReason = reason; }
+  repository.integrationLockLeaseId = null; train.lockLeaseId = null;
 }
 
 function rederiveCurrent(state: DagRunStateV1, commandId: string): void {

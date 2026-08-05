@@ -33,6 +33,11 @@ const files = [
   "extensions/dag-workflow/dag-runtime/run-state.ts",
   "extensions/dag-workflow/dag-runtime/reducer.ts",
   "extensions/dag-workflow/dag-runtime/store.ts",
+  "extensions/dag-workflow/dag-runtime/git-integration.ts",
+  "extensions/dag-workflow/dag-runtime/scheduler.ts",
+  "extensions/dag-workflow/dag-runtime/conductor.ts",
+  "extensions/dag-workflow/dag-runtime/integration.ts",
+  "extensions/dag-workflow/dag-runtime/widget.ts",
   "extensions/dag-workflow/dag-runtime/index.ts",
   "extensions/dag-workflow/worker-runtime/core.mjs",
   "extensions/dag-workflow/worker-runtime/child-report.ts",
@@ -41,9 +46,11 @@ const files = [
   "extensions/dag-workflow/worker-runtime/integration.ts",
   "scripts/project-model-test.mjs",
   "scripts/dag-runtime-test.mjs",
+  "scripts/git-integration-test.mjs",
   "scripts/worker-runtime-test.mjs",
   "scripts/fixtures/fake-worker-rpc.mjs",
   "scripts/fixtures/dag-store-child.mjs",
+  "scripts/fixtures/git-integration-crash-child.mjs",
   "scripts/migrate-brainstorm-to-project-model.mjs",
   "project-model/model.json",
   "project-model/migrations/brainstorm-v2-candidate.md",
@@ -65,6 +72,8 @@ const productionModel = await execFileAsync(process.execPath, ["scripts/project-
 assertIncludes(productionModel.stdout, "Project model production tests OK", "production project-model tests pass");
 const dagRuntime = await execFileAsync(process.execPath, ["scripts/dag-runtime-test.mjs"]);
 assertIncludes(dagRuntime.stdout, "Canonical DAG plan and run-state schema tests OK", "canonical DAG schema tests pass");
+const gitIntegration = await execFileAsync(process.execPath, ["scripts/git-integration-test.mjs"], { timeout: 180_000 });
+assertIncludes(gitIntegration.stdout, "Exact real-Git integration transaction and failpoint matrix OK", "real-Git integration failpoint matrix passes");
 const workerRuntime = await execFileAsync(process.execPath, ["scripts/worker-runtime-test.mjs"], { timeout: 120_000 });
 assertIncludes(workerRuntime.stdout, "Owned worker core, supervisor, and manager tests OK", "owned worker runtime tests pass");
 const adapterPrototype = await execFileAsync(process.execPath, ["spec/prototypes/brainstorm-pi-adapter/scenario.mjs"]);

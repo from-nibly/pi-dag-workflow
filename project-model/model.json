@@ -12496,6 +12496,67 @@
       "updatedAt": "2026-07-30T04:23:23.445Z"
     },
     {
+      "body": "After successive adversarial findings were repaired, final read-only closure worker `worker-msfq1drj-e08efac880` reported no release blockers. Closure covers exact-common-dir process locks with atomic publication and PID/start/directory identity, core-only tree/config mechanics including raw gitlink rejection, direct immutable refs, explicit-base merge-tree and deterministic one-parent commit-tree, exact clean verification before dispatch, complete durable intent/observation recovery across every named real-process failpoint including cleanup and lock-release side-effect windows, old/new/third landing reconciliation, strict real-Git transaction receipt self-hash/content authority, post-conflict generation fencing and fresh sealed F1 recertification, one-shot integration retry authorization, and canonical owner/repository/environment/evidence joins. The Git, DAG, model, worker, smoke, package, specification, syntax, and diff checks pass.",
+      "createdAt": "2026-08-05T06:52:40.829Z",
+      "id": "EV-real-git-integration-final-closure",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-model-aware-dag-redesign"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/git-integration.ts",
+        "extensions/dag-workflow/dag-runtime/reducer.ts",
+        "extensions/dag-workflow/dag-runtime/run-state.ts",
+        "scripts/fixtures/git-integration-crash-child.mjs",
+        "scripts/git-integration-test.mjs",
+        "worker-msfq1drj-e08efac880"
+      ],
+      "state": "current",
+      "title": "Real-Git integration passed final independent adversarial closure",
+      "updatedAt": "2026-08-05T06:52:40.829Z"
+    },
+    {
+      "body": "Task 111 implements a release-closed core-only real-Git transaction and canonical reducer path with exact repository/common-dir/worktree/config/object-format identity; run nonce, authorization, and owner binding; unsupported shallow, partial, alternate, replace-ref, graft, submodule/gitlink, LFS/filter/driver/hook/fsmonitor profile rejection; direct immutable expected-absent private refs; explicit-base `merge-tree --write-tree`; fixed-attribution deterministic one-parent `commit-tree`; exact clean detached verification before procedure dispatch; proposal protection; guarded ordinary fast-forward in the exact clean session branch; old/new/third target reconciliation; durable immutable intents, observations, quarantine, transaction receipts, and integration receipts; process-shared atomic PID/start/directory-identity locking; correctness-neutral cleanup; post-conflict generation fencing and fresh F1 repair; one-shot retry authorization; and durable replay after every named real-process failpoint. Final independent adversarial closure reported no release blockers.",
+      "createdAt": "2026-08-05T04:05:55.128Z",
+      "id": "EV-real-git-integration-transaction-implementation",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-model-aware-dag-redesign"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-core-git-only-capability-profile-v1",
+        "DEC-exact-prefix-every-landing-long-lock-v1",
+        "DEC-explicit-base-merge-tree-synthetic-train-v1",
+        "DEC-private-ref-retention-quarantine-v1",
+        "DEC-session-worktree-automatic-fast-forward-v1",
+        "extensions/dag-workflow/dag-runtime/git-integration.ts",
+        "scripts/git-integration-test.mjs"
+      ],
+      "state": "current",
+      "title": "Real-Git integration transaction now exercises exact composition and landing recovery",
+      "updatedAt": "2026-08-05T06:52:40.829Z"
+    },
+    {
       "body": "A diagnostic Pi process loaded a copy of this exact session with the current extension. After `session_start` restored the focus, `pi.getAllTools()` and `pi.getActiveTools()` both included `dag_model_present_review`. Therefore package loading, tool registration, focus-link restoration, and dynamic activation all work. The remaining mismatch is that this resumed assistant conversation's callable schema still omits the tool.",
       "confidence": "high",
       "createdAt": "2026-07-30T03:17:10.107Z",
@@ -12597,6 +12658,108 @@
       "state": "current",
       "title": "Foundational run-state kernel passed crash, concurrency, cancellation, authority, and corruption closure",
       "updatedAt": "2026-08-04T19:39:41.492Z"
+    },
+    {
+      "body": "Task 112 implements a release-closed deterministic sticky-lane scheduler, exact execution projection, session-bound conductor, exactly nine typed tools, UI-independent scheduler progression, exact worker joins, and passive bounded TUI widget. Reducer-side exact decision recomputation rejects forged reservations; fairness never blocks the incumbent needed to release capacity; dynamic exclusions preserve deterministic earlier-lane ownership between operations; dispatch crosses durable intent and observation states; projection glyphs distinguish genuinely in-flight, post-external, terminal, attention, readiness, train, and completion states; omission and topology cuts are explicit; last-good reads are exact-binding fenced and fail closed; and repeated TUI/headless lifecycles tear down timers and widgets deterministically. Final independent closure reported no release blockers.",
+      "createdAt": "2026-08-05T04:05:55.129Z",
+      "id": "EV-sticky-scheduler-conductor-widget-implementation",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-model-aware-dag-redesign"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-critical-rank-bypass-list-scheduler-v1",
+        "DEC-exact-session-bound-single-dag-widget-run-v1",
+        "DEC-five-layer-monotone-scheduler-v1",
+        "DEC-nine-separate-typed-dag-conductor-tools-v1",
+        "DEC-sticky-active-node-concurrency-lanes-v1",
+        "DEC-tui-only-persistent-dag-widget-v1",
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/integration.ts",
+        "extensions/dag-workflow/dag-runtime/reducer.ts",
+        "extensions/dag-workflow/dag-runtime/run-state.ts",
+        "extensions/dag-workflow/dag-runtime/scheduler.ts",
+        "extensions/dag-workflow/dag-runtime/widget.ts",
+        "scripts/dag-runtime-test.mjs"
+      ],
+      "state": "current",
+      "title": "Sticky scheduler, exact conductor tools, and passive DAG widget are implemented",
+      "updatedAt": "2026-08-05T08:33:41.158Z"
+    },
+    {
+      "body": "Historical independent closure findings from `worker-msfjuof3-dfd714ced6` identified forged scheduler reservations, sticky-lane fairness deadlock, missing production dispatch, projection/widget defects, cache under-fencing, unrelated-worker churn, and incomplete dynamic exclusion. All findings were subsequently repaired with deterministic regressions and superseded by final no-blocker closure evidence `EV-task112-final-release-closure`.",
+      "createdAt": "2026-08-05T06:52:40.829Z",
+      "id": "EV-task112-adversarial-release-blockers",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-model-aware-dag-redesign"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "/tmp/task112-fairness-deadlock.mjs",
+        "/tmp/task112-forged-reservation.mjs",
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/integration.ts",
+        "extensions/dag-workflow/dag-runtime/scheduler.ts",
+        "extensions/dag-workflow/dag-runtime/widget.ts",
+        "worker-msfjuof3-dfd714ced6"
+      ],
+      "state": "stale",
+      "title": "Task 112 remains release-blocked after adversarial scheduler/conductor/widget review",
+      "updatedAt": "2026-08-05T08:33:41.158Z"
+    },
+    {
+      "body": "Task 112 is release-closed after iterative adversarial repair and final independent read-only verification by `worker-msftfqj4-3486fe0b8e` attempt 2 reported no blockers. The implementation exact-recomputes scheduler authority in the reducer; preserves sticky-lane fairness and dynamic exclusions; durably reserves, dispatches, observes, and recovers scheduler operations; projects exact retry, worker, repository, train, and lifecycle joins; binds sessions and immutable ownership lineage; exposes exactly nine typed conductor tools; and renders a passive, bounded, fail-closed TUI widget with exact glyph, omission, topology-cut, visible-width, timer, and TUI-to-headless semantics. The complete model, DAG runtime, Git integration, worker runtime, smoke, package, syntax, specification-drift, tracked-whitespace, and untracked-whitespace matrices pass.",
+      "createdAt": "2026-08-05T08:33:41.158Z",
+      "id": "EV-task112-final-release-closure",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-model-aware-dag-redesign"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/integration.ts",
+        "extensions/dag-workflow/dag-runtime/reducer.ts",
+        "extensions/dag-workflow/dag-runtime/scheduler.ts",
+        "extensions/dag-workflow/dag-runtime/widget.ts",
+        "scripts/dag-runtime-test.mjs",
+        "worker-msftfqj4-3486fe0b8e"
+      ],
+      "state": "current",
+      "title": "Task 112 scheduler and execution surfaces are release-closed",
+      "updatedAt": "2026-08-05T08:33:41.158Z"
     },
     {
       "body": "An independent review compared Git graph, DVC DAG, systemd dependency/critical-chain views, pstree, Argo Workflows, GitHub CLI run watching, Ninja, Gradle, Bazel, and Pi TUI constraints. The recurring pattern is a narrow topology channel independent from a fixed status cell, an aggregate progress header, and a compact active/exception list. Full boxed DAGs belong in explicit commands. Large views should select attention/active seeds plus one-hop context, mark every cut with deterministic upstream/downstream counts, preserve topological order, avoid status-driven reordering, and use ASCII semantics with width measured in terminal cells. The review recommends comparing a one-node-per-row topology gutter against horizontal and adjacency layouts rather than assuming horizontal is best.",
@@ -12817,40 +12980,28 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "Current non-authoritative understanding: task 109's atomic DAG run-state kernel is complete and pushed. Task 110's generic owned-worker consumer boundary is release-closed: process-shared PID/start-identity locking and revision/hash CAS; launch-key/request idempotency; actual-spawn-only supervisor authority; strict mailbox, process, timestamp, report, cancellation, and recovery joins; immutable retry-safety facts covering direct identities, process groups, cwd users, inherited nonce, and newly uninspectable processes; owner-bound replay-safe retries; canonical disposable-root and inode fencing; symmetric immutable quarantine; bounded archives with durable result/replay APIs; and serialized explicit/coalesced timer scans now have adversarial fixtures. Thirty consecutive worker suites, the full project matrix, and the exact stale-snapshot closure review pass with no release blocker. Git integration and scheduler/conductor execution remain downstream.",
-      "generatedAt": "2026-08-05T02:28:09.564Z",
+      "body": "Tasks 111 and 112 are release-closed. The real-Git transaction, reducer integration path, deterministic sticky-lane scheduler, exact execution projection, nine conductor tools, session/worker joins, UI-independent progression loop, and passive bounded fail-closed TUI widget have passed full verification and independent adversarial closure. Task 113 can now begin the full canonical F0–F8 dogfood execution and evaluation. This is current agent understanding, not new human authority.",
+      "generatedAt": "2026-08-05T08:33:41.159Z",
       "sourceObjects": [
         {
-          "id": "DEC-generic-worker-idempotent-consumer-contract-v1",
-          "semanticHash": "sha256:7752b13a4fcd0681af20facd5ac79e3b4ce89cea1ac3ff611d6adf49db756956"
+          "id": "EV-real-git-integration-final-closure",
+          "semanticHash": "sha256:d8f89afcd7e96483d25c80dffeb01a00f44daf4594bdd6de2fbc0cf6bfedf629"
         },
         {
-          "id": "EV-owned-worker-runtime-hardening-implementation",
-          "semanticHash": "sha256:6073a3f82c903f2d5158478103f69118397b87d4d1a7cdfa8d0badd1c687db47"
+          "id": "EV-real-git-integration-transaction-implementation",
+          "semanticHash": "sha256:9c773433c734d74e57a516c0cbc181bab309cf36eab75263cde0843d6daf5735"
         },
         {
-          "id": "EV-owned-worker-runtime-first-closure-review",
-          "semanticHash": "sha256:cc475cbe99a114413afdafd302da8a4d423a6a3943133e5c1645279e654a6863"
+          "id": "EV-sticky-scheduler-conductor-widget-implementation",
+          "semanticHash": "sha256:7c63823231504c5fd16f3a81501242b2b4a08bdb4d7e574592c06d0be4b0775d"
         },
         {
-          "id": "EV-owned-worker-runtime-final-closure",
-          "semanticHash": "sha256:e59951e6a031545df603079a516d39b3ad7b712a9e9065921abe56bf1fbcfe9d"
+          "id": "EV-task112-final-release-closure",
+          "semanticHash": "sha256:49391d77b9b18baf0d8d7b293a89bf59343813aee0cba1d1f154e101d6eabbd3"
         },
         {
-          "id": "DISC-worker-runtime-hardening-needs-immutable-process-proof-not-terminal-inference",
-          "semanticHash": "sha256:f468924c062ebdb0c3441d3d55ec0b91cecb9f69a597fa93eeee7348b29e76b8"
-        },
-        {
-          "id": "DISC-worker-session-serialization-is-only-process-local",
-          "semanticHash": "sha256:91263ededd352113835cf7b22825a38f4d3bfc93711753387df4757c9d484c4e"
-        },
-        {
-          "id": "DISC-worker-lost-status-does-not-prove-retry-safety",
-          "semanticHash": "sha256:e644fc7c7166a9bc4a55f49d9d413a2ed59755539b7aede2d89b0152e9f8cde2"
-        },
-        {
-          "id": "EV-run-state-kernel-hardening-and-closure",
-          "semanticHash": "sha256:4ac4dbb552ab820f9bb6bae250f4aa2ec2cd795e39ba6655b3756387368a41fb"
+          "id": "INT-model-aware-dag-redesign",
+          "semanticHash": "sha256:4c6a681eb2ba6c1866c798fa5e97197865907cee5ff32843d060585549f2c7d8"
         }
       ]
     },
@@ -13190,9 +13341,9 @@
         }
       ]
     },
-    "revision": 169,
+    "revision": 172,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-05T02:28:09.564Z"
+    "updatedAt": "2026-08-05T08:33:41.159Z"
   },
   "proposals": [
     {

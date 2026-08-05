@@ -3,6 +3,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { findLatestRun, loadRun, readDag, runDir, summarizeRun, validateDag } from "./dag.ts";
 import { renderDagDiagram } from "./diagram.ts";
+import { registerCanonicalDagRuntime } from "./dag-runtime/integration.ts";
+import { DagConductorServiceV1 } from "./dag-runtime/conductor.ts";
+import { canonicalHash } from "./dag-runtime/common.ts";
+import { requireSchedulerDispatchIntentV1 } from "./dag-runtime/scheduler.ts";
 import { registerProjectModelIntegration } from "./project-model/integration.ts";
 import { isWorkerChildRole, registerWorkerChild } from "./worker-runtime/child-report.ts";
 import { registerWorkerRuntime } from "./worker-runtime/integration.ts";
@@ -52,7 +56,32 @@ export default function dagWorkflow(pi: ExtensionAPI) {
   }
 
   const modelIntegration = registerProjectModelIntegration(pi);
-  registerWorkerRuntime(pi);
+  const workerManager = registerWorkerRuntime(pi);
+  const conductor = new DagConductorServiceV1({
+    async workerProjection(bindings) {
+      if (!workerManager.store || bindings.length === 0) return { projectionHash: canonicalHash({ bindings: [] }), workers: [] };
+      const workers = await workerManager.readBoundAttempts(bindings);
+      return { projectionHash: canonicalHash({ bindings, workers }), workers };
+    },
+    async dispatchEffect(request, runState) {
+      if (request.kind.startsWith("scheduler_")) {
+        const reservation = requireSchedulerDispatchIntentV1(runState, request);
+        if (["conductor", "integration"].includes(reservation.operationKind)) return;
+        const item = runState.workItems[reservation.workItemId]; await workerManager.launch({ launchKey: `dag:${runState.runId}:${reservation.reservationId}`, label: `${reservation.workItemId}/${reservation.stage}`, task: `Execute canonical DAG ${runState.runId} work item ${reservation.workItemId} stage ${reservation.stage} as the fixed ${reservation.operationKind} role. Work from the repository state provided by the owning session. Return bounded evidence and diagnostics only; generic worker completion is not DAG stage authority. Do not infer readiness, advance lifecycle state, integrate, or land Git changes.`, cwd: workerManager.store ? (await workerManager.store.load()).repositoryRoot : undefined }); return;
+      }
+      if (request.kind !== "cancel_worker" || !workerManager.store) throw new Error(`Unsupported canonical DAG effect adapter: ${request.kind}`);
+      const workerState = await workerManager.store.load();
+      const matches = Object.values(runState.stageAttempts).filter((attempt: any) => {
+        const binding = runState.workerBindings[attempt.stageAttemptId]; if (!binding || binding.workerStorageId !== workerState.storageId) return false;
+        const expected = canonicalHash({ kind: "cancel_worker", runId: runState.runId, runNonce: runState.runNonce, workItemId: attempt.workItemId, stageAttemptId: attempt.stageAttemptId, workerStorageId: binding.workerStorageId, launchOwnerSessionId: binding.launchOwnerSessionId, workerId: binding.workerId, attemptNumber: binding.attemptNumber, attemptNonce: binding.attemptNonce, configHash: binding.configHash, fencedGeneration: runState.workItems[attempt.workItemId].candidateGeneration });
+        return expected === request.requestHash;
+      });
+      if (matches.length !== 1) throw new Error("DAG cancellation effect does not bind exactly one current owned-worker attempt");
+      const binding = runState.workerBindings[(matches[0] as any).stageAttemptId];
+      await workerManager.cancel(binding.workerId, `canonical DAG cancellation ${request.effectId}`);
+    },
+  });
+  registerCanonicalDagRuntime(pi, conductor);
 
   pi.registerCommand("dag", {
     description: "Model brainstorming plus read-only inspection of legacy DAG artifacts",
@@ -64,8 +93,12 @@ export default function dagWorkflow(pi: ExtensionAPI) {
       }
       if (modelIntegration.isActive()) modelIntegration.suspend(ctx);
 
-      if (["plan", "chunk", "run", "review", "retro", "archive", "grillme"].includes(command)) {
-        ctx.ui.notify("Model-aware planning and execution are deferred while the new brainstorming workflow is dogfooded.", "warning");
+      if (["plan", "chunk", "review", "retro", "archive", "grillme"].includes(command)) {
+        ctx.ui.notify("Model-aware planning remains deferred; canonical execution is available through the exact dag_run_* conductor tools.", "warning");
+        return;
+      }
+      if (command === "run") {
+        ctx.ui.notify("Canonical runs start through dag_run_start with exact plan, genesis, context, and authorization identities.", "info");
         return;
       }
       if (command === "validate") {
