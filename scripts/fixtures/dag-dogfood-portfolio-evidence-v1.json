@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "kind": "DagDogfoodPortfolioEvidenceV1",
+  "portfolioIdentityHash": "sha256:5f6d733afca1f35595042f0ff446af7e9ec6a14f79f5fea4864dbbcc37543c71",
+  "cohortHash": "sha256:4322b9a400d748b73f67121c37668c6279f2af35cd8961007a71a82b25049fae",
+  "semanticManifestHash": "sha256:057de6716bed1bd822dcfa66edeb3c057de2ad4cd01b743e0d8e99d3abcd797f",
+  "reportHash": "sha256:42b40c011b5a80f9dabe751079ef019fe8c5a69c8a802d9f42ae65f2acc2174a",
+  "pairCount": 6,
+  "executionCountPerRun": 12,
+  "recoveryDrillCountPerRun": 3,
+  "repeatability": "semantic_manifest_exact_match",
+  "runReceipts": [
+    {
+      "manifestHash": "sha256:7a1e4827832961832817e6e71db4be0a215788a7aba95bf06bd81d68368c6290",
+      "executionEnvelopeHashes": [
+        "sha256:0eea86d858b32dcecc4a486e90c55bdda66a1adf25cf490a3dda9239872a4351",
+        "sha256:27de7d89ab316d2d19b262b83fe08850258e0d6622a2977aef0fc2c3b6d5b3d9",
+        "sha256:285d55c48c45e54447332ae81ea8cb486ae93e84b323c3c4deaa360bad2061b8",
+        "sha256:471f2a38034dbf7091e3a5ec4fdbb9e46edafd505e73306c7b97ae9d204aa3f6",
+        "sha256:50c7eab221a47628b773b25987b09124e4fc3c579e80ef4fc5a72fdef5df5929",
+        "sha256:5a90b70c90fc15946a0fcb3889155d1664b8451c571596c2af8f274e9c4c3395",
+        "sha256:615805a90a34169c1fa659f6e314dc3a85c2693249d480794ba416a380978a1d",
+        "sha256:7ff43b0edad9f2485626b43868bca6e75655a78e9d9965ebda747b36a7983ef3",
+        "sha256:c0b80eb35cda1cb927dd33e9b1117a12db77741c2b1830f902ec2dd19d772cb4",
+        "sha256:d3173338e50a6464a38767d8427df81e4d30c966d09acea2b621aaa9e5e510b6",
+        "sha256:ec99e3c701a6cf7ccb40af139c29ab46df9da4bb66027e30d5a44499ec51c9b8",
+        "sha256:effe0ec41b7d5a49f39b46f1864d1653ecceb058d95e8f4086933682ada70768"
+      ],
+      "recoveryDrillHashes": {
+        "conductor_crash_resume": "sha256:dc9571c0e23d16af6b6ed256d9e898f9ff4fa1ae4c527ae139978310306f9431",
+        "provider_worker_loss": "sha256:18b7cc0c85ee1cc8627fc899436fb1eedf616d343382b276651cbd2122e326c7",
+        "target_drift_conflict": "sha256:e472c0c3f81266e74cc7e2478910f3a67fe3a471bf1f687479ef1d375c13f8c9"
+      }
+    },
+    {
+      "manifestHash": "sha256:e75463b8c7b296d66963cd1ca14c17cba463f350b4c9d3465f84a5db1322ea6d",
+      "executionEnvelopeHashes": [
+        "sha256:03e4bb3a886211231a6e501a81ccf9ae129b74182202dc9aba84c1df36aebaef",
+        "sha256:28ff2bfeedacd5e01f78e408e7109c82aa83d144bfa1c682366aff55ad90b14f",
+        "sha256:3894be68994fab8aa162485d46c5a44db9e90b6d9dd035fd53dccd6bae9e1728",
+        "sha256:38b60ec0b31524bad5697c2817bc3225bb4f8d5f1cd08f3c8b3fa0536b3451ae",
+        "sha256:3bbc7daa4819c50eb308ead01c41c9ea86797f124f5d98a86900aa73c6786654",
+        "sha256:4e4099c42e56026cc1af5c2532405e99545355724b1f3864aed9f264a0a589c5",
+        "sha256:63c654c9aa2ecafa1fc9207e93cb231ae5f5df180b4f08450e149fe14067f8c8",
+        "sha256:71cc2524edd2cff6e3b852401b10103a4e8964e944e09e4b764a7ec475310004",
+        "sha256:80d81b900bed53329cbb4bc2bba76b8d9711a2c350003ca2e68a659825c39a4c",
+        "sha256:b72ecc8347de4fbbc6e548c3d5b4790bb2b3abec7af9edddbf4c43ec1f1c699c",
+        "sha256:e9c978208b80e57adad2e65f75363e8d05847e4f31dfdcb28c73988581c9a27b",
+        "sha256:eadbd98a918c1670d566c619902c5928547155e799828fe66281943c36c8fc13"
+      ],
+      "recoveryDrillHashes": {
+        "conductor_crash_resume": "sha256:e0cad23c776a158de3c419a4b0302a3d8e25f052e7314599fa9b35dcf6a0f40c",
+        "provider_worker_loss": "sha256:277968a023843fdcc3e9618fc4550d1d54c67e80adc7cb04ea821613082da4f4",
+        "target_drift_conflict": "sha256:8f950dffe24ffe68372d8c77ff958ae092d18b4f981bfdcab4ebfee1bf78831f"
+      }
+    }
+  ],
+  "evidenceHash": "sha256:837f9b9abc19d72fa49c1ea31b2d2d501f464caa788eb8c498e43fbe7dc749a3"
+}

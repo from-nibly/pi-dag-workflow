@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { canonicalHash, DagRunSnapshotStoreV1, DagRunStoreLockedError } from "../../extensions/dag-workflow/dag-runtime/index.ts";
+import { canonicalHash, DagRunSnapshotStoreV1, DagRunStoreLockedError, ownershipChainHashV1 } from "../../extensions/dag-workflow/dag-runtime/index.ts";
 
 const [root, runId, contextPath, inputPath, lockPath, crashPoint, mode = "mutate", proofPath] = process.argv.slice(2);
 if (!root || !runId || !contextPath || !inputPath || !lockPath) throw new Error("usage: dag-store-child <root> <runId> <context> <input> <lock> [crash-point] [mutate|recover] [proof]");
@@ -8,6 +8,20 @@ let input = JSON.parse(await readFile(inputPath, "utf8"));
 let lock = JSON.parse(await readFile(lockPath, "utf8"));
 const store = new DagRunSnapshotStoreV1(root, runId, { failpoint: async (point) => { if (point === crashPoint) process.exit(86); } });
 try {
+  if (mode === "hold-identity") {
+    if (!proofPath) throw new Error("hold-identity requires a release-signal path");
+    const text = await readFile(`/proc/${process.pid}/stat`, "utf8");
+    const processStartIdentity = `linux-proc:${text.slice(text.lastIndexOf(")") + 2).trim().split(/\s+/)[19]}`;
+    lock = { ...lock, pid: process.pid, processStartIdentity };
+    await writeFile(lockPath, JSON.stringify(lock));
+    process.stdout.write(`${JSON.stringify(lock)}\n`);
+    while (true) {
+      const released = await readFile(proofPath, "utf8").then((value) => value.trim() === "release").catch((error) => error?.code === "ENOENT" ? false : Promise.reject(error));
+      if (released) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    process.exit(0);
+  }
   if (mode === "initialize-auto") {
     const text = await readFile(`/proc/${process.pid}/stat`, "utf8");
     const processStartIdentity = `linux-proc:${text.slice(text.lastIndexOf(")") + 2).trim().split(/\s+/)[19]}`;
@@ -20,9 +34,11 @@ try {
     const current = await store.read(context);
     lock = { ...lock, pid: process.pid, processStartIdentity };
     const disposition = current.owner.sessionId === null ? "absent" : "same_manager";
-    const lineageHash = disposition === "same_manager" ? canonicalHash({ priorSessionId: current.owner.sessionId, priorOwnerTokenHash: current.owner.ownerTokenHash, successorSessionId: lock.sessionId, manager: "dag-store-child" }) : null;
-    const ownershipInput = { kind: "ownership", runId: current.runId, runNonce: current.runNonce, priorSessionId: current.owner.sessionId, priorOwnerTokenHash: current.owner.ownerTokenHash, priorPid: current.owner.pid, priorProcessStartIdentity: current.owner.processStartIdentity, priorLockIdentity: current.owner.lockIdentity, priorAttachedAt: current.owner.attachedAt, disposition, priorObservationHash: null, successorSessionId: lock.sessionId, successorPid: lock.pid, successorProcessStartIdentity: lock.processStartIdentity, successorLockIdentity: lock.lockIdentity, lineageHash };
-    const ownership = { ...ownershipInput, hash: canonicalHash(ownershipInput) };
+    const lineageHash = disposition === "same_manager" ? canonicalHash({ kind: "direct_owner_transfer", runId: current.runId, runNonce: current.runNonce, priorSessionId: current.owner.sessionId, priorOwnerTokenHash: current.owner.ownerTokenHash, priorPid: current.owner.pid, priorProcessStartIdentity: current.owner.processStartIdentity, priorLockIdentity: current.owner.lockIdentity, successorSessionId: lock.sessionId, successorPid: lock.pid, successorProcessStartIdentity: lock.processStartIdentity, successorLockIdentity: lock.lockIdentity }) : null;
+    const priorOwnership = current.owner.ownershipReceipt ? await store.readImmutableFact(current.owner.ownershipReceipt) : null;
+    const ownershipInput = { kind: "ownership", runId: current.runId, runNonce: current.runNonce, priorSessionId: current.owner.sessionId, priorOwnerTokenHash: current.owner.ownerTokenHash, priorPid: current.owner.pid, priorProcessStartIdentity: current.owner.processStartIdentity, priorLockIdentity: current.owner.lockIdentity, priorAttachedAt: current.owner.attachedAt, disposition, priorObservationHash: null, priorOwnershipReceiptHash: current.owner.ownershipReceipt, ownerEpoch: current.owner.ownerEpoch + 1, successorSessionId: lock.sessionId, successorPid: lock.pid, successorProcessStartIdentity: lock.processStartIdentity, successorLockIdentity: lock.lockIdentity, lineageHash };
+    const ownershipWithChain = { ...ownershipInput, chainHash: ownershipChainHashV1(ownershipInput, priorOwnership?.kind === "ownership" ? priorOwnership.chainHash : null) };
+    const ownership = { ...ownershipWithChain, hash: canonicalHash(ownershipWithChain) };
     await store.putImmutableFact(ownership);
     const payload = { ownerTokenHash: lock.ownerTokenHash, sessionId: lock.sessionId, pid: lock.pid, processStartIdentity: lock.processStartIdentity, lockIdentity: lock.lockIdentity, ownershipReceipt: ownership.hash, priorOwnerDisposition: disposition };
     input = { ...input, kind: disposition === "same_manager" ? "command" : "observation", type: disposition === "same_manager" ? "transfer_owner" : "attach_owner", payload, payloadHash: canonicalHash(payload), ...(mode === "transfer-cas-auto" ? {} : { expectedRevision: current.revision, expectedSnapshotHash: current.snapshotHash, ownerEpoch: current.owner.ownerEpoch }) };
@@ -35,8 +51,10 @@ try {
     const processStartIdentity = `linux-proc:${text.slice(text.lastIndexOf(")") + 2).trim().split(/\s+/)[19]}`;
     const current = await store.read(context);
     lock = { ...lock, pid: process.pid, processStartIdentity };
-    const ownershipInput = { kind: "ownership", runId: current.runId, runNonce: current.runNonce, priorSessionId: current.owner.sessionId, priorOwnerTokenHash: current.owner.ownerTokenHash, priorPid: current.owner.pid, priorProcessStartIdentity: current.owner.processStartIdentity, priorLockIdentity: current.owner.lockIdentity, priorAttachedAt: current.owner.attachedAt, disposition: "dead", priorObservationHash: JSON.parse(await readFile(proofPath, "utf8")).observationHash, successorSessionId: lock.sessionId, successorPid: lock.pid, successorProcessStartIdentity: lock.processStartIdentity, successorLockIdentity: lock.lockIdentity, lineageHash: null };
-    const ownership = { ...ownershipInput, hash: canonicalHash(ownershipInput) };
+    const priorOwnership = current.owner.ownershipReceipt ? await store.readImmutableFact(current.owner.ownershipReceipt) : null;
+    const ownershipInput = { kind: "ownership", runId: current.runId, runNonce: current.runNonce, priorSessionId: current.owner.sessionId, priorOwnerTokenHash: current.owner.ownerTokenHash, priorPid: current.owner.pid, priorProcessStartIdentity: current.owner.processStartIdentity, priorLockIdentity: current.owner.lockIdentity, priorAttachedAt: current.owner.attachedAt, disposition: "dead", priorObservationHash: JSON.parse(await readFile(proofPath, "utf8")).observationHash, priorOwnershipReceiptHash: current.owner.ownershipReceipt, ownerEpoch: current.owner.ownerEpoch + 1, successorSessionId: lock.sessionId, successorPid: lock.pid, successorProcessStartIdentity: lock.processStartIdentity, successorLockIdentity: lock.lockIdentity, lineageHash: null };
+    const ownershipWithChain = { ...ownershipInput, chainHash: ownershipChainHashV1(ownershipInput, priorOwnership?.kind === "ownership" ? priorOwnership.chainHash : null) };
+    const ownership = { ...ownershipWithChain, hash: canonicalHash(ownershipWithChain) };
     await store.putImmutableFact(ownership);
     const payload = { ownerTokenHash: lock.ownerTokenHash, sessionId: lock.sessionId, pid: lock.pid, processStartIdentity: lock.processStartIdentity, lockIdentity: lock.lockIdentity, ownershipReceipt: ownership.hash, priorOwnerDisposition: "dead" };
     input = { ...input, payload, payloadHash: canonicalHash(payload), expectedRevision: current.revision, expectedSnapshotHash: current.snapshotHash, ownerEpoch: current.owner.ownerEpoch };

@@ -424,7 +424,10 @@ try {
   const forgedResultLaunch = await forgedResultLaunchPromise;
   releaseStaleDispatchSnapshot();
   await staleDispatchScan;
-  assert(!(await pathExists(forgedResultPaths.recoveryResult)) && (await forgedResultManager.status(forgedResultConfig.workerId)).status === "running", "stale unbound scan snapshot cannot publish recovery after spawn authority is durably bound");
+  const staleReceiptBoundState = await forgedResultManager.store.load();
+  const staleReceiptBoundAttempt = staleReceiptBoundState.workers[forgedResultConfig.workerId].attempts[0];
+  assert(staleReceiptBoundAttempt.supervisorPid === process.pid && staleReceiptBoundAttempt.supervisorStartIdentity === identity, "stale unbound scan hydrates the canonical launch receipt before any missing-launch recovery");
+  if (staleReceiptBoundState.workers[forgedResultConfig.workerId].status === "lost") assert(staleReceiptBoundState.quarantinedArtifacts.some((artifact) => artifact.kind === "conflicting-primary-result"), "same-pass terminal reconciliation may fail closed only for the forged primary process envelope, never as an unbound launch");
   await forgedResultManager.scan();
   const forgedResultAfter = await forgedResultManager.store.load();
   assert(forgedResultAfter.workers[forgedResultLaunch.workerId].attempts[0].supervisorPid === process.pid && forgedResultAfter.workers[forgedResultLaunch.workerId].attempts[0].supervisorPid !== forgedProcess.pid, "primary result cannot bootstrap supervisor authority before actual spawn binding");
@@ -648,10 +651,10 @@ try {
   process.env.FAKE_WORKER_RPC_MODE = "detached-grandchild";
   await descendantManager.attach(managerContext(descendantRoot, "descendant-parent", detachedDescendantSessionFile));
   const descendantLaunch = await descendantManager.launch({ task: "Spawn a detached descendant.", launchKey: "detached-descendant" });
-  await waitFor(async () => { await descendantManager.scan(); return (await descendantManager.status(descendantLaunch.workerId)).status === "succeeded"; });
-  await new Promise((resolveWait) => setTimeout(resolveWait, 150));
+  await waitFor(async () => { try { return (await readFile(join(descendantRoot, "detached-grandchild-writes.txt"))).length > 0; } catch { return false; } });
   await descendantManager.scan();
-  assert(!(await descendantManager.status(descendantLaunch.workerId)).retrySafe, "detached descendant retaining the cwd blocks retry safety after direct-child success");
+  const descendantStatus = await descendantManager.status(descendantLaunch.workerId);
+  assert(descendantStatus.status === "succeeded" && !descendantStatus.retrySafe, "detached descendant retaining the cwd blocks retry safety after direct-child success");
   const firstDescendantWrites = (await readFile(join(descendantRoot, "detached-grandchild-writes.txt"))).length;
   await new Promise((resolveWait) => setTimeout(resolveWait, 150));
   const secondDescendantWrites = (await readFile(join(descendantRoot, "detached-grandchild-writes.txt"))).length;
@@ -659,10 +662,10 @@ try {
   await waitFor(async () => { await descendantManager.scan(); return (await descendantManager.status(descendantLaunch.workerId)).retrySafe; }, 5000);
   process.env.FAKE_WORKER_RPC_MODE = "detached-uninspectable";
   const uninspectableLaunch = await descendantManager.launch({ task: "Spawn an inspectability-denying descendant.", launchKey: "uninspectable-descendant" });
-  await waitFor(async () => { await descendantManager.scan(); return (await descendantManager.status(uninspectableLaunch.workerId)).status === "succeeded"; });
-  await new Promise((resolveWait) => setTimeout(resolveWait, 150));
+  await waitFor(async () => { try { return (await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length > 0; } catch { return false; } });
   await descendantManager.scan();
-  assert(!(await descendantManager.status(uninspectableLaunch.workerId)).retrySafe, "new same-UID process denying cwd/environment inspection blocks retry safety");
+  const uninspectableStatus = await descendantManager.status(uninspectableLaunch.workerId);
+  assert(uninspectableStatus.status === "succeeded" && !uninspectableStatus.retrySafe, "new same-UID process denying cwd/environment inspection blocks retry safety");
   const firstUninspectableWrites = (await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length;
   await new Promise((resolveWait) => setTimeout(resolveWait, 150));
   assert((await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length > firstUninspectableWrites, "inspectability-denying descendant remains a live cwd writer while retry is fenced");
@@ -740,7 +743,7 @@ try {
   assert(scanLoadCount >= 21, "every overlapping explicit scan waits for a distinct serialized pass beginning after its request");
   await scanQueueManager.detach();
 
-  for (const failpoint of ["after_launch_reservation", "after_attempt_reservation", "after_config_publication", "after_dispatch_claim", "after_supervisor_spawn"]) {
+  for (const failpoint of ["after_launch_reservation", "after_attempt_reservation", "after_config_publication", "after_dispatch_claim", "after_launch_receipt_publication", "after_supervisor_spawn"]) {
     const crashRoot = join(root, `manager-crash-${failpoint}`);
     await mkdir(crashRoot, { recursive: true });
     const crashSessionFile = join(crashRoot, "session.jsonl");
@@ -758,6 +761,19 @@ try {
     const recoveredStatus = (await recoveredManager.status())[0];
     if (failpoint === "after_dispatch_claim") assert(recoveredStatus.status === "lost" && !recoveredStatus.retrySafe, "ambiguous dispatch crash fails closed without authorizing retry");
     else assert(recoveredStatus.status === "succeeded", `manager resumes durable launch after ${failpoint}`);
+    if (failpoint === "after_launch_receipt_publication") {
+      const recoveredState = await recoveredManager.store.load();
+      const recoveredWorker = Object.values(recoveredState.workers)[0];
+      const recoveredAttempt = recoveredWorker.attempts[0];
+      const recoveredPaths = attemptPaths(crashRoot, recoveredState.storageId, recoveredWorker.id, recoveredAttempt.attemptNumber);
+      const originalReceipt = await readJson(recoveredPaths.launchReceipt);
+      assert(recoveredWorker.attempts.length === 1 && recoveredWorker.currentAttempt === 1, "receipt-before-state recovery never duplicates the original attempt generation");
+      assert(recoveredAttempt.attemptNonce === originalReceipt.attemptNonce && recoveredAttempt.configHash === originalReceipt.configHash && recoveredAttempt.supervisorPid === originalReceipt.supervisorPid && recoveredAttempt.supervisorStartIdentity === originalReceipt.supervisorStartIdentity && recoveredAttempt.launchReceiptHash === originalReceipt.receiptHash, "restart hydrates the exact original attempt and supervisor identity from its canonical immutable receipt");
+      await recoveredManager.scan();
+      const replayedState = await recoveredManager.store.load();
+      const replayedAttempt = replayedState.workers[recoveredWorker.id].attempts[0];
+      assert(replayedState.workers[recoveredWorker.id].attempts.length === 1 && replayedAttempt.launchReceiptHash === originalReceipt.receiptHash && replayedAttempt.supervisorPid === originalReceipt.supervisorPid && replayedAttempt.supervisorStartIdentity === originalReceipt.supervisorStartIdentity, "exact launch-receipt replay preserves one unchanged attempt/process binding while unrelated terminal bookkeeping may advance");
+    }
     await recoveredManager.detach();
     delete process.env.FAKE_WORKER_RPC_MODE;
   }

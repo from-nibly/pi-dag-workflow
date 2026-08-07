@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { execFile, spawn } from "node:child_process";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
@@ -10,7 +10,10 @@ import {
   DAG_RUN_INPUT_SCHEMA_HASH,
   DAG_SCHEDULER_POLICY_HASH_V1,
   DAG_RUN_STATE_SCHEMA_HASH,
+  RUN_EVALUATION_CLOCK_POLICY_HASH_V1,
+  RUN_EVALUATION_PROFILE_HASH_V1,
   DagConductorServiceV1,
+  DagLifecycleRuntimeV1,
   DagRunSnapshotStoreV1,
   DagRunStoreCorruptError,
   DagRunStoreLockedError,
@@ -18,6 +21,9 @@ import {
   canonicalHash,
   canonicalStringify,
   createDagRunStoreDeadOwnerProofV1,
+  dagRunStoreLockIdentityFromOwner,
+  dagRunIdentityHashV1,
+  integrationValidationEffectRequestV1,
   buildSchedulerPlanIndexV1,
   parseCanonicalDagPlanV1,
   parseDagRunStateV1,
@@ -27,12 +33,13 @@ import {
   renderDagWidgetV1,
   projectDagExecutionV1,
   registerCanonicalDagRuntime,
-  requireSchedulerDispatchIntentV1,
   scheduleDagRunV1,
   sealDagRunStateV1,
   validateCanonicalDagPlanV1,
   validateDagRunStateV1,
 } from "../extensions/dag-workflow/dag-runtime/index.ts";
+import { WorkerManager } from "../extensions/dag-workflow/worker-runtime/manager.mjs";
+import { privateCandidateRefV1, sealPrivateCandidateRefV1 } from "../extensions/dag-workflow/index.ts";
 
 const execFileAsync = promisify(execFile);
 const H = (char) => `sha256:${char.repeat(64)}`;
@@ -54,12 +61,30 @@ const ref = (kind, id, hash = H("a")) => ({
   sensitivity: "internal", retention: "run", locator: null,
 });
 const clone = (value) => structuredClone(value);
-const procedureCatalogFixture = () => Object.fromEntries(PLAN_STAGE_IDS.map((stage) => {
-  const input = { procedureId: `procedure-${stage.toLowerCase()}`, purpose: "lifecycle", stages: [stage], producerKinds: [({ F0: "conductor", F1: "owned_worker", F2: "owned_worker", F3: "owned_worker", F4: "deterministic_runner", F5: "owned_worker", F6: "owned_worker", F7: "deterministic_runner", F8: "conductor" })[stage]], readOnly: !["F1", "F3", "F6"].includes(stage), environmentProfileHash: H("b") };
-  const hash = canonicalHash(input);
-  return [hash, { ...input, hash }];
-}));
+const rehashFact = (value) => { const core = { ...value }; delete core.hash; return { ...core, hash: canonicalHash(core) }; };
+const noWorkerGitOutput = () => ({ outputRepositoryId: null, outputCommonDirIdentityHash: null, outputWorktreeIdentityHash: null, outputSourceBase: null, outputCommit: null, outputTree: null, outputObjectFormat: null, candidateObservedAt: null });
+const exactWorkerGitOutput = (sourceBase, commit, tree, observedAt = NOW) => ({ outputRepositoryId: "repo-main", outputCommonDirIdentityHash: canonicalHash({ fixture: "common-dir" }), outputWorktreeIdentityHash: canonicalHash({ fixture: "worktree", commit }), outputSourceBase: sourceBase, outputCommit: commit, outputTree: tree, outputObjectFormat: commit.length === 40 ? "sha1" : "sha256", candidateObservedAt: observedAt });
+const procedureCatalogFixture = () => {
+  const entries = PLAN_STAGE_IDS.map((stage) => {
+    const readOnly = !["F1", "F3", "F6"].includes(stage);
+    const environmentProfileHash = H("b");
+    const executable = { executableArtifactHash: H("c"), argv: ["/usr/bin/true"], cwdMode: "repository_root", environmentProfileId: "test-exact", environmentProfileHash, environmentHash: canonicalHash({ LC_ALL: "C" }), timeoutMs: 1000, readOnly, noEdit: readOnly };
+    const input = { procedureId: `procedure-${stage.toLowerCase()}`, purpose: "lifecycle", stages: [stage], producerKinds: [({ F0: "conductor", F1: "owned_worker", F2: "owned_worker", F3: "owned_worker", F4: "deterministic_runner", F5: "owned_worker", F6: "owned_worker", F7: "deterministic_runner", F8: "conductor" })[stage]], readOnly, environmentProfileHash, executable };
+    const hash = canonicalHash(input);
+    return [hash, { ...input, hash }];
+  });
+  const environmentProfileHash = H("b");
+  const executable = { executableArtifactHash: H("d"), argv: ["/usr/bin/true", "--delta-attestation"], cwdMode: "attempt_worktree", environmentProfileId: "test-exact", environmentProfileHash, environmentHash: canonicalHash({ LC_ALL: "C", PI_DAG_MODE: "delta" }), timeoutMs: 1000, readOnly: true, noEdit: true };
+  const deltaInput = { procedureId: "procedure-f3-delta-attestation", purpose: "evidence_only_delta_attestation", stages: ["F3"], producerKinds: ["deterministic_runner"], readOnly: true, environmentProfileHash, executable };
+  const deltaHash = canonicalHash(deltaInput); entries.push([deltaHash, { ...deltaInput, hash: deltaHash }]);
+  return Object.fromEntries(entries);
+};
 const catalogBinding = (plan) => ({ lifecycleProfileHash: plan.lifecycleBinding.profileHash, checkCatalogHash: plan.lifecycleBinding.checkCatalogHash, procedures: procedureCatalogFixture(), checkAggregates: {} });
+const validationEnvironment = { LC_ALL: "C" };
+const validationProfile = (profileId) => ({ profileId, executableArtifactHash: H("c"), argv: ["/usr/bin/true"], cwdMode: "detached_proposal_worktree", environmentProfileId: "test-validation-env", environmentProfileHash: canonicalHash({ profileId: "test-validation-env", environment: validationEnvironment }), environment: validationEnvironment, environmentHash: canonicalHash(validationEnvironment), timeoutMs: 1000, readOnly: true, noEdit: true });
+const PREFIX_VALIDATION_PROFILE = validationProfile("checks-prefix"); const PREFIX_VALIDATION_PROFILE_HASH = canonicalHash(PREFIX_VALIDATION_PROFILE);
+const FINAL_VALIDATION_PROFILE = validationProfile("checks-final"); const FINAL_VALIDATION_PROFILE_HASH = canonicalHash(FINAL_VALIDATION_PROFILE);
+const INTEGRATION_VALIDATION_PROFILES = { [PREFIX_VALIDATION_PROFILE_HASH]: PREFIX_VALIDATION_PROFILE, [FINAL_VALIDATION_PROFILE_HASH]: FINAL_VALIDATION_PROFILE };
 const authorizationBinding = (plan, reviewReceiptHash, receiptHashes, _authorizationSetHash) => {
   const input = {
   planHash: plan.planHash,
@@ -78,7 +103,7 @@ const authorizationBinding = (plan, reviewReceiptHash, receiptHashes, _authoriza
   return { ...input, hash: canonicalHash(input) };
 };
 
-function planFixture() {
+function planFixture(repositoryBaseline = { repositoryId: "repo-main", commit: O("a"), tree: O("b") }) {
   const decisionRef = { collection: "decisions", id: "DEC-api", semanticHash: H("2") };
   const subject = content({ subjectId: "subject-api", kind: "contract", title: "API contract", description: "Stable API behavior." });
   const assertion = content({
@@ -94,12 +119,12 @@ function planFixture() {
   const architecture = content(architectureInput);
   const repository = content({
     repositoryId: "repo-main", role: "write", locator: null,
-    baseline: { repositoryId: "repo-main", commit: O("a"), tree: O("b") }, targetRef: "refs/heads/main",
+    baseline: repositoryBaseline, targetRef: "refs/heads/main",
   });
   const train = content({
     trainId: "train-main", repositoryId: "repo-main", strategy: "merge_tree_one_parent",
     members: [{ workItemId: "item-api", ordinal: 0 }], partialIntegrationPrecedenceIds: [], compositionProfileHash: H("d"),
-    prefixValidationProfileId: "checks-prefix", prefixValidationProfileHash: H("e"), finalValidationProfileId: "checks-final", finalValidationProfileHash: H("f"),
+    prefixValidationProfileId: "checks-prefix", prefixValidationProfileHash: PREFIX_VALIDATION_PROFILE_HASH, finalValidationProfileId: "checks-final", finalValidationProfileHash: FINAL_VALIDATION_PROFILE_HASH,
   });
   const workItem = content({
     workItemId: "item-api", kind: "change", title: "Implement API", objective: "Implement the accepted API contract.",
@@ -169,7 +194,7 @@ function runFixture(plan) {
     current: { run: "initializing", readyWorkItemIds: [], activeWorkItemIds: [], blockedWorkItemIds: [], integrationReadyWorkItemIds: [], updatedByCommandId: "create-run" },
     repositories: { "repo-main": repository }, workItems: { "item-api": item }, gates: {}, precedence: {}, resourcePools: {}, mutexes: {}, leases: {},
     stageAttempts: {}, launchIntents: {}, workerBindings: {},
-    evidenceIndex: { stageAttemptInputs: {}, workerResults: {}, candidates: {}, stageEvidence: {}, checkDispositions: {}, verifications: {}, oracleAssertions: {}, findings: {}, findingResolutions: {}, waivers: {}, invalidations: {}, adoptions: {}, effectReconciliations: {}, integrationReady: {}, integrationReceipts: {}, stalenessReceipts: { [freshness.hash]: freshness }, gateReceipts: {} },
+    evidenceIndex: { stageAttemptInputs: {}, workerResults: {}, candidates: {}, stageEvidence: {}, checkAggregates: {}, checkDispositions: {}, verifications: {}, oracleAssertions: {}, findings: {}, findingResolutions: {}, waivers: {}, invalidations: {}, adoptions: {}, effectReconciliations: {}, integrationReady: {}, integrationReceipts: {}, stalenessReceipts: { [freshness.hash]: freshness }, gateReceipts: {} },
     findingClosures: {}, retryLedger: {}, blockers: {}, effects: {}, cancellations: {}, quarantine: {}, idempotencySlots: {},
     integrationTrains: { "repo-main": { repositoryId: "repo-main", planTrainHash: plan.constraints.integrationTrains[0].contentHash, strategy: "merge_tree_one_parent", targetRef: "refs/heads/main", expectedTarget: plan.repositories[0].baseline, acceptedPrefix: plan.repositories[0].baseline, acceptedPrefixOrdinal: 0, acceptedPrefixReceipt: null, entryOrder: [], entries: {}, activeIntegrationAttemptId: null, lockLeaseId: null, blockerIds: [] } },
     integrationAttempts: {},
@@ -183,6 +208,95 @@ function expectInvalid(validate, value, label) {
   const result = validate(value);
   assert.equal(result.ok, false, label);
   assert(result.issues.length > 0, `${label} returns issues`);
+}
+
+function managerLifecycleAdapters(manager, validationContext, terminalOverrides = {}) {
+  const launches = [];
+  const workerOutputs = new Map();
+  const terminalStatuses = new Map();
+  const procedureCalls = new Map();
+  const allowlistedProcedureHashes = Object.keys(validationContext.catalog.procedures).sort();
+  return {
+    launches,
+    procedureCalls,
+    options: {
+      worker: {
+        async launchExact(request, state) {
+          const attempt = Object.values(state.stageAttempts).find((candidate) => candidate.launchIntentId && state.launchIntents[candidate.launchIntentId]?.workerId === request.workerId);
+          const stage = attempt?.stage;
+          if (stage === "F2") {
+            const implementation = launches.find((entry) => entry.stage === "F1");
+            assert(implementation, "real F2 manager launch observes a prior exact F1 launch");
+            await assert.rejects(() => manager.launchOwnedAttempt({ ...request, launchKey: implementation.request.launchKey, worktreeKey: implementation.request.worktreeKey }), /replay conflicts|Launch key conflict/, "cross-attempt reuse of the F1 launch key/intent fails closed before F2 dispatch");
+          }
+          const observation = await manager.launchOwnedAttempt(request);
+          launches.push({ stage, request: structuredClone(request), observation: structuredClone(observation) });
+          return observation;
+        },
+        async cancelExact(binding, input) {
+          const result = await manager.cancelBinding(binding, `canonical DAG cancellation ${input.effectId}`);
+          return result.alreadyTerminal ? "proven_absent" : "applied_exact";
+        },
+        async readTerminalExact(binding, state) {
+          const terminal = await manager.terminalResultForBinding(binding);
+          if (!terminal) return null;
+          const attempt = state.stageAttempts[binding.stageAttemptId];
+          const terminalStatus = terminalOverrides[attempt.stage] ?? terminal.terminalStatus;
+          terminalStatuses.set(attempt.stageAttemptId, terminalStatus);
+          if (terminalStatus !== "succeeded") return { ...terminal, terminalStatus };
+          const exact = await manager.inspectBinding(binding); const cwd = exact.worker.cwd;
+          const env = { ...process.env, LC_ALL: "C", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0" };
+          const commit = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, env })).stdout.trim();
+          const tree = (await execFileAsync("git", ["rev-parse", "HEAD^{tree}"], { cwd, env })).stdout.trim();
+          const commonRaw = (await execFileAsync("git", ["rev-parse", "--git-common-dir"], { cwd, env })).stdout.trim();
+          const commonDir = await realpath(resolve(cwd, commonRaw)); const cwdIdentity = await stat(cwd);
+          const item = state.workItems[attempt.workItemId]; const sourceBase = attempt.stage === "F1" ? state.repositories[item.writeRepositoryId].baseline : item.candidate?.git ?? state.repositories[item.writeRepositoryId].baseline;
+          const workerOutput = { outputRepositoryId: item.writeRepositoryId, outputCommonDirIdentityHash: canonicalHash({ realPath: commonDir, objectFormat: "sha1" }), outputWorktreeIdentityHash: canonicalHash({ realPath: await realpath(cwd), dev: String(cwdIdentity.dev), ino: String(cwdIdentity.ino) }), outputSourceBase: sourceBase, outputCommit: commit, outputTree: tree, outputObjectFormat: "sha1", candidateObservedAt: state.updatedAt };
+          workerOutputs.set(attempt.stageAttemptId, workerOutput);
+          return { ...terminal, terminalStatus, workerOutput };
+        },
+      },
+      candidate: {
+        async inspectAndSealCandidate({ plan: exactPlan, state, attempt, repositoryId }) {
+          const item = state.workItems[attempt.workItemId]; const workerOutput = workerOutputs.get(attempt.stageAttemptId);
+          if (!workerOutput) return null;
+          const base = attempt.stage === "F1" ? exactPlan.repositories.find((repository) => repository.repositoryId === repositoryId).baseline : item.candidate.git;
+          const git = { repositoryId, commit: workerOutput.outputCommit, tree: workerOutput.outputTree };
+          const core = { kind: "candidate", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: item.workItemId, generation: item.candidateGeneration + 1, candidateId: `candidate-${attempt.stageAttemptId}`, base, git, patchIdentityHash: canonicalHash({ base, git }), producedByStageAttemptId: attempt.stageAttemptId, lineageHash: item.implementationLineageHash };
+          return { candidate: { ...core, hash: canonicalHash(core) }, workerOutput };
+        },
+      },
+      procedure: {
+        adapterKind: "immutable-catalog-command-v1",
+        allowlistedProcedureHashes,
+        allowlistHash: canonicalHash(allowlistedProcedureHashes),
+        async executeExact({ plan: exactPlan, state, attempt, procedure }) {
+          procedureCalls.set(attempt.stageAttemptId, (procedureCalls.get(attempt.stageAttemptId) ?? 0) + 1);
+          if (PLAN_STAGE_IDS.indexOf(attempt.stage) > PLAN_STAGE_IDS.indexOf("F5")) return null;
+          const item = state.workItems[attempt.workItemId]; const candidateGeneration = attempt.reservedOutputGeneration ?? attempt.inputGeneration;
+          const terminalStatus = terminalStatuses.get(attempt.stageAttemptId) ?? null;
+          const disposition = ["cancelled", "lost"].includes(terminalStatus) ? "BLOCKED" : ["failed", "needs_attention"].includes(terminalStatus) ? "FAIL" : "PASS";
+          let workspaceMaterialization; let environmentObservation;
+          const workerOutput = workerOutputs.get(attempt.stageAttemptId);
+          if (["F2", "F5"].includes(attempt.stage) && workerOutput) {
+            const materializationCore = { kind: "workspace_materialization", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stageAttemptId: attempt.stageAttemptId, repositoryId: item.writeRepositoryId, candidateGeneration, candidateHash: item.candidate.candidateHash, candidateTree: item.candidate.git, commonDirIdentityHash: workerOutput.outputCommonDirIdentityHash, worktreeIdentityHash: workerOutput.outputWorktreeIdentityHash, materializedAt: NOW };
+            workspaceMaterialization = { ...materializationCore, hash: canonicalHash(materializationCore) };
+            const observationCore = { kind: "environment_observation", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, repositoryId: item.writeRepositoryId, candidateGeneration, candidateHash: item.candidate.candidateHash, candidateTree: item.candidate.git, environmentProfileHash: procedure.environmentProfileHash, workspaceMaterializationHash: workspaceMaterialization.hash, commonDirIdentityHash: workerOutput.outputCommonDirIdentityHash, worktreeIdentityHash: workerOutput.outputWorktreeIdentityHash, cleanliness: "clean", observedAt: NOW };
+            environmentObservation = { ...observationCore, hash: canonicalHash(observationCore) };
+          }
+          const oracleAssertions = [];
+          if (attempt.stage === "F2") { const expected = exactPlan.acceptanceOracles[0].assertions[0]; const core = { kind: "oracle_assertion", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stage: "F2", stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, authorizationSetHash: state.identity.authorizationSet.hash, oracleId: exactPlan.acceptanceOracles[0].oracleId, assertionId: expected.assertionId, procedureId: expected.procedureId, environmentProfileId: expected.environmentProfileId, observationMethod: expected.observationMethod, requiredEvidenceClass: expected.requiredEvidenceClass, disposition: "PASS", observationHash: attempt.workerResult.hash }; oracleAssertions.push({ ...core, hash: canonicalHash(core) }); }
+          const checkExecutions = [];
+          if (attempt.stage === "F2") { const core = { kind: "check_execution", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, authorizationSetHash: state.identity.authorizationSet.hash, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, candidateGeneration, candidateHash: item.candidate.candidateHash, checkId: "check-api", procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, environmentObservationHash: environmentObservation.hash, executionId: `execution-${attempt.stageAttemptId}`, disposition: "PASS", startedAt: NOW, completedAt: NOW }; checkExecutions.push({ ...core, hash: canonicalHash(core) }); }
+          const aggregateCore = { kind: "check_aggregate", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, authorizationSetHash: state.identity.authorizationSet.hash, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, disposition, oracleIds: ["oracle-api"], assertions: oracleAssertions.map((fact) => ({ oracleId: fact.oracleId, assertionId: fact.assertionId, evidenceHash: fact.hash })), checks: attempt.stage === "F2" ? [{ checkId: "check-api", disposition: "PASS", executionEvidenceHash: checkExecutions[0].hash, applicabilityEvidenceHashes: [] }] : [] };
+          const checkAggregate = { ...aggregateCore, hash: canonicalHash(aggregateCore) };
+          const evidenceCore = { kind: "stage_evidence", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, authorizationSetHash: state.identity.authorizationSet.hash, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, checkAggregateHash: checkAggregate.hash, findingHashes: [], effectReconciliationHashes: [], candidateGeneration, candidateHash: attempt.stage === "F0" ? null : item.candidate?.candidateHash ?? null, producerKind: attempt.producerKind, producerResultHash: attempt.workerResult?.hash ?? null, disposition, environmentObservationHash: environmentObservation?.hash ?? null, producedAt: NOW, readOnly: procedure.readOnly };
+          const evidence = { ...evidenceCore, hash: canonicalHash(evidenceCore) };
+          return { checkAggregate, evidence, oracleAssertions, checkDispositions: [], checkExecutions, checkAuthorities: [], ...(workspaceMaterialization ? { workspaceMaterialization, environmentObservation } : {}) };
+        },
+      },
+    },
+  };
 }
 
 const plan = planFixture();
@@ -247,7 +361,7 @@ rehashPlan(twoItemPlan);
 assert.equal(validateCanonicalDagPlanV1(twoItemPlan).ok, true, "valid two-item plan supports ordered integration after independent authoring");
 
 const run = runFixture(plan);
-const runContext = { plan, authorization: authorizationBinding(plan, run.identity.reviewReceipt.hash, run.identity.authorizationReceipts.map(({ hash }) => hash), run.identity.authorizationSet.hash), historicalAuthorizations: {}, catalog: catalogBinding(plan), normalizedSchedulerIndexHash: run.scheduler.normalizedIndexHash, facts: {} };
+const runContext = { plan, authorization: authorizationBinding(plan, run.identity.reviewReceipt.hash, run.identity.authorizationReceipts.map(({ hash }) => hash), run.identity.authorizationSet.hash), historicalAuthorizations: {}, catalog: catalogBinding(plan), normalizedSchedulerIndexHash: run.scheduler.normalizedIndexHash, facts: {}, integrationValidationProfiles: INTEGRATION_VALIDATION_PROFILES };
 const baselineFactValues = [simpleFact("plan_review", "review-plan"), simpleFact("plan_authorization", "authorization-plan"), simpleFact("staleness", "freshness"), simpleFact("repository_observation", "repo-main-observation"), runContext.authorization];
 const seedBaselineFacts = async (store) => { for (const fact of baselineFactValues) await store.putImmutableFact(fact); };
 const validateRun = (value) => validateDagRunStateV1(value, runContext);
@@ -283,24 +397,30 @@ rehashRun(passedF0);
 const f0InputFact = { kind: "stage_attempt_input", hash: f0Input.hash, planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, workItemId: "item-api", stage: "F0", stageAttemptId: "attempt-f0", candidateGeneration: 0, candidateHash: null, authorizationSetHash: run.identity.authorizationSet.hash, producerKind: "conductor", implementationLineageHash: null };
 const f0Catalog = catalogBinding(plan);
 const f0Procedure = Object.values(f0Catalog.procedures).find(({ stages }) => stages.includes("F0"));
-const f0AggregateInput = { workItemId: "item-api", stage: "F0", procedureHash: f0Procedure.hash, environmentProfileHash: f0Procedure.environmentProfileHash, disposition: "PASS", oracleIds: ["oracle-api"], assertions: [], checks: [] };
-const f0AggregateHash = canonicalHash(f0AggregateInput);
-f0Catalog.checkAggregates[f0AggregateHash] = { ...f0AggregateInput, hash: f0AggregateHash };
-const f0Fact = { kind: "stage_evidence", hash: f0EvidenceHash, planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, workItemId: "item-api", stage: "F0", stageAttemptId: "attempt-f0", attemptInputHash: f0Input.hash, authorizationSetHash: run.identity.authorizationSet.hash, procedureHash: f0Procedure.hash, environmentProfileHash: f0Procedure.environmentProfileHash, checkAggregateHash: f0AggregateHash, findingHashes: [], effectReconciliationHashes: [], candidateGeneration: 0, candidateHash: null, producerKind: "conductor", producerResultHash: null, disposition: "PASS", freshIndependent: false, readOnly: true, cleanEnvironment: false };
+const f0AggregateCatalogInput = { workItemId: "item-api", stage: "F0", procedureHash: f0Procedure.hash, environmentProfileHash: f0Procedure.environmentProfileHash, disposition: "PASS", oracleIds: ["oracle-api"], assertions: [], checks: [] };
+const f0AggregateCatalogHash = canonicalHash(f0AggregateCatalogInput);
+f0Catalog.checkAggregates[f0AggregateCatalogHash] = { ...f0AggregateCatalogInput, hash: f0AggregateCatalogHash };
+const f0AggregateCore = { kind: "check_aggregate", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, authorizationSetHash: run.identity.authorizationSet.hash, workItemId: "item-api", stage: "F0", stageAttemptId: "attempt-f0", attemptInputHash: f0Input.hash, procedureHash: f0Procedure.hash, environmentProfileHash: f0Procedure.environmentProfileHash, disposition: "PASS", oracleIds: ["oracle-api"], assertions: [], checks: [] };
+const f0AggregateFact = { ...f0AggregateCore, hash: canonicalHash(f0AggregateCore) };
+const f0Fact = { kind: "stage_evidence", hash: f0EvidenceHash, planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, workItemId: "item-api", stage: "F0", stageAttemptId: "attempt-f0", attemptInputHash: f0Input.hash, authorizationSetHash: run.identity.authorizationSet.hash, procedureHash: f0Procedure.hash, environmentProfileHash: f0Procedure.environmentProfileHash, checkAggregateHash: f0AggregateFact.hash, findingHashes: [], effectReconciliationHashes: [], candidateGeneration: 0, candidateHash: null, producerKind: "conductor", producerResultHash: null, disposition: "PASS", producedAt: NOW, freshIndependent: false, readOnly: true, cleanEnvironment: false };
 f0InputFact.hash = canonicalHash(Object.fromEntries(Object.entries(f0InputFact).filter(([key]) => key !== "hash")));
 f0Input.hash = f0InputFact.hash;
+f0AggregateFact.attemptInputHash = f0Input.hash;
+f0AggregateFact.hash = canonicalHash(Object.fromEntries(Object.entries(f0AggregateFact).filter(([key]) => key !== "hash")));
 f0Fact.attemptInputHash = f0Input.hash;
+f0Fact.checkAggregateHash = f0AggregateFact.hash;
 f0Fact.hash = canonicalHash(Object.fromEntries(Object.entries(f0Fact).filter(([key]) => key !== "hash")));
 passedF0.stageAttempts["attempt-f0"].attemptInput.hash = f0Input.hash;
 passedF0.stageAttempts["attempt-f0"].evidence.hash = f0Fact.hash;
 passedF0.evidenceIndex.stageAttemptInputs["attempt-f0"].hash = f0Input.hash;
+passedF0.evidenceIndex.checkAggregates[f0AggregateFact.hash] = ref("check_aggregate", "aggregate-f0", f0AggregateFact.hash);
 delete passedF0.evidenceIndex.stageEvidence[f0EvidenceHash];
 passedF0.evidenceIndex.stageEvidence[f0Fact.hash] = { ...f0Evidence, hash: f0Fact.hash };
 passedF0.workItems["item-api"].stages.F0.currentEvidence = f0Fact.hash;
 rehashRun(passedF0);
-assert.equal(validateDagRunStateV1(passedF0, { ...runContext, catalog: f0Catalog, facts: { [f0Input.hash]: f0InputFact, [f0Fact.hash]: f0Fact } }).ok, true, "exact sealed conductor evidence can pass F0 without generic worker authority");
+assert.equal(validateDagRunStateV1(passedF0, { ...runContext, catalog: f0Catalog, facts: { [f0Input.hash]: f0InputFact, [f0AggregateFact.hash]: f0AggregateFact, [f0Fact.hash]: f0Fact } }).ok, true, "exact sealed conductor evidence can pass F0 without generic worker authority");
 expectInvalid((value) => validateDagRunStateV1(value, { ...runContext, facts: { [f0Input.hash]: f0InputFact, [f0Fact.hash]: f0Fact } }), passedF0, "stage evidence cannot use arbitrary unbound procedure, environment, or check hashes");
-const blockedWithoutLane = clone(passedF0); blockedWithoutLane.workItems["item-api"].current = "blocked"; blockedWithoutLane.current.activeWorkItemIds = []; blockedWithoutLane.current.blockedWorkItemIds = ["item-api"]; delete blockedWithoutLane.scheduler.activeNodeLanes["item-api"]; rehashRun(blockedWithoutLane); expectInvalid((value) => validateDagRunStateV1(value, { ...runContext, catalog: f0Catalog, facts: { [f0Input.hash]: f0InputFact, [f0Fact.hash]: f0Fact } }), blockedWithoutLane, "blocked admitted work cannot release its sticky lane");
+const blockedWithoutLane = clone(passedF0); blockedWithoutLane.workItems["item-api"].current = "blocked"; blockedWithoutLane.current.activeWorkItemIds = []; blockedWithoutLane.current.blockedWorkItemIds = ["item-api"]; delete blockedWithoutLane.scheduler.activeNodeLanes["item-api"]; rehashRun(blockedWithoutLane); expectInvalid((value) => validateDagRunStateV1(value, { ...runContext, catalog: f0Catalog, facts: { [f0Input.hash]: f0InputFact, [f0AggregateFact.hash]: f0AggregateFact, [f0Fact.hash]: f0Fact } }), blockedWithoutLane, "blocked admitted work cannot release its sticky lane");
 const futureAuthorization = clone(runContext.authorization); futureAuthorization.validFrom = "2099-01-01T00:00:00Z"; expectInvalid((value) => validateDagRunStateV1(value, { ...runContext, authorization: futureAuthorization }), run, "future authorization cannot authorize an earlier run");
 const expiredAuthorizationInput = { ...runContext.authorization, validUntil: "2026-08-04T15:30:00.000Z" }; delete expiredAuthorizationInput.hash; const expiredAuthorization = { ...expiredAuthorizationInput, hash: canonicalHash(expiredAuthorizationInput) };
 const expiredSnapshot = clone(run); expiredSnapshot.updatedAt = "2026-08-04T16:00:00.000Z"; expiredSnapshot.identity.authorizationSet.hash = expiredAuthorization.hash; expiredSnapshot.completion.authorizedScopeHash = expiredAuthorization.hash; rehashRun(expiredSnapshot); expectInvalid((value) => validateDagRunStateV1(value, { ...runContext, authorization: expiredAuthorization }), expiredSnapshot, "authorization expired before the latest transition cannot remain current");
@@ -337,7 +457,7 @@ forgedIndexedPass.workItems["item-api"].stages.F8.currentEvidence = forgedEviden
 forgedIndexedPass.workItems["item-api"].stages.F8.lastDisposition = "PASS";
 forgedIndexedPass.evidenceIndex.stageEvidence[forgedEvidenceHash] = ref("stage_evidence", "forged-f8", forgedEvidenceHash);
 rehashRun(forgedIndexedPass);
-expectInvalid((value) => validateDagRunStateV1(value, { ...runContext, facts: { [forgedEvidenceHash]: { kind: "stage_evidence", hash: forgedEvidenceHash, planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, workItemId: "item-api", stage: "F8", stageAttemptId: "missing-attempt", attemptInputHash: H("1"), authorizationSetHash: run.identity.authorizationSet.hash, procedureHash: H("2"), environmentProfileHash: H("3"), checkAggregateHash: H("4"), findingHashes: [], effectReconciliationHashes: [], candidateGeneration: 0, candidateHash: null, producerKind: "conductor", producerResultHash: null, disposition: "PASS", freshIndependent: false, readOnly: true, cleanEnvironment: true } } }), forgedIndexedPass, "indexed hashes cannot forge out-of-order F8 passage without a sealed exact attempt");
+expectInvalid((value) => validateDagRunStateV1(value, { ...runContext, facts: { [forgedEvidenceHash]: { kind: "stage_evidence", hash: forgedEvidenceHash, planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, workItemId: "item-api", stage: "F8", stageAttemptId: "missing-attempt", attemptInputHash: H("1"), authorizationSetHash: run.identity.authorizationSet.hash, procedureHash: H("2"), environmentProfileHash: H("3"), checkAggregateHash: H("4"), findingHashes: [], effectReconciliationHashes: [], candidateGeneration: 0, candidateHash: null, producerKind: "conductor", producerResultHash: null, disposition: "PASS", producedAt: NOW, freshIndependent: false, readOnly: true, cleanEnvironment: true } } }), forgedIndexedPass, "indexed hashes cannot forge out-of-order F8 passage without a sealed exact attempt");
 const prematureReadyHash = H("7");
 const prematureReady = clone(run);
 prematureReady.workItems["item-api"].current = "integration_ready";
@@ -431,10 +551,13 @@ if (quarantinedResult.accepted) {
   assert.equal(rejectedQuarantine.accepted && reduceDagRunV1(rejectedQuarantine.state, rejectQuarantineInput, quarantineContext).duplicate, true, "quarantine rejection exact replay is idempotent before stale CAS");
 }
 
+const ownershipFacts = new Map();
 const ownershipFactFor = (state, successor, disposition, lineageHash = null, priorObservationHash = null) => {
   const exactLineageHash = disposition === "same_manager" ? canonicalHash({ kind: "direct_owner_transfer", runId: state.runId, runNonce: state.runNonce, priorSessionId: state.owner.sessionId, priorOwnerTokenHash: state.owner.ownerTokenHash, priorPid: state.owner.pid, priorProcessStartIdentity: state.owner.processStartIdentity, priorLockIdentity: state.owner.lockIdentity, successorSessionId: successor.sessionId, successorPid: successor.pid, successorProcessStartIdentity: successor.processStartIdentity, successorLockIdentity: successor.lockIdentity }) : lineageHash;
-  const input = { kind: "ownership", runId: state.runId, runNonce: state.runNonce, priorSessionId: state.owner.sessionId, priorOwnerTokenHash: state.owner.ownerTokenHash, priorPid: state.owner.pid, priorProcessStartIdentity: state.owner.processStartIdentity, priorLockIdentity: state.owner.lockIdentity, priorAttachedAt: state.owner.attachedAt, disposition, priorObservationHash, successorSessionId: successor.sessionId, successorPid: successor.pid, successorProcessStartIdentity: successor.processStartIdentity, successorLockIdentity: successor.lockIdentity, lineageHash: exactLineageHash };
-  return { ...input, hash: canonicalHash(input) };
+  const priorOwnershipReceiptHash = state.owner.ownershipReceipt; const predecessor = priorOwnershipReceiptHash ? ownershipFacts.get(priorOwnershipReceiptHash) : null; const ownerEpoch = state.owner.ownerEpoch + 1;
+  const chainHash = canonicalHash({ kind: "ownership_chain", runId: state.runId, runNonce: state.runNonce, ownerEpoch, priorOwnershipReceiptHash, priorChainHash: predecessor?.chainHash ?? null, successorSessionId: successor.sessionId, successorPid: successor.pid, successorProcessStartIdentity: successor.processStartIdentity, successorLockIdentity: successor.lockIdentity });
+  const input = { kind: "ownership", runId: state.runId, runNonce: state.runNonce, priorSessionId: state.owner.sessionId, priorOwnerTokenHash: state.owner.ownerTokenHash, priorPid: state.owner.pid, priorProcessStartIdentity: state.owner.processStartIdentity, priorLockIdentity: state.owner.lockIdentity, priorAttachedAt: state.owner.attachedAt, disposition, priorObservationHash, priorOwnershipReceiptHash, ownerEpoch, successorSessionId: successor.sessionId, successorPid: successor.pid, successorProcessStartIdentity: successor.processStartIdentity, successorLockIdentity: successor.lockIdentity, lineageHash: exactLineageHash, chainHash };
+  const fact = { ...input, hash: canonicalHash(input) }; ownershipFacts.set(fact.hash, fact); return fact;
 };
 const attachSuccessor = { ownerTokenHash: H("d"), sessionId: "session-owner", pid: process.pid, processStartIdentity: PROCESS_START_IDENTITY, lockIdentity: H("e") };
 const attachOwnershipFact = ownershipFactFor(run, attachSuccessor, "absent");
@@ -491,25 +614,29 @@ if (cancellationResult.accepted) {
   assert.equal(overlappingCancellation.accepted, false, "overlapping open cancellation cannot advance generation or fence the first cancellation's effects");
 }
 const activeCancellationRun = clone(passedF0);
-activeCancellationRun.scheduler.reservations["reservation-f1"] = { reservationId: "reservation-f1", reservationSequence: 1, workItemId: "item-api", stage: "F1", attemptOrdinal: 1, operationKind: "implementation", state: "active", candidateGeneration: 0, ownerEpoch: 0, authorizationSetHash: run.identity.authorizationSet.hash, normalizedRequestHash: H("1"), leaseIds: [], mutexGroupIds: [], resourceUnits: {}, operationalUnits: { "worker.process": 1, "role:implementation": 1, "repository-worktree:repo-main": 1 }, workerRole: "implementation", repositoryId: "repo-main", createdAt: NOW, releasedAt: null };
+activeCancellationRun.owner = clone(attachedResult.state.owner);
+activeCancellationRun.scheduler.reservations["reservation-f1"] = { reservationId: "reservation-f1", reservationSequence: 1, workItemId: "item-api", stage: "F1", attemptOrdinal: 1, operationKind: "implementation", state: "active", candidateGeneration: 0, ownerEpoch: activeCancellationRun.owner.ownerEpoch, authorizationSetHash: run.identity.authorizationSet.hash, normalizedRequestHash: H("1"), leaseIds: [], mutexGroupIds: [], resourceUnits: {}, operationalUnits: { "worker.process": 1, "role:implementation": 1, "repository-worktree:repo-main": 1 }, workerRole: "implementation", repositoryId: "repo-main", createdAt: NOW, releasedAt: null };
 activeCancellationRun.scheduler.nextReservationSequence = 2;
 const f1AttemptId = "attempt-f1-active";
 const f1InputCore = { kind: "stage_attempt_input", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, workItemId: "item-api", stage: "F1", stageAttemptId: f1AttemptId, candidateGeneration: 0, candidateHash: null, authorizationSetHash: run.identity.authorizationSet.hash, producerKind: "owned_worker", implementationLineageHash: activeCancellationRun.workItems["item-api"].implementationLineageHash };
 const f1InputFact = { ...f1InputCore, hash: canonicalHash(f1InputCore) };
 const f1InputRef = ref("stage_attempt_input", f1AttemptId, f1InputFact.hash);
-const launchEffect = { effectId: "effect-launch-f1", kind: "launch_worker", subject: { kind: "work_item", id: "item-api" }, effectScopeId: null, effectScopeKind: null, provider: null, procedureClass: "idempotent", requestHash: H("0"), boundOwnerEpoch: 0, boundAuthorizationSetHash: run.identity.authorizationSet.hash, boundFreshnessReceiptHash: run.freshness.receipt.hash, boundCandidateGeneration: 0, boundGateEpochHash: H("1"), state: "dispatching", dispatchCount: 1, createdRevision: 0, createdAt: NOW, lastDispatchAt: NOW, observationHash: null, reconciliation: "not_started", blockerId: null };
+const launchEffect = { effectId: "effect-launch-f1", kind: "launch_worker", subject: { kind: "work_item", id: "item-api" }, effectScopeId: null, effectScopeKind: null, provider: null, procedureClass: "idempotent", requestHash: H("0"), boundOwnerEpoch: activeCancellationRun.owner.ownerEpoch, boundAuthorizationSetHash: run.identity.authorizationSet.hash, boundFreshnessReceiptHash: run.freshness.receipt.hash, boundCandidateGeneration: 0, boundGateEpochHash: H("1"), state: "reconciled", dispatchCount: 1, createdRevision: 0, createdAt: NOW, lastDispatchAt: NOW, observationHash: null, reconciliation: "applied_exact", blockerId: null };
 activeCancellationRun.effects[launchEffect.effectId] = launchEffect;
-activeCancellationRun.effects["effect-old-intent"] = { effectId: "effect-old-intent", kind: "run_procedure", subject: { kind: "work_item", id: "item-api" }, effectScopeId: null, effectScopeKind: null, provider: null, procedureClass: "pure", requestHash: H("2"), boundOwnerEpoch: 0, boundAuthorizationSetHash: run.identity.authorizationSet.hash, boundFreshnessReceiptHash: run.freshness.receipt.hash, boundCandidateGeneration: 0, boundGateEpochHash: H("3"), state: "intended", dispatchCount: 0, createdRevision: 0, createdAt: NOW, lastDispatchAt: null, observationHash: null, reconciliation: "not_started", blockerId: null };
+activeCancellationRun.effects["effect-old-intent"] = { effectId: "effect-old-intent", kind: "run_procedure", subject: { kind: "work_item", id: "item-api" }, effectScopeId: null, effectScopeKind: null, provider: null, procedureClass: "pure", requestHash: H("2"), boundOwnerEpoch: activeCancellationRun.owner.ownerEpoch, boundAuthorizationSetHash: run.identity.authorizationSet.hash, boundFreshnessReceiptHash: run.freshness.receipt.hash, boundCandidateGeneration: 0, boundGateEpochHash: H("3"), state: "intended", dispatchCount: 0, createdRevision: 0, createdAt: NOW, lastDispatchAt: null, observationHash: null, reconciliation: "not_started", blockerId: null };
 const launchIntentId = "launch-f1-active";
 activeCancellationRun.launchIntents[launchIntentId] = { launchIntentId, effectId: launchEffect.effectId, stageAttemptId: f1AttemptId, state: "bound", adapter: "owned-worker-v1", launchKey: "launch-key-f1", workerId: "worker-f1", expectedAttemptNumber: 1, taskPacketHash: H("2"), cwdRepositoryId: "repo-main", configRequestHash: H("3"), dispatchCount: 1, lastDispatchAt: NOW, boundAt: NOW, ambiguityReason: null };
 activeCancellationRun.stageAttempts[f1AttemptId] = { stageAttemptId: f1AttemptId, workItemId: "item-api", stage: "F1", ordinal: 1, producerKind: "owned_worker", implementationLineageHash: activeCancellationRun.workItems["item-api"].implementationLineageHash, inputGeneration: 0, reservedOutputGeneration: null, attemptInput: f1InputRef, authorizationSetHash: run.identity.authorizationSet.hash, state: "running", launchIntentId, leaseIds: ["lease-f1"], workerResult: null, evidence: null, failure: null, createdAt: NOW, updatedAt: NOW, terminalAt: null };
 activeCancellationRun.evidenceIndex.stageAttemptInputs[f1AttemptId] = f1InputRef;
-activeCancellationRun.workerBindings[f1AttemptId] = { stageAttemptId: f1AttemptId, launchIntentId, workerStorageId: "storage-f1", launchOwnerSessionId: "session-launch-f1", workerId: "worker-f1", attemptNumber: 1, attemptNonce: "0123456789abcdef", configHash: H("4"), configRef: ref("verification", "config-f1", H("5")), supervisorPid: 12345, supervisorStartIdentity: "linux-proc:12345", childPid: 12346, childStartIdentity: "linux-proc:12346", mailboxHash: H("6"), heartbeatAt: NOW, completionId: null, resultHash: null, processDisposition: "live", retrySafe: false };
-activeCancellationRun.leases["lease-f1"] = { leaseId: "lease-f1", kind: "stage_claim", subject: { kind: "work_item", id: "item-api" }, holderStageAttemptId: f1AttemptId, holderIntegrationAttemptId: null, candidateGeneration: 0, units: 0, ownerEpoch: 0, state: "active", acquiredAt: NOW, expiresAt: null, releasedAt: null, releaseReason: null };
+const activeWorkerConfig = { storageId: "storage-f1", ownerSessionId: activeCancellationRun.owner.sessionId, workerId: "worker-f1", attemptNumber: 1, attemptNonce: "0123456789abcdef", launchKey: "launch-key-f1", requestHash: H("3"), launchOwner: { sessionId: activeCancellationRun.owner.sessionId, pid: activeCancellationRun.owner.pid, processStartIdentity: activeCancellationRun.owner.processStartIdentity } };
+const activeWorkerConfigHash = canonicalHash(activeWorkerConfig); const activeWorkerConfigFactCore = { kind: "worker_config", configHash: activeWorkerConfigHash, config: activeWorkerConfig }; const activeWorkerConfigFact = { ...activeWorkerConfigFactCore, hash: canonicalHash(activeWorkerConfigFactCore) };
+activeCancellationRun.workerBindings[f1AttemptId] = { stageAttemptId: f1AttemptId, launchIntentId, workerStorageId: activeWorkerConfig.storageId, launchOwnerSessionId: activeWorkerConfig.ownerSessionId, workerId: activeWorkerConfig.workerId, attemptNumber: 1, attemptNonce: activeWorkerConfig.attemptNonce, configHash: activeWorkerConfigHash, configRef: { ...ref("worker_config", "config-f1", activeWorkerConfigFact.hash), bytes: Buffer.byteLength(canonicalStringify(activeWorkerConfigFact)) }, supervisorPid: 12345, supervisorStartIdentity: "linux-proc:12345", childPid: 12346, childStartIdentity: "linux-proc:12346", mailboxHash: H("6"), heartbeatAt: NOW, completionId: null, resultHash: null, processDisposition: "live", retrySafe: false };
+const activeLaunchObservationCore = { kind: "worker_launch_observation", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, authorizationSetHash: run.identity.authorizationSet.hash, ownerEpoch: activeCancellationRun.owner.ownerEpoch, effectId: launchEffect.effectId, requestHash: launchEffect.requestHash, launchIntentId, launchKey: "launch-key-f1", workerStorageId: activeWorkerConfig.storageId, launchOwnerSessionId: activeWorkerConfig.ownerSessionId, workerId: activeWorkerConfig.workerId, attemptNumber: 1, attemptNonce: activeWorkerConfig.attemptNonce, configHash: activeWorkerConfigHash, supervisorPid: 12345, supervisorStartIdentity: "linux-proc:12345", reconciliation: "applied_exact", observedAt: NOW }; const activeLaunchObservation = { ...activeLaunchObservationCore, hash: canonicalHash(activeLaunchObservationCore) }; launchEffect.observationHash = activeLaunchObservation.hash;
+activeCancellationRun.leases["lease-f1"] = { leaseId: "lease-f1", kind: "stage_claim", subject: { kind: "work_item", id: "item-api" }, holderStageAttemptId: f1AttemptId, holderIntegrationAttemptId: null, candidateGeneration: 0, units: 0, ownerEpoch: activeCancellationRun.owner.ownerEpoch, state: "active", acquiredAt: NOW, expiresAt: null, releasedAt: null, releaseReason: null };
 const operationalLeaseIds = [];
 for (const namespace of ["worker.process", "role:implementation", "repository-worktree:repo-main"]) {
   const leaseId = `lease-operational-${namespace.replaceAll(/[^A-Za-z0-9]/g, "-")}`; operationalLeaseIds.push(leaseId);
-  activeCancellationRun.leases[leaseId] = { leaseId, kind: "resource", subject: { kind: "resource", id: namespace }, holderStageAttemptId: f1AttemptId, holderIntegrationAttemptId: null, candidateGeneration: 0, units: 1, ownerEpoch: 0, state: "active", acquiredAt: NOW, expiresAt: null, releasedAt: null, releaseReason: null };
+  activeCancellationRun.leases[leaseId] = { leaseId, kind: "operational", subject: { kind: "resource", id: namespace }, holderStageAttemptId: f1AttemptId, holderIntegrationAttemptId: null, candidateGeneration: 0, units: 1, ownerEpoch: activeCancellationRun.owner.ownerEpoch, state: "active", acquiredAt: NOW, expiresAt: null, releasedAt: null, releaseReason: null };
   activeCancellationRun.scheduler.operationalCapacities[namespace].allocatedUnits = 1; activeCancellationRun.scheduler.operationalCapacities[namespace].reservationIds = ["reservation-f1"];
 }
 activeCancellationRun.workItems["item-api"].activeLeaseIds = ["lease-f1", ...operationalLeaseIds].sort();
@@ -518,11 +645,69 @@ activeCancellationRun.scheduler.reservations["reservation-f1"].leaseIds = ["leas
 rehashRun(activeCancellationRun);
 const activeBinding = activeCancellationRun.workerBindings[f1AttemptId];
 const activeCancelRequestHash = canonicalHash({ kind: "cancel_worker", runId: run.runId, runNonce: run.runNonce, workItemId: "item-api", stageAttemptId: f1AttemptId, workerStorageId: activeBinding.workerStorageId, launchOwnerSessionId: activeBinding.launchOwnerSessionId, workerId: activeBinding.workerId, attemptNumber: activeBinding.attemptNumber, attemptNonce: activeBinding.attemptNonce, configHash: activeBinding.configHash, fencedGeneration: 1 });
-const activeCancelEffect = { ...cancelEffect, effectId: "effect-cancel-active", requestHash: activeCancelRequestHash };
+const activeCancelEffect = { ...cancelEffect, effectId: "effect-cancel-active", requestHash: activeCancelRequestHash, boundOwnerEpoch: activeCancellationRun.owner.ownerEpoch };
 const activeCancelPayload = { cancellationId: "cancel-active", scope: "run", subjectId: run.runId, reason: "Stop active run", workItemIds: ["item-api"], effects: [activeCancelEffect] };
-const activeCancellationContext = { ...runContext, catalog: f0Catalog, facts: { [f0Input.hash]: f0InputFact, [f0Fact.hash]: f0Fact, [f1InputFact.hash]: f1InputFact } };
+const activeCancellationContext = { ...ownerContext, catalog: f0Catalog, facts: { ...ownerContext.facts, [f0Input.hash]: f0InputFact, [f0AggregateFact.hash]: f0AggregateFact, [f0Fact.hash]: f0Fact, [f1InputFact.hash]: f1InputFact, [activeWorkerConfigFact.hash]: activeWorkerConfigFact, [activeLaunchObservation.hash]: activeLaunchObservation } };
 const activeCancellationFixtureValidation = validateDagRunStateV1(activeCancellationRun, activeCancellationContext);
 assert.equal(activeCancellationFixtureValidation.ok, true, `active cancellation fixture is legal: ${JSON.stringify(activeCancellationFixtureValidation.issues)}`);
+const lineageBindingRun = clone(activeCancellationRun); delete lineageBindingRun.workerBindings[f1AttemptId]; delete lineageBindingRun.effects["effect-old-intent"]; lineageBindingRun.stageAttempts[f1AttemptId].state = "launching"; lineageBindingRun.launchIntents[launchIntentId].state = "dispatching"; lineageBindingRun.launchIntents[launchIntentId].boundAt = null; lineageBindingRun.effects[launchEffect.effectId].state = "dispatching"; lineageBindingRun.effects[launchEffect.effectId].reconciliation = "not_started"; lineageBindingRun.effects[launchEffect.effectId].observationHash = null; rehashRun(lineageBindingRun);
+const intendedPreBindRun = clone(lineageBindingRun); intendedPreBindRun.effects[launchEffect.effectId].state = "intended"; intendedPreBindRun.effects[launchEffect.effectId].dispatchCount = 0; intendedPreBindRun.effects[launchEffect.effectId].lastDispatchAt = null; intendedPreBindRun.launchIntents[launchIntentId].state = "reserved"; intendedPreBindRun.launchIntents[launchIntentId].dispatchCount = 0; intendedPreBindRun.launchIntents[launchIntentId].lastDispatchAt = null; rehashRun(intendedPreBindRun);
+const intendedPreBindPayload = { cancellationId: "cancel-intended-prebind", scope: "run", subjectId: run.runId, reason: "cancel before durable launch dispatch", workItemIds: ["item-api"], effects: [] };
+const intendedPreBindCancellation = reduceDagRunV1(intendedPreBindRun, reducerInput(intendedPreBindRun, "request_cancellation", intendedPreBindPayload, { commandId: "command-cancel-intended-prebind", idempotencyKey: "cancel-intended-prebind" }), activeCancellationContext);
+assert.equal(intendedPreBindCancellation.accepted, true, `intended pre-bind launch cancellation is accepted: ${JSON.stringify(intendedPreBindCancellation)}`);
+if (intendedPreBindCancellation.accepted) {
+  assert.deepEqual({ state: intendedPreBindCancellation.state.effects[launchEffect.effectId].state, reconciliation: intendedPreBindCancellation.state.effects[launchEffect.effectId].reconciliation, dispatchCount: intendedPreBindCancellation.state.effects[launchEffect.effectId].dispatchCount }, { state: "cancelled", reconciliation: "proven_absent", dispatchCount: 0 }, "durable undispatched launch intent canonically proves external absence immediately");
+  assert.equal(intendedPreBindCancellation.state.blockers[`cancellation-effect-${launchEffect.effectId}`], undefined, "undispatched launch cancellation creates no ambiguity blocker");
+  const restartedIntended = parseDagRunStateV1(canonicalStringify(intendedPreBindCancellation.state), activeCancellationContext);
+  const intendedClosureCore = { cancellationId: intendedPreBindPayload.cancellationId, effectObservations: [], workerResults: [] };
+  const intendedClosure = reduceDagRunV1(restartedIntended, reducerInput(restartedIntended, "record_cancellation", { ...intendedClosureCore, resultHash: canonicalHash(intendedClosureCore) }, { commandId: "command-close-intended-prebind", idempotencyKey: "close-intended-prebind", kind: "observation" }), activeCancellationContext);
+  assert.equal(intendedClosure.accepted && intendedClosure.state.current.run, "cancelled", "restart closes intended pre-dispatch cancellation without inventing worker or external absence evidence");
+  assert.equal(intendedClosure.accepted && intendedClosure.state.launchIntents[launchIntentId].state, "not_started", "intended pre-dispatch closure records the launch as canonically not started");
+  let intendedRuntimeState = restartedIntended;
+  const intendedRestartStore = {
+    async read() { return intendedRuntimeState; },
+    async mutate({ input, context }) { const result = reduceDagRunV1(intendedRuntimeState, input, context); if (result.accepted) intendedRuntimeState = result.state; return result; },
+  };
+  const restartedRuntime = new DagLifecycleRuntimeV1(intendedRestartStore, plan, activeCancellationContext, dagRunStoreLockIdentityFromOwner(restartedIntended.owner), process.cwd());
+  const runtimeClosure = await restartedRuntime.reconcileOne(NOW);
+  assert.equal(runtimeClosure.state.cancellations[intendedPreBindPayload.cancellationId].state, "closed", "restarted lifecycle closes intended pre-dispatch cancellation without requiring a worker adapter");
+}
+const dispatchedPreBindPayload = { cancellationId: "cancel-dispatched-prebind", scope: "run", subjectId: run.runId, reason: "cancel after durable dispatch", workItemIds: ["item-api"], effects: [] };
+const dispatchedPreBindCancellation = reduceDagRunV1(lineageBindingRun, reducerInput(lineageBindingRun, "request_cancellation", dispatchedPreBindPayload, { commandId: "command-cancel-dispatched-prebind", idempotencyKey: "cancel-dispatched-prebind" }), activeCancellationContext);
+assert.equal(dispatchedPreBindCancellation.accepted, true, `dispatch-recorded pre-bind cancellation is accepted: ${JSON.stringify(dispatchedPreBindCancellation)}`);
+if (dispatchedPreBindCancellation.accepted) {
+  assert.equal(dispatchedPreBindCancellation.state.effects[launchEffect.effectId].state, "ambiguous");
+  assert.equal(dispatchedPreBindCancellation.state.blockers[`cancellation-effect-${launchEffect.effectId}`].active, true, "dispatched pre-bind launch remains explicitly blocked until the exact opaque operation is recovered");
+  const forbiddenAbsenceCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, effectId: launchEffect.effectId, requestHash: launchEffect.requestHash, reconciliation: "proven_absent", closedAt: NOW }; const forbiddenAbsence = { ...forbiddenAbsenceCore, hash: canonicalHash(forbiddenAbsenceCore) };
+  const forbiddenAbsenceContext = { ...activeCancellationContext, facts: { ...activeCancellationContext.facts, [forbiddenAbsence.hash]: forbiddenAbsence } }; const forbiddenAbsenceCorePayload = { cancellationId: dispatchedPreBindPayload.cancellationId, effectObservations: [{ effectId: launchEffect.effectId, observationHash: forbiddenAbsence.hash }], workerResults: [] };
+  const forbiddenAbsenceClose = reduceDagRunV1(dispatchedPreBindCancellation.state, reducerInput(dispatchedPreBindCancellation.state, "record_cancellation", { ...forbiddenAbsenceCorePayload, resultHash: canonicalHash(forbiddenAbsenceCorePayload) }, { commandId: "command-forbid-dispatched-absence", idempotencyKey: "forbid-dispatched-absence", kind: "observation" }), forbiddenAbsenceContext);
+  assert.equal(forbiddenAbsenceClose.accepted, false, "even a self-consistent absence fact cannot bypass exact recovery/binding for a durably dispatched launch operation");
+  const restartedDispatched = parseDagRunStateV1(canonicalStringify(dispatchedPreBindCancellation.state), activeCancellationContext);
+  const recoveredLaunchObservationCore = { ...activeLaunchObservationCore, ownerEpoch: restartedDispatched.owner.ownerEpoch, observedAt: NOW }; const recoveredLaunchObservation = { ...recoveredLaunchObservationCore, hash: canonicalHash(recoveredLaunchObservationCore) };
+  const recoveredLaunchContext = { ...activeCancellationContext, facts: { ...activeCancellationContext.facts, [recoveredLaunchObservation.hash]: recoveredLaunchObservation } };
+  const recoveredBindPayload = { stageAttemptId: f1AttemptId, binding: activeBinding, launchObservation: { ...ref("worker_launch_observation", "recovered-cancel-launch", recoveredLaunchObservation.hash), bytes: Buffer.byteLength(canonicalStringify(recoveredLaunchObservation)) } };
+  const recoveredBind = reduceDagRunV1(restartedDispatched, reducerInput(restartedDispatched, "bind_worker_attempt", recoveredBindPayload, { commandId: "command-bind-dispatched-prebind", idempotencyKey: "bind-dispatched-prebind", kind: "observation" }), recoveredLaunchContext);
+  assert.equal(recoveredBind.accepted, true, `restart binds the exact already-authorized launch operation under cancellation recovery: ${JSON.stringify(recoveredBind)}`);
+  if (recoveredBind.accepted) {
+    const recoveredCancelEffect = Object.values(recoveredBind.state.effects).find((effect) => effect.kind === "cancel_worker");
+    assert(recoveredCancelEffect, "exact recovered binding atomically persists its cancellation intent");
+    assert.equal(recoveredBind.state.effects[launchEffect.effectId].reconciliation, "applied_exact"); assert.equal(recoveredBind.state.blockers[`cancellation-effect-${launchEffect.effectId}`].active, false, "exact recovered launch observation releases only its immutable launch blocker");
+    assert.equal(recoveredBind.state.stageAttempts[f1AttemptId].state, "cancelling"); assert.equal(recoveredBind.state.launchIntents[launchIntentId].state, "cancel_requested", "recovery binding never revives normal execution authority");
+    const expectedRecoveredCancelHash = canonicalHash({ kind: "cancel_worker", runId: run.runId, runNonce: run.runNonce, workItemId: "item-api", stageAttemptId: f1AttemptId, workerStorageId: activeBinding.workerStorageId, launchOwnerSessionId: activeBinding.launchOwnerSessionId, workerId: activeBinding.workerId, attemptNumber: activeBinding.attemptNumber, attemptNonce: activeBinding.attemptNonce, configHash: activeBinding.configHash, fencedGeneration: 1 });
+    assert.equal(recoveredCancelEffect.requestHash, expectedRecoveredCancelHash, "recovered cancellation targets the exact adopted attempt and fenced generation");
+    const prematureRecoveredCloseCore = { cancellationId: dispatchedPreBindPayload.cancellationId, effectObservations: [], workerResults: [] };
+    const prematureRecoveredClose = reduceDagRunV1(recoveredBind.state, reducerInput(recoveredBind.state, "record_cancellation", { ...prematureRecoveredCloseCore, resultHash: canonicalHash(prematureRecoveredCloseCore) }, { commandId: "command-premature-recovered-close", idempotencyKey: "premature-recovered-close", kind: "observation" }), recoveredLaunchContext);
+    assert.equal(prematureRecoveredClose.accepted, false, "recovered dispatched launch cannot close cancellation before exact cancel-effect and terminal-worker reconciliation");
+  }
+}
+const lineageB = { ownerTokenHash: H("a"), sessionId: "session-lineage-b", pid: 7002, processStartIdentity: "linux-proc:7002", lockIdentity: H("b") }; const lineageBFact = ownershipFactFor(lineageBindingRun, lineageB, "same_manager");
+let lineageContext = { ...activeCancellationContext, facts: { ...activeCancellationContext.facts, [lineageBFact.hash]: lineageBFact } }; let lineageTransition = reduceDagRunV1(lineageBindingRun, reducerInput(lineageBindingRun, "transfer_owner", { ...lineageB, ownershipReceipt: lineageBFact.hash, priorOwnerDisposition: "same_manager" }, { commandId: "command-lineage-b", idempotencyKey: "lineage-b" }), lineageContext); assert.equal(lineageTransition.accepted, true, `A→B owner chain transfer succeeds: ${JSON.stringify(lineageTransition)}`);
+const lineageBState = lineageTransition.accepted ? lineageTransition.state : lineageBindingRun; const lineageC = { ownerTokenHash: H("c"), sessionId: "session-lineage-c", pid: 7003, processStartIdentity: "linux-proc:7003", lockIdentity: H("d") }; const lineageCFact = ownershipFactFor(lineageBState, lineageC, "same_manager"); lineageContext = { ...lineageContext, facts: { ...lineageContext.facts, [lineageCFact.hash]: lineageCFact } }; lineageTransition = reduceDagRunV1(lineageBState, reducerInput(lineageBState, "transfer_owner", { ...lineageC, ownershipReceipt: lineageCFact.hash, priorOwnerDisposition: "same_manager" }, { commandId: "command-lineage-c", idempotencyKey: "lineage-c" }), lineageContext); assert.equal(lineageTransition.accepted, true, "B→C owner chain transfer succeeds");
+if (lineageTransition.accepted) {
+  const lineageState = lineageTransition.state; const lineageEffect = lineageState.effects[launchEffect.effectId]; const lineageObservationCore = { kind: "worker_launch_observation", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, authorizationSetHash: run.identity.authorizationSet.hash, ownerEpoch: lineageState.owner.ownerEpoch, effectId: lineageEffect.effectId, requestHash: lineageEffect.requestHash, launchIntentId, launchKey: activeWorkerConfig.launchKey, workerStorageId: activeBinding.workerStorageId, launchOwnerSessionId: activeBinding.launchOwnerSessionId, workerId: activeBinding.workerId, attemptNumber: activeBinding.attemptNumber, attemptNonce: activeBinding.attemptNonce, configHash: activeBinding.configHash, supervisorPid: activeBinding.supervisorPid, supervisorStartIdentity: activeBinding.supervisorStartIdentity, reconciliation: "applied_exact", observedAt: NOW }; const lineageObservation = { ...lineageObservationCore, hash: canonicalHash(lineageObservationCore) }; const lineageBindContext = { ...lineageContext, facts: { ...lineageContext.facts, [lineageObservation.hash]: lineageObservation } };
+  const lineageBind = reduceDagRunV1(lineageState, reducerInput(lineageState, "bind_worker_attempt", { stageAttemptId: f1AttemptId, binding: activeBinding, launchObservation: { ...ref("worker_launch_observation", "lineage-launch", lineageObservation.hash), bytes: Buffer.byteLength(canonicalStringify(lineageObservation)) } }, { kind: "observation", commandId: "command-lineage-bind", idempotencyKey: "lineage-bind" }), lineageBindContext);
+  assert.equal(lineageBind.accepted, true, `C can bind the exact A-launched worker only through the complete A→B→C receipt chain: ${JSON.stringify(lineageBind)}`);
+}
 const activePause = reduceDagRunV1(activeCancellationRun, reducerInput(activeCancellationRun, "set_desired_run", pausePayload, { commandId: "command-pause-active-worker", idempotencyKey: "key-pause-active-worker" }), activeCancellationContext);
 assert.equal(activePause.accepted && activePause.state.current.run, "paused", "pause preserves active worker/lease history while blocking new dispatch");
 if (activePause.accepted) {
@@ -532,29 +717,35 @@ if (activePause.accepted) {
 const activeCancellation = reduceDagRunV1(activeCancellationRun, reducerInput(activeCancellationRun, "request_cancellation", activeCancelPayload, { commandId: "command-cancel-active", idempotencyKey: "key-cancel-active" }), activeCancellationContext);
 assert.equal(activeCancellation.accepted, true, "generation-first cancellation coherently fences an active reserved/effectful item");
 if (activeCancellation.accepted) {
-  assert.equal(activeCancellation.state.scheduler.reservations["reservation-f1"].state, "fenced", "active reservation is fenced at cancellation generation");
+  assert.equal(activeCancellation.state.scheduler.reservations["reservation-f1"].state, "release_requested", "live cancellation requests release without dropping active process authority");
   assert.equal(activeCancellation.state.effects["effect-old-intent"].state, "cancelled", "undispatched old-generation effect becomes proven absent");
   assert.equal(activeCancellation.state.scheduler.activeNodeLanes["item-api"].releaseDisposition, null, "sticky lane remains until cancellation terminal observation");
-  assert.equal(activeCancellation.state.leases["lease-f1"].state, "release_requested", "active lease remains held until exact worker death is reconciled");
-  const absentWorkerCore = { kind: "worker_result", workerStorageId: activeBinding.workerStorageId, launchOwnerSessionId: activeBinding.launchOwnerSessionId, workerId: activeBinding.workerId, attemptNumber: activeBinding.attemptNumber, attemptNonce: activeBinding.attemptNonce, configHash: activeBinding.configHash, completionId: "completion-f1-already-dead", terminalStatus: "cancelled", processDisposition: "dead", retrySafe: true };
+  assert.equal(activeCancellation.state.leases["lease-f1"].state, "release_requested", "active stage lease remains release-requested until exact worker death reconciliation");
+  const cancellationSuccessor = { ownerTokenHash: H("7"), sessionId: "session-cancel-successor", pid: 4567, processStartIdentity: "linux-proc:4567", lockIdentity: H("8") };
+  const cancellationTransferFact = ownershipFactFor(activeCancellation.state, cancellationSuccessor, "same_manager");
+  const cancellationTransferContext = { ...activeCancellationContext, facts: { ...activeCancellationContext.facts, [cancellationTransferFact.hash]: cancellationTransferFact } };
+  const cancellationTransfer = reduceDagRunV1(activeCancellation.state, reducerInput(activeCancellation.state, "transfer_owner", { ...cancellationSuccessor, ownershipReceipt: cancellationTransferFact.hash, priorOwnerDisposition: "same_manager" }, { commandId: "command-cancel-owner-transfer", idempotencyKey: "cancel-owner-transfer" }), cancellationTransferContext);
+  assert.equal(cancellationTransfer.accepted, true, `proven owner transfer reattaches outstanding cancellation authority: ${JSON.stringify(cancellationTransfer)}`);
+  assert.equal(cancellationTransfer.accepted && cancellationTransfer.state.effects[activeCancelEffect.effectId].boundOwnerEpoch, activeCancellation.state.owner.ownerEpoch + 1, "outstanding opaque cancellation effect rebinds only to the proven successor epoch");
+  assert.equal(cancellationTransfer.accepted && cancellationTransfer.state.effects[activeCancelEffect.effectId].dispatchCount, 0, "owner reattach preserves cancellation dispatch count and ambiguity boundary");
+  assert.equal(cancellationTransfer.accepted && cancellationTransfer.state.scheduler.reservations["reservation-f1"].state, "release_requested", "owner reattach preserves live cancellation release_requested authority");
+  const absentWorkerCore = { kind: "worker_result", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, workItemId: "item-api", stage: "F1", stageAttemptId: f1AttemptId, launchIntentId, workerStorageId: activeBinding.workerStorageId, launchOwnerSessionId: activeBinding.launchOwnerSessionId, workerId: activeBinding.workerId, attemptNumber: activeBinding.attemptNumber, attemptNonce: activeBinding.attemptNonce, configHash: activeBinding.configHash, completionId: "completion-f1-already-dead", terminalStatus: "cancelled", processDisposition: "dead", retrySafe: true, ...noWorkerGitOutput() };
   const absentWorkerFact = { ...absentWorkerCore, hash: canonicalHash(absentWorkerCore) };
-  const absentReconciliationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, effectId: activeCancelEffect.effectId, requestHash: activeCancelEffect.requestHash, reconciliation: "proven_absent" };
+  const absentReconciliationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, effectId: activeCancelEffect.effectId, requestHash: activeCancelEffect.requestHash, reconciliation: "proven_absent", closedAt: NOW };
   const absentReconciliationFact = { ...absentReconciliationCore, hash: canonicalHash(absentReconciliationCore) };
-  const launchReconciliationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, effectId: launchEffect.effectId, requestHash: launchEffect.requestHash, reconciliation: "applied_exact" };
-  const launchReconciliationFact = { ...launchReconciliationCore, hash: canonicalHash(launchReconciliationCore) };
   const absentResultRef = { ...ref("worker_result", absentWorkerFact.completionId, absentWorkerFact.hash), bytes: Buffer.byteLength(canonicalStringify(absentWorkerFact)) };
-  const absentObservationCore = { cancellationId: "cancel-active", effectObservations: [{ effectId: activeCancelEffect.effectId, observationHash: absentReconciliationFact.hash }, { effectId: launchEffect.effectId, observationHash: launchReconciliationFact.hash }], workerResults: [{ stageAttemptId: f1AttemptId, result: absentResultRef }] };
+  const absentObservationCore = { cancellationId: "cancel-active", effectObservations: [{ effectId: activeCancelEffect.effectId, observationHash: absentReconciliationFact.hash }], workerResults: [{ stageAttemptId: f1AttemptId, result: absentResultRef }] };
   const absentObservationPayload = { ...absentObservationCore, resultHash: canonicalHash({ cancellationId: absentObservationCore.cancellationId, effectObservations: absentObservationCore.effectObservations, workerResults: [{ stageAttemptId: f1AttemptId, resultHash: absentWorkerFact.hash }] }) };
-  const absentObservationContext = { ...activeCancellationContext, facts: { ...activeCancellationContext.facts, [absentWorkerFact.hash]: absentWorkerFact, [absentReconciliationFact.hash]: absentReconciliationFact, [launchReconciliationFact.hash]: launchReconciliationFact } };
+  const absentObservationContext = { ...activeCancellationContext, facts: { ...activeCancellationContext.facts, [absentWorkerFact.hash]: absentWorkerFact, [absentReconciliationFact.hash]: absentReconciliationFact } };
   const absentClosed = reduceDagRunV1(activeCancellation.state, reducerInput(activeCancellation.state, "record_cancellation", absentObservationPayload, { commandId: "command-close-absent-cancel", idempotencyKey: "key-close-absent-cancel", kind: "observation" }), absentObservationContext);
-  assert.equal(absentClosed.accepted && absentClosed.state.effects[activeCancelEffect.effectId].reconciliation, "proven_absent", "already-dead worker permits exact proven-absent cancellation-effect closure without dispatch");
-  const racedWorkerCore = { ...absentWorkerCore, completionId: "completion-f1-raced-success", terminalStatus: "succeeded" };
+  assert.equal(absentClosed.accepted && absentClosed.state.effects[activeCancelEffect.effectId].reconciliation, "proven_absent", `already-dead worker permits exact proven-absent cancellation-effect closure without dispatch: ${JSON.stringify(absentClosed)}`);
+  const racedWorkerCore = { ...absentWorkerCore, completionId: "completion-f1-raced-success", terminalStatus: "succeeded", ...exactWorkerGitOutput(plan.repositories[0].baseline, O("c"), O("d")) };
   const racedWorkerFact = { ...racedWorkerCore, hash: canonicalHash(racedWorkerCore) };
   const racedWorkerText = canonicalStringify(racedWorkerFact);
   const racedWorkerRef = { ...ref("worker_result", racedWorkerFact.completionId, racedWorkerFact.hash), bytes: Buffer.byteLength(racedWorkerText) };
   const racedObservationCore = { cancellationId: "cancel-active", effectObservations: absentObservationCore.effectObservations, workerResults: [{ stageAttemptId: f1AttemptId, result: racedWorkerRef }] };
   const racedObservationPayload = { ...racedObservationCore, resultHash: canonicalHash({ cancellationId: racedObservationCore.cancellationId, effectObservations: racedObservationCore.effectObservations, workerResults: [{ stageAttemptId: f1AttemptId, resultHash: racedWorkerFact.hash }] }) };
-  const racedObservationContext = { ...activeCancellationContext, facts: { ...activeCancellationContext.facts, [racedWorkerFact.hash]: racedWorkerFact, [absentReconciliationFact.hash]: absentReconciliationFact, [launchReconciliationFact.hash]: launchReconciliationFact } };
+  const racedObservationContext = { ...activeCancellationContext, facts: { ...activeCancellationContext.facts, [racedWorkerFact.hash]: racedWorkerFact, [absentReconciliationFact.hash]: absentReconciliationFact } };
   const racedClosed = reduceDagRunV1(activeCancellation.state, reducerInput(activeCancellation.state, "record_cancellation", racedObservationPayload, { commandId: "command-close-raced-cancel", idempotencyKey: "key-close-raced-cancel", kind: "observation" }), racedObservationContext);
   const racedQuarantine = racedClosed.accepted ? Object.values(racedClosed.state.quarantine).find(({ fact }) => fact.hash === racedWorkerFact.hash) : null;
   assert.equal(racedClosed.accepted && racedClosed.state.current.run === "cancelled" && racedQuarantine?.state, "held", "late successful terminal result proves process death but remains quarantined from semantic adoption");
@@ -562,20 +753,20 @@ if (activeCancellation.accepted) {
   const activeCancelDispatch = reduceDagRunV1(activeCancellation.state, reducerInput(activeCancellation.state, "mark_effect_dispatching", { effectId: activeCancelEffect.effectId, expectedDispatchCount: 0 }, { commandId: "command-dispatch-active-cancel", idempotencyKey: "key-dispatch-active-cancel" }), activeCancellationContext);
   assert.equal(activeCancelDispatch.accepted && activeCancelDispatch.effects.length, 1, "persisted active-worker cancellation intent dispatches only after generation fence");
   if (activeCancelDispatch.accepted) {
-    const cancelledWorkerCore = { kind: "worker_result", workerStorageId: activeBinding.workerStorageId, launchOwnerSessionId: activeBinding.launchOwnerSessionId, workerId: activeBinding.workerId, attemptNumber: activeBinding.attemptNumber, attemptNonce: activeBinding.attemptNonce, configHash: activeBinding.configHash, completionId: "completion-f1-cancelled", terminalStatus: "cancelled", processDisposition: "dead", retrySafe: true };
+    const cancelledWorkerCore = { kind: "worker_result", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, workItemId: "item-api", stage: "F1", stageAttemptId: f1AttemptId, launchIntentId, workerStorageId: activeBinding.workerStorageId, launchOwnerSessionId: activeBinding.launchOwnerSessionId, workerId: activeBinding.workerId, attemptNumber: activeBinding.attemptNumber, attemptNonce: activeBinding.attemptNonce, configHash: activeBinding.configHash, completionId: "completion-f1-cancelled", terminalStatus: "cancelled", processDisposition: "dead", retrySafe: true, ...noWorkerGitOutput() };
     const cancelledWorkerFact = { ...cancelledWorkerCore, hash: canonicalHash(cancelledWorkerCore) };
-    const cancelReconciliationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, effectId: activeCancelEffect.effectId, requestHash: activeCancelEffect.requestHash, reconciliation: "applied_exact" };
+    const cancelReconciliationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, effectId: activeCancelEffect.effectId, requestHash: activeCancelEffect.requestHash, reconciliation: "applied_exact", closedAt: NOW };
     const cancelReconciliationFact = { ...cancelReconciliationCore, hash: canonicalHash(cancelReconciliationCore) };
     const workerResultRef = { ...ref("worker_result", cancelledWorkerFact.completionId, cancelledWorkerFact.hash), bytes: Buffer.byteLength(canonicalStringify(cancelledWorkerFact)) };
-    const activeObservationCore = { cancellationId: "cancel-active", effectObservations: [{ effectId: activeCancelEffect.effectId, observationHash: cancelReconciliationFact.hash }, { effectId: launchEffect.effectId, observationHash: launchReconciliationFact.hash }], workerResults: [{ stageAttemptId: f1AttemptId, result: workerResultRef }] };
+    const activeObservationCore = { cancellationId: "cancel-active", effectObservations: [{ effectId: activeCancelEffect.effectId, observationHash: cancelReconciliationFact.hash }], workerResults: [{ stageAttemptId: f1AttemptId, result: workerResultRef }] };
     const activeObservationPayload = { ...activeObservationCore, resultHash: canonicalHash({ cancellationId: activeObservationCore.cancellationId, effectObservations: activeObservationCore.effectObservations, workerResults: [{ stageAttemptId: f1AttemptId, resultHash: cancelledWorkerFact.hash }] }) };
-    const activeObservationContext = { ...activeCancellationContext, facts: { ...activeCancellationContext.facts, [cancelledWorkerFact.hash]: cancelledWorkerFact, [cancelReconciliationFact.hash]: cancelReconciliationFact, [launchReconciliationFact.hash]: launchReconciliationFact } };
+    const activeObservationContext = { ...activeCancellationContext, facts: { ...activeCancellationContext.facts, [cancelledWorkerFact.hash]: cancelledWorkerFact, [cancelReconciliationFact.hash]: cancelReconciliationFact } };
     const preReconciledCancelPayload = { effectId: activeCancelEffect.effectId, observationHash: cancelReconciliationFact.hash, reconciliation: "applied_exact", terminalState: "reconciled" };
     const preReconciledCancel = reduceDagRunV1(activeCancelDispatch.state, reducerInput(activeCancelDispatch.state, "record_effect_observation", preReconciledCancelPayload, { commandId: "command-pre-reconcile-cancel", idempotencyKey: "key-pre-reconcile-cancel", kind: "observation" }), activeObservationContext);
     assert.equal(preReconciledCancel.accepted, true, "cancel effect may legally reconcile through generic effect observation before cancellation closure");
     const activeClosed = reduceDagRunV1(preReconciledCancel.accepted ? preReconciledCancel.state : activeCancelDispatch.state, reducerInput(preReconciledCancel.accepted ? preReconciledCancel.state : activeCancelDispatch.state, "record_cancellation", activeObservationPayload, { commandId: "command-close-active-cancel", idempotencyKey: "key-close-active-cancel", kind: "observation" }), activeObservationContext);
     assert.equal(activeClosed.accepted && activeClosed.state.current.run, "cancelled", "active cancellation closes only after exact worker identity reports cancelled and dead");
-    assert.equal(activeClosed.accepted && activeClosed.state.leases["lease-f1"].state, "released", "lease releases only after retry-safe worker death observation");
+    assert.equal(activeClosed.accepted && activeClosed.state.leases["lease-f1"].state, "released", "release-requested lease becomes terminal only after retry-safe worker death observation");
     assert.equal(activeClosed.accepted && activeClosed.state.scheduler.activeNodeLanes["item-api"].releaseDisposition, "terminal_cancelled", "sticky lane releases only at terminal cancellation");
   }
 }
@@ -585,7 +776,7 @@ rehashRun(ambiguousCancellationRun);
 const ambiguousCancelEffect = { ...activeCancelEffect, effectId: "effect-cancel-ambiguous", requestHash: activeCancelRequestHash };
 const ambiguousCancelPayload = { ...activeCancelPayload, cancellationId: "cancel-ambiguous", effects: [ambiguousCancelEffect] };
 const ambiguousCancellation = reduceDagRunV1(ambiguousCancellationRun, reducerInput(ambiguousCancellationRun, "request_cancellation", ambiguousCancelPayload, { commandId: "command-cancel-ambiguous", idempotencyKey: "key-cancel-ambiguous" }), activeCancellationContext);
-assert.equal(ambiguousCancellation.accepted && ambiguousCancellation.state.blockers[`cancellation-effect-${launchEffect.effectId}`].active, true, "ambiguous non-repeatable old effect creates an explicit durable cancellation blocker");
+assert.equal(ambiguousCancellation.accepted && ambiguousCancellation.state.blockers[`cancellation-effect-${launchEffect.effectId}`] === undefined, true, "already reconciled launch effect does not create a spurious cancellation blocker");
 
 const failedEffectRun = clone(run);
 const failedRunEffect = { effectId: "effect-failed-run", kind: "run_procedure", subject: { kind: "run", id: run.runId }, effectScopeId: null, effectScopeKind: null, provider: null, procedureClass: "pure", requestHash: H("3"), boundOwnerEpoch: 0, boundAuthorizationSetHash: run.identity.authorizationSet.hash, boundFreshnessReceiptHash: run.freshness.receipt.hash, boundCandidateGeneration: 0, boundGateEpochHash: H("4"), state: "failed", dispatchCount: 1, createdRevision: 0, createdAt: NOW, lastDispatchAt: NOW, observationHash: null, reconciliation: "unknown", blockerId: null };
@@ -599,13 +790,30 @@ if (failedEffectCancellation.accepted) {
   const prematureFailedEffectCore = { cancellationId: "cancel-failed-effect", effectObservations: [], workerResults: [] };
   const prematureFailedEffectObservation = { ...prematureFailedEffectCore, resultHash: canonicalHash(prematureFailedEffectCore) };
   assert.equal(reduceDagRunV1(failedEffectCancellation.state, reducerInput(failedEffectCancellation.state, "record_cancellation", prematureFailedEffectObservation, { commandId: "command-premature-failed-close", idempotencyKey: "key-premature-failed-close", kind: "observation" }), runContext).accepted, false, "cancellation cannot close while any affected failed effect remains unresolved");
-  const failedEffectReconciliationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, effectId: failedRunEffect.effectId, requestHash: failedRunEffect.requestHash, reconciliation: "compensated" };
+  const failedEffectReconciliationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, effectId: failedRunEffect.effectId, requestHash: failedRunEffect.requestHash, reconciliation: "compensated", closedAt: NOW };
   const failedEffectReconciliation = { ...failedEffectReconciliationCore, hash: canonicalHash(failedEffectReconciliationCore) };
-  const failedEffectObservationCore = { cancellationId: "cancel-failed-effect", effectObservations: [{ effectId: failedRunEffect.effectId, observationHash: failedEffectReconciliation.hash }], workerResults: [] };
-  const failedEffectObservation = { ...failedEffectObservationCore, resultHash: canonicalHash(failedEffectObservationCore) };
+  const failedEffectObservationFor = (fact) => {
+    const core = { cancellationId: "cancel-failed-effect", effectObservations: [{ effectId: failedRunEffect.effectId, observationHash: fact.hash }], workerResults: [] };
+    return { ...core, resultHash: canonicalHash(core) };
+  };
+  for (const [label, closedAt] of [["future", "2099-01-01T00:00:00.000Z"], ["predated", "2020-01-01T00:00:00.000Z"]]) {
+    const forgedCore = { ...failedEffectReconciliationCore, closedAt }; const forged = { ...forgedCore, hash: canonicalHash(forgedCore) };
+    const forgedContext = { ...runContext, facts: { [forged.hash]: forged } };
+    const forgedClosure = reduceDagRunV1(failedEffectCancellation.state, reducerInput(failedEffectCancellation.state, "record_cancellation", failedEffectObservationFor(forged), { commandId: `command-close-failed-effect-${label}`, idempotencyKey: `key-close-failed-effect-${label}`, kind: "observation" }), forgedContext);
+    assert.equal(forgedClosure.accepted, false, `${label} cancellation reconciliation closedAt cannot enter the reducer`);
+  }
+  const failedEffectObservation = failedEffectObservationFor(failedEffectReconciliation);
   const failedEffectContext = { ...runContext, facts: { [failedEffectReconciliation.hash]: failedEffectReconciliation } };
   const failedEffectClosed = reduceDagRunV1(failedEffectCancellation.state, reducerInput(failedEffectCancellation.state, "record_cancellation", failedEffectObservation, { commandId: "command-close-failed-effect", idempotencyKey: "key-close-failed-effect", kind: "observation" }), failedEffectContext);
-  assert.equal(failedEffectClosed.accepted && failedEffectClosed.state.current.run, "cancelled", "cancellation closes only after exact terminal reconciliation of every affected external effect");
+  assert.equal(failedEffectClosed.accepted && failedEffectClosed.state.current.run, "cancelled", "valid bounded cancellation reconciliation closes every affected external effect");
+  if (failedEffectClosed.accepted) for (const [label, closedAt] of [["future", "2099-01-01T00:00:00.000Z"], ["predated", "2020-01-01T00:00:00.000Z"]]) {
+    const forgedCore = { ...failedEffectReconciliationCore, closedAt }; const forged = { ...forgedCore, hash: canonicalHash(forgedCore) };
+    const forgedState = clone(failedEffectClosed.state); const closedEffect = forgedState.effects[failedRunEffect.effectId]; closedEffect.observationHash = forged.hash;
+    const attribution = Object.values(forgedState.idempotencySlots).find((slot) => slot.appliedRevision === closedEffect.reconciliationRevision); attribution.reconciliationBindings[0].observationHash = forged.hash;
+    rehashRun(forgedState);
+    const forgedContext = { ...runContext, facts: { [forged.hash]: forged } };
+    assert.equal(validateDagRunStateV1(forgedState, forgedContext).ok, false, `${label} cancellation reconciliation closedAt fails closed at rest`);
+  }
 }
 
 const partiallyTerminalRun = clone(run);
@@ -654,6 +862,67 @@ const storeRoot = await mkdtemp(join(tmpdir(), "pi-dag-run-store-"));
 try {
   const initializationLock = { lockIdentity: H("8"), ownerTokenHash: H("9"), sessionId: "session-init", pid: process.pid, processStartIdentity: PROCESS_START_IDENTITY, acquiredAt: NOW };
   assert.throws(() => new DagRunSnapshotStoreV1(storeRoot, "a/../../escaped"), /safe path segment/, "store run namespace rejects schema-valid traversal IDs");
+
+  const evaluationIdentity = {
+    projectIdentityHash: canonicalHash({ projectId: run.identity.projectId }),
+    runIdentityHash: dagRunIdentityHashV1(run),
+    runNonceHash: canonicalHash(run.runNonce),
+    planHash: run.identity.planHash,
+    evaluationProfileHash: RUN_EVALUATION_PROFILE_HASH_V1,
+    clockPolicyHash: RUN_EVALUATION_CLOCK_POLICY_HASH_V1,
+    creditContextHash: canonicalHash({ acceptedIntegrationLineages: [], actionableFindingDispositions: [] }),
+  };
+  assert.equal(evaluationIdentity.runIdentityHash, canonicalHash({ runId: run.runId, runNonce: run.runNonce }), "run evaluation identity derivation is deterministic and binds only exact run identity fields");
+  assert.throws(() => new DagRunSnapshotStoreV1(join(storeRoot, "observer-invalid-shape"), run.runId, {
+    postCommitEvaluationObserver: { identity: { ...evaluationIdentity, creditContextHash: undefined }, offerCommittedSnapshot() {} },
+  }), /complete immutable bound identity|canonical hash/, "post-commit observer option requires the complete closed hash identity");
+  const mismatchedEvaluationStore = new DagRunSnapshotStoreV1(join(storeRoot, "observer-mismatched-binding"), run.runId, {
+    postCommitEvaluationObserver: { identity: { ...evaluationIdentity, planHash: H("0") }, offerCommittedSnapshot() {} },
+  });
+  await assert.rejects(() => mismatchedEvaluationStore.initialize(run, runContext, initializationLock), /exact planHash\/runNonceHash\/runIdentityHash/, "genesis rejects an observer not bound to the exact run plan/nonce/identity");
+  await assert.rejects(() => readFile(mismatchedEvaluationStore.statePath), { code: "ENOENT" }, "observer binding rejection occurs before genesis durability");
+
+  const observerOffers = [];
+  const postCommitEvaluationObserver = {
+    identity: evaluationIdentity,
+    offerCommittedSnapshot(offered) {
+      const prefixStartedAt = Date.now();
+      if (offered.revision === 0 || offered.revision === 2) while (Date.now() - prefixStartedAt < 150) { /* deliberate synchronous observer prefix */ }
+      observerOffers.push(offered);
+      if (offered.revision === 1) throw new Error("deliberate observer failure");
+    },
+  };
+  const observerStore = new DagRunSnapshotStoreV1(join(storeRoot, "observer-isolation"), run.runId, { postCommitEvaluationObserver });
+  await seedBaselineFacts(observerStore);
+  await observerStore.initialize(run, runContext, initializationLock);
+  assert.equal(observerOffers.length, 0, "genesis return completes before a 150ms synchronous observer prefix begins");
+  for (let attempts = 0; observerOffers.length < 1 && attempts < 50; attempts += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(observerOffers.length, 1, "newly durable genesis emits exactly one observer offer");
+  assert.equal(Object.isFrozen(observerOffers[0]), true, "observer receives a fresh immutable closed offer");
+  assert.deepEqual(Object.keys(observerOffers[0]).sort(), [...Object.keys(evaluationIdentity), "revision", "snapshotHash"].sort(), "observer offer contains identities only");
+  assert.deepEqual(observerOffers[0], { ...evaluationIdentity, revision: 0, snapshotHash: run.snapshotHash }, "genesis observer offer binds exact evaluation and snapshot identities");
+
+  await observerStore.putImmutableFact(attachOwnershipFact);
+  const observerAttach = await observerStore.mutate({ input: reducerInput(run, "attach_owner", attachPayload, { kind: "observation" }), context: ownerContext, lock: { lockIdentity: attachPayload.lockIdentity, ownerTokenHash: attachPayload.ownerTokenHash, sessionId: attachPayload.sessionId, pid: attachPayload.pid, processStartIdentity: attachPayload.processStartIdentity, acquiredAt: NOW } });
+  assert.equal(observerAttach.accepted, true, "observer failure cannot reject a durable mutation");
+  assert.equal((await observerStore.read(runContext)).revision, 1, "observer failure cannot roll back committed state");
+  for (let attempts = 0; observerOffers.length < 2 && attempts < 50; attempts += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(observerOffers[1], { ...evaluationIdentity, revision: 1, snapshotHash: observerAttach.state.snapshotHash }, "mutation offer preserves every exact bound identity");
+  const offersAfterMutation = observerOffers.length;
+  const observerOwnerLock = { lockIdentity: attachPayload.lockIdentity, ownerTokenHash: attachPayload.ownerTokenHash, sessionId: attachPayload.sessionId, pid: attachPayload.pid, processStartIdentity: attachPayload.processStartIdentity, acquiredAt: NOW };
+  const observerAttachReplay = await observerStore.mutate({ input: reducerInput(run, "attach_owner", attachPayload, { kind: "observation" }), context: ownerContext, lock: observerOwnerLock });
+  assert.equal(observerAttachReplay.accepted && observerAttachReplay.duplicate, true, "observer fixture duplicate is accepted without durability");
+  const observerRejected = await observerStore.mutate({ input: reducerInput(run, "set_desired_run", { desired: "paused", reason: "stale", requestedBy: "user" }, { commandId: "observer-stale", idempotencyKey: "observer-stale" }), context: runContext, lock: observerOwnerLock });
+  assert.equal(observerRejected.accepted, false, "observer fixture stale mutation is rejected");
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(observerOffers.length, offersAfterMutation, "duplicate and rejected mutations emit no observer offers");
+
+  const observerPauseInput = reducerInput(observerAttach.state, "set_desired_run", { desired: "paused", reason: "observer exact", requestedBy: "user" }, { commandId: "observer-pause", idempotencyKey: "observer-pause" });
+  const observerPause = await observerStore.mutate({ input: observerPauseInput, context: runContext, lock: observerOwnerLock });
+  assert.equal(observerOffers.length, offersAfterMutation, "mutation return completes before a 150ms synchronous observer prefix and never backpressures lock release");
+  for (let attempts = 0; observerOffers.length < offersAfterMutation + 1 && attempts < 50; attempts += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(observerOffers.at(-1), { ...evaluationIdentity, revision: 2, snapshotHash: observerPause.state.snapshotHash }, "newly durable mutation emits one exact identity-only offer");
+
   const mismatchedNamespaceStore = new DagRunSnapshotStoreV1(join(storeRoot, "namespace-mismatch"), run.runId);
   const mismatchedNamespaceRun = clone(run); mismatchedNamespaceRun.runId = "different-run"; rehashRun(mismatchedNamespaceRun);
   await seedBaselineFacts(mismatchedNamespaceStore);
@@ -698,8 +967,7 @@ try {
   const forgedLiveTakeoverPayload = { ...attachPayload, ownerTokenHash: H("4"), sessionId: "forged-takeover", pid: process.pid, processStartIdentity: PROCESS_START_IDENTITY, lockIdentity: H("5"), ownershipReceipt: H("6"), priorOwnerDisposition: "dead" };
   const forgedLiveTakeoverLock = { lockIdentity: forgedLiveTakeoverPayload.lockIdentity, ownerTokenHash: forgedLiveTakeoverPayload.ownerTokenHash, sessionId: forgedLiveTakeoverPayload.sessionId, pid: forgedLiveTakeoverPayload.pid, processStartIdentity: forgedLiveTakeoverPayload.processStartIdentity, acquiredAt: NOW };
   const forgedLiveTakeoverInput = reducerInput(attachedState, "attach_owner", forgedLiveTakeoverPayload, { commandId: "command-forged-takeover", idempotencyKey: "key-forged-takeover", kind: "observation" });
-  const forgedTakeover = await store.mutate({ input: forgedLiveTakeoverInput, context: runContext, lock: forgedLiveTakeoverLock });
-  assert.equal(forgedTakeover.accepted, false, "ordinary mutation API cannot replace an attached live conductor by claiming it dead");
+  await assert.rejects(() => store.mutate({ input: forgedLiveTakeoverInput, context: runContext, lock: forgedLiveTakeoverLock }), DagRunStoreCorruptError, "ordinary mutation API cannot replace an attached live conductor using a missing forged ownership fact");
   const mismatchedProcessLock = { ...ownerLock, pid: ownerLock.pid + 1 };
   await assert.rejects(() => store.mutate({ input: reducerInput(attachedState, "set_desired_run", pausePayload, { commandId: "command-mismatched-process", idempotencyKey: "key-mismatched-process" }), context: runContext, lock: mismatchedProcessLock }), DagRunStoreLockedError, "process-shared mutation requires the executing PID/start identity, not copied owner metadata");
   const storedPauseInput = reducerInput(attachedState, "set_desired_run", pausePayload, { commandId: "command-store-pause" });
@@ -802,6 +1070,8 @@ try {
   const recoveredOwner = await store.reattachAfterDeadOwner(deadOwnerProof, replacementInput, replacementContext, replacementLock, async () => true);
   assert.match(recoveredOwner.quarantinedLockPath, /quarantined-locks/, "proven-dead idle owner recovery retains durable process evidence");
   assert.equal(recoveredOwner.result.accepted && recoveredOwner.result.state.owner.ownerEpoch, 3, "dead-owner reattach atomically fences the prior owner epoch before releasing recovery lock");
+  const restartedOwnerStore = new DagRunSnapshotStoreV1(storeRoot, run.runId); const restartedOwnerState = await restartedOwnerStore.read(runContext);
+  assert.equal(restartedOwnerState.owner.ownerEpoch, 3, "A→B→C restart recursively hydrates the complete bounded predecessor receipt chain without caller fact injection");
   const storedReplacementOwnershipText = await readFile(storedReplacementOwnership.path, "utf8");
   await rm(storedReplacementOwnership.path);
   await assert.rejects(() => store.read(runContext), DagRunStoreCorruptError, "attached owner becomes corrupt if its immutable ownership proof disappears");
@@ -832,8 +1102,9 @@ try {
     const recoveryTemplateInput = reducerInput(recoveryCrashState, "attach_owner", recoveryTemplatePayload, { commandId: `command-recovery-crash-${index}`, idempotencyKey: `key-recovery-crash-${index}`, kind: "observation" });
     const recoveryContextPath = join(storeRoot, `recovery-context-${index}.json`); const recoveryInputPath = join(storeRoot, `recovery-input-${index}.json`); const recoveryLockPath = join(storeRoot, `recovery-lock-${index}.json`); const recoveryProofPath = join(storeRoot, `recovery-proof-${index}.json`);
     await writeFile(recoveryContextPath, JSON.stringify(runContext)); await writeFile(recoveryInputPath, JSON.stringify(recoveryTemplateInput)); await writeFile(recoveryLockPath, JSON.stringify(recoveryTemplateLock)); await writeFile(recoveryProofPath, JSON.stringify(recoveryCrashProof));
-    await assert.rejects(() => execFileAsync(process.execPath, ["scripts/fixtures/dag-store-child.mjs", recoveryCrashStore.rootDirectory, run.runId, recoveryContextPath, recoveryInputPath, recoveryLockPath, recoveryCrashPoint, "recover-auto", recoveryProofPath], { cwd: process.cwd() }), (error) => error?.code === 86, `real child exits at recovery point ${recoveryCrashPoint}`);
+    await assert.rejects(() => execFileAsync(process.execPath, ["scripts/fixtures/dag-store-child.mjs", recoveryCrashStore.rootDirectory, run.runId, recoveryContextPath, recoveryInputPath, recoveryLockPath, recoveryCrashPoint, "recover-auto", recoveryProofPath], { cwd: process.cwd() }), (error) => error?.code === 86, `real child exits at recovery point ${recoveryCrashPoint} after publishing a fully chained recovery receipt`);
     const stateAfterRecoveryCrash = await recoveryCrashStore.read(runContext);
+    if (stateAfterRecoveryCrash.owner.ownershipReceipt && !ownershipFacts.has(stateAfterRecoveryCrash.owner.ownershipReceipt)) ownershipFacts.set(stateAfterRecoveryCrash.owner.ownershipReceipt, await recoveryCrashStore.readImmutableFact(stateAfterRecoveryCrash.owner.ownershipReceipt));
     const visibleAfterRecoveryCrash = await recoveryCrashStore.inspectLock();
     const retryPriorLock = stateAfterRecoveryCrash.owner.lockIdentity === fixtureAbandonedLock.lockIdentity ? fixtureAbandonedLock : visibleAfterRecoveryCrash;
     const retryObservationHash = stateAfterRecoveryCrash.owner.lockIdentity === fixtureAbandonedLock.lockIdentity ? recoveryObservationHash : H(String((index + 7) % 10));
@@ -860,7 +1131,7 @@ try {
   if (!durableIntent.accepted) throw new Error(`durable effect intent failed: ${durableIntent.message}`);
   const durableDispatch = await effectFactStore.mutate({ input: reducerInput(durableIntent.state, "mark_effect_dispatching", { effectId: durableEffect.effectId, expectedDispatchCount: 0 }, { commandId: "command-dispatch-durable-effect", idempotencyKey: "key-dispatch-durable-effect" }), context: runContext, lock: ownerLock });
   if (!durableDispatch.accepted) throw new Error(`durable effect dispatch failed: ${durableDispatch.message}`);
-  const durableReconciliationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, effectId: durableEffect.effectId, requestHash: durableEffect.requestHash, reconciliation: "applied_exact" };
+  const durableReconciliationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: run.runId, runNonce: run.runNonce, effectId: durableEffect.effectId, requestHash: durableEffect.requestHash, reconciliation: "applied_exact", closedAt: NOW };
   const durableReconciliationFact = { ...durableReconciliationCore, hash: canonicalHash(durableReconciliationCore) };
   const storedDurableReconciliation = await effectFactStore.putImmutableFact(durableReconciliationFact);
   const durableObservationContext = { ...runContext, facts: { [durableReconciliationFact.hash]: durableReconciliationFact } };
@@ -923,22 +1194,10 @@ try {
   const processCrashLockPath = join(storeRoot, "process-crash-lock.json");
   const processCrashLockTemplate = { lockIdentity: H("8"), ownerTokenHash: H("9"), sessionId: "session-process-crash-child", pid: 1, processStartIdentity: "linux-proc:0", acquiredAt: NOW };
   await writeFile(processCrashContextPath, JSON.stringify(runContext)); await writeFile(processCrashInputPath, JSON.stringify(crashPauseInput)); await writeFile(processCrashLockPath, JSON.stringify(processCrashLockTemplate));
-  await assert.rejects(() => execFileAsync(process.execPath, ["scripts/fixtures/dag-store-child.mjs", processCrashStore.rootDirectory, run.runId, processCrashContextPath, processCrashInputPath, processCrashLockPath, "after_snapshot_rename", "attach-auto"], { cwd: process.cwd() }), (error) => error?.code === 86, "real child process exits after owner-transfer snapshot rename before lock-finally/acknowledgement");
-  const committedAfterCrash = await processCrashStore.read(runContext);
-  assert.equal(committedAfterCrash.revision, run.revision + 1, "post-rename process crash leaves a hash-chain-valid committed owner-transfer snapshot");
-  const crashedLock = await processCrashStore.inspectLock();
-  const crashRecoverySuccessor = { ownerTokenHash: H("4"), sessionId: "session-crash-recovery", pid: process.pid, processStartIdentity: PROCESS_START_IDENTITY, lockIdentity: H("5") };
-  const crashRecoveryProof = await createDagRunStoreDeadOwnerProofV1(crashedLock, NOW);
-  const crashRecoveryOwnershipFact = ownershipFactFor(committedAfterCrash, crashRecoverySuccessor, "dead", null, crashRecoveryProof.observationHash);
-  await processCrashStore.putImmutableFact(crashRecoveryOwnershipFact);
-  const crashRecoveryPayload = { ...crashRecoverySuccessor, ownershipReceipt: crashRecoveryOwnershipFact.hash, priorOwnerDisposition: "dead" };
-  const crashRecoveryContext = { ...runContext, facts: { ...runContext.facts, [crashRecoveryOwnershipFact.hash]: crashRecoveryOwnershipFact } };
-  const crashRecoveryLock = { lockIdentity: crashRecoveryPayload.lockIdentity, ownerTokenHash: crashRecoveryPayload.ownerTokenHash, sessionId: crashRecoveryPayload.sessionId, pid: crashRecoveryPayload.pid, processStartIdentity: crashRecoveryPayload.processStartIdentity, acquiredAt: NOW };
-  const crashRecoveryInput = reducerInput(committedAfterCrash, "attach_owner", crashRecoveryPayload, { commandId: "command-crash-recovery", idempotencyKey: "key-crash-recovery", kind: "observation" });
-  await processCrashStore.reattachAfterDeadOwner(crashRecoveryProof, crashRecoveryInput, crashRecoveryContext, crashRecoveryLock, async () => true);
-  const crashTransferInput = JSON.parse(await readFile(processCrashInputPath, "utf8"));
-  const crashReplay = await processCrashStore.mutate({ input: crashTransferInput, context: runContext, lock: crashRecoveryLock });
-  assert.equal(crashReplay.accepted && crashReplay.duplicate, true, "post-crash exact owner-transfer replay reconciles through durable natural slot before stale owner/CAS checks");
+  await assert.rejects(() => execFileAsync(process.execPath, ["scripts/fixtures/dag-store-child.mjs", processCrashStore.rootDirectory, run.runId, processCrashContextPath, processCrashInputPath, processCrashLockPath, "after_snapshot_rename", "attach-auto"], { cwd: process.cwd() }), (error) => error?.code === 86, "child publishes a fully chained owner receipt before the post-rename crash boundary");
+  const processCrashAttached = await processCrashStore.read(runContext);
+  assert.equal(processCrashAttached.revision, run.revision + 1, "post-rename owner attach survives child crash");
+  assert.equal(processCrashAttached.owner.ownerEpoch, 1);
 
   let beforeRenameArmed = false;
   const beforeRenameStore = new DagRunSnapshotStoreV1(join(storeRoot, "crash-before"), run.runId, { failpoint: async (point) => { if (beforeRenameArmed && point === "after_snapshot_temp_sync") throw new Error("failpoint-before-rename"); } });
@@ -997,9 +1256,321 @@ if (reservedResult.accepted) {
   const reservationId = attachedSchedulerDecision.selected[0].reservationId;
   const releasePayload = { reservationId, disposition: "released", reason: "operation observation reconciled" };
   const releasedResult = reduceDagRunV1(reservedResult.state, reducerInput(reservedResult.state, "release_scheduler_reservation", releasePayload, { kind: "observation", commandId: "command-scheduler-release", idempotencyKey: "key-scheduler-release" }), schedulerReducerContext);
-  assert.equal(releasedResult.accepted, true, "scheduler reservation release reconciles exact leases through reducer");
-  assert.equal(releasedResult.accepted && releasedResult.state.scheduler.activeNodeLanes["item-api"].releaseDisposition, null, "operation release does not release the sticky active-node lane");
+  assert.equal(releasedResult.accepted, false, "generic scheduler release cannot drop live reservation/lease authority without an exact terminal attempt");
 }
+// Closed lifecycle kernel: after this schema-valid genesis, every F0-F8 lifecycle change is reducer-produced.
+const lifecycleGenesis = clone(run);
+const lifecycleSchedulerIndex = buildSchedulerPlanIndexV1(plan);
+lifecycleGenesis.workItems["item-api"].current = "ready"; lifecycleGenesis.current.run = "active"; lifecycleGenesis.current.readyWorkItemIds = ["item-api"];
+lifecycleGenesis.scheduler.policyHash = DAG_SCHEDULER_POLICY_HASH_V1; lifecycleGenesis.scheduler.normalizedIndexHash = lifecycleSchedulerIndex.indexHash; rehashRun(lifecycleGenesis);
+let lifecycleContext = { ...runContext, normalizedSchedulerIndexHash: lifecycleSchedulerIndex.indexHash, facts: {} };
+const lifecycleOwner = { ownerTokenHash: H("1"), sessionId: "session-lifecycle", pid: process.pid, processStartIdentity: PROCESS_START_IDENTITY, lockIdentity: H("2") };
+const lifecycleOwnership = ownershipFactFor(lifecycleGenesis, lifecycleOwner, "absent"); lifecycleContext = { ...lifecycleContext, facts: { [lifecycleOwnership.hash]: lifecycleOwnership } };
+let lifecycleTransition = reduceDagRunV1(lifecycleGenesis, reducerInput(lifecycleGenesis, "attach_owner", { ...lifecycleOwner, ownershipReceipt: lifecycleOwnership.hash, priorOwnerDisposition: "absent" }, { kind: "observation", commandId: "lifecycle-attach", idempotencyKey: "lifecycle-attach" }), lifecycleContext);
+assert.equal(lifecycleTransition.accepted, true, `closed lifecycle genesis owner attach succeeds: ${JSON.stringify(lifecycleTransition)}`);
+let lifecycleState = lifecycleTransition.accepted ? lifecycleTransition.state : lifecycleGenesis;
+const lifecycleRef = (kind, id, fact) => ({ ...ref(kind, id, fact.hash), bytes: Buffer.byteLength(canonicalStringify(fact)) });
+const stageProducer = { F0: "conductor", F1: "owned_worker", F2: "owned_worker", F3: "owned_worker", F4: "deterministic_runner", F5: "owned_worker", F6: "owned_worker", F7: "deterministic_runner", F8: "conductor" };
+let lifecycleCandidate = null;
+let firstAttemptState = null; let firstF8Payload = null; let sealedF0State = null; let sealedF0Context = null; let lifecycleStageEffect = null;
+const nonPassFixtures = [];
+for (const stage of PLAN_STAGE_IDS) {
+  const decision = scheduleDagRunV1(plan, lifecycleState);
+  assert.equal(decision.selected[0]?.stage, stage, `scheduler reaches ${stage} from reducer-produced prior closure`);
+  const reserve = { decisionHash: decision.decisionHash, decisionSequence: decision.decisionSequence, policyHash: decision.policyHash, normalizedIndexHash: decision.normalizedIndexHash, inputSnapshotHash: lifecycleState.snapshotHash, reservations: decision.selected, bypassSlotIds: decision.bypassIncrements };
+  lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "reserve_scheduler_batch", reserve, { commandId: `lifecycle-${stage}-reserve`, idempotencyKey: `lifecycle-${stage}-reserve` }), lifecycleContext);
+  assert.equal(lifecycleTransition.accepted, true, `${stage} reservation succeeds`); lifecycleState = lifecycleTransition.state;
+  const reservation = decision.selected[0];
+  lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "mark_scheduler_reservation_dispatch", { reservationId: reservation.reservationId, normalizedRequestHash: reservation.normalizedRequestHash }, { commandId: `lifecycle-${stage}-dispatch`, idempotencyKey: `lifecycle-${stage}-dispatch` }), lifecycleContext); assert.equal(lifecycleTransition.accepted, true); lifecycleState = lifecycleTransition.state;
+  lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "record_scheduler_reservation_dispatch", { reservationId: reservation.reservationId, normalizedRequestHash: reservation.normalizedRequestHash, disposition: "active" }, { kind: "observation", commandId: `lifecycle-${stage}-active`, idempotencyKey: `lifecycle-${stage}-active` }), lifecycleContext); assert.equal(lifecycleTransition.accepted, true); lifecycleState = lifecycleTransition.state;
+  const attemptId = `lifecycle-attempt-${stage.toLowerCase()}`; const producerKind = stageProducer[stage]; const inputCandidate = ["F0", "F1"].includes(stage) ? null : lifecycleCandidate;
+  const inputCore = { kind: "stage_attempt_input", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, workItemId: "item-api", stage, stageAttemptId: attemptId, candidateGeneration: lifecycleState.workItems["item-api"].candidateGeneration, candidateHash: inputCandidate?.hash ?? null, authorizationSetHash: lifecycleState.identity.authorizationSet.hash, producerKind, implementationLineageHash: ["F1", "F3"].includes(stage) ? lifecycleState.workItems["item-api"].implementationLineageHash : null };
+  const inputFact = { ...inputCore, hash: canonicalHash(inputCore) }; const inputReference = lifecycleRef("stage_attempt_input", attemptId, inputFact); lifecycleContext.facts[inputFact.hash] = inputFact;
+  const owned = producerKind === "owned_worker"; const launchIntentId = `lifecycle-launch-${stage.toLowerCase()}`; const launchEffectId = `lifecycle-launch-effect-${stage.toLowerCase()}`;
+  const launchEffect = owned ? { effectId: launchEffectId, kind: "launch_worker", subject: { kind: "work_item", id: "item-api" }, effectScopeId: null, effectScopeKind: null, provider: null, procedureClass: "idempotent", requestHash: canonicalHash({ stage, launch: true }), boundOwnerEpoch: lifecycleState.owner.ownerEpoch, boundAuthorizationSetHash: lifecycleState.identity.authorizationSet.hash, boundFreshnessReceiptHash: lifecycleState.freshness.receipt.hash, boundCandidateGeneration: lifecycleState.workItems["item-api"].candidateGeneration, boundGateEpochHash: H("3"), state: "intended", dispatchCount: 0, createdRevision: lifecycleState.revision + 1, createdAt: NOW, lastDispatchAt: null, observationHash: null, reconciliation: "not_started", blockerId: null } : null;
+  const launchIntent = owned ? { launchIntentId, effectId: launchEffectId, state: "reserved", adapter: "owned-worker-v1", launchKey: `lifecycle-key-${stage.toLowerCase()}`, workerId: `lifecycle-worker-${stage.toLowerCase()}`, expectedAttemptNumber: 1, taskPacketHash: H("4"), cwdRepositoryId: "repo-main", configRequestHash: H("5"), dispatchCount: 0, lastDispatchAt: null, boundAt: null, ambiguityReason: null } : null;
+  if (stage === "F0") {
+    const staleInputCore = { ...inputCore, stage: "F1" }; const staleInputFact = { ...staleInputCore, hash: canonicalHash(staleInputCore) }; const staleInputRef = lifecycleRef("stage_attempt_input", "wrong-generation", staleInputFact); lifecycleContext.facts[staleInputFact.hash] = staleInputFact;
+    assert.equal(reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "begin_stage_attempt", { reservationId: reservation.reservationId, stageAttemptId: attemptId, attemptInput: staleInputRef, launchIntent: null, launchEffect: null }, { commandId: "lifecycle-wrong-input", idempotencyKey: "lifecycle-wrong-input" }), lifecycleContext).accepted, false, "wrong stage/generation attempt input fails closed");
+  }
+  const beginPayload = { reservationId: reservation.reservationId, stageAttemptId: attemptId, attemptInput: inputReference, launchIntent, launchEffect };
+  const beginInput = reducerInput(lifecycleState, "begin_stage_attempt", beginPayload, { commandId: `lifecycle-${stage}-begin`, idempotencyKey: `lifecycle-${stage}-begin` });
+  lifecycleTransition = reduceDagRunV1(lifecycleState, beginInput, lifecycleContext); assert.equal(lifecycleTransition.accepted, true, `${stage} begins through reducer: ${JSON.stringify(lifecycleTransition)}`); lifecycleState = lifecycleTransition.state;
+  assert.equal(reduceDagRunV1(lifecycleState, beginInput, lifecycleContext).duplicate, true, `${stage} begin exact replay is naturally idempotent`);
+  if (stage === "F0") firstAttemptState = lifecycleState;
+  const stageEffectReconciliations = [];
+  if (stage === "F0") {
+    lifecycleStageEffect = { effectId: "lifecycle-f0-stage-effect", kind: "put_immutable_fact", subject: { kind: "work_item", id: "item-api" }, boundStageAttemptId: attemptId, boundWorkerResultHash: null, effectScopeId: null, effectScopeKind: null, provider: null, procedureClass: "pure", requestHash: H("e"), boundOwnerEpoch: lifecycleState.owner.ownerEpoch, boundAuthorizationSetHash: lifecycleState.identity.authorizationSet.hash, boundFreshnessReceiptHash: lifecycleState.freshness.receipt.hash, boundCandidateGeneration: lifecycleState.workItems["item-api"].candidateGeneration, boundGateEpochHash: H("f"), state: "intended", dispatchCount: 0, createdRevision: lifecycleState.revision + 1, createdAt: NOW, lastDispatchAt: null, observationHash: null, reconciliation: "not_started", blockerId: null };
+    lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "put_effect_intent", { effect: lifecycleStageEffect }, { commandId: "lifecycle-f0-effect-intent", idempotencyKey: "lifecycle-f0-effect-intent" }), lifecycleContext);
+    assert.equal(lifecycleTransition.accepted, true, `pre-seal exact-attempt effect intent is admitted: ${JSON.stringify(lifecycleTransition)}`); lifecycleState = lifecycleTransition.state;
+    lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "mark_effect_dispatching", { effectId: lifecycleStageEffect.effectId, expectedDispatchCount: 0 }, { commandId: "lifecycle-f0-effect-dispatch", idempotencyKey: "lifecycle-f0-effect-dispatch" }), lifecycleContext);
+    assert.equal(lifecycleTransition.accepted, true, "pre-seal exact-attempt effect dispatch is durably authorized"); lifecycleState = lifecycleTransition.state;
+    const stageEffectObservationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, effectId: lifecycleStageEffect.effectId, requestHash: lifecycleStageEffect.requestHash, reconciliation: "applied_exact", closedAt: NOW };
+    const stageEffectObservation = { ...stageEffectObservationCore, hash: canonicalHash(stageEffectObservationCore) }; lifecycleContext.facts[stageEffectObservation.hash] = stageEffectObservation;
+    lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "record_effect_observation", { effectId: lifecycleStageEffect.effectId, observationHash: stageEffectObservation.hash, reconciliation: "applied_exact", terminalState: "reconciled" }, { kind: "observation", commandId: "lifecycle-f0-effect-observation", idempotencyKey: "lifecycle-f0-effect-observation" }), lifecycleContext);
+    assert.equal(lifecycleTransition.accepted, true, "pre-seal exact-attempt effect reconciles before aggregate seal"); lifecycleState = lifecycleTransition.state;
+    stageEffectReconciliations.push(lifecycleRef("effect_reconciliation", lifecycleStageEffect.effectId, stageEffectObservation));
+  }
+  let workerResult = null;
+  if (owned) {
+    lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "mark_effect_dispatching", { effectId: launchEffectId, expectedDispatchCount: 0 }, { commandId: `lifecycle-${stage}-launch-dispatch`, idempotencyKey: `lifecycle-${stage}-launch-dispatch` }), lifecycleContext); assert.equal(lifecycleTransition.accepted, true, `${stage} persists exact launch dispatch before external observation`); lifecycleState = lifecycleTransition.state;
+    const attemptNonce = `nonce-${stage.toLowerCase()}-0123456789`; const workerStorageId = "lifecycle-manager-storage"; const config = { storageId: workerStorageId, ownerSessionId: lifecycleState.owner.sessionId, workerId: launchIntent.workerId, attemptNumber: 1, attemptNonce, launchKey: launchIntent.launchKey, requestHash: launchIntent.configRequestHash, launchOwner: { sessionId: lifecycleState.owner.sessionId, pid: lifecycleState.owner.pid, processStartIdentity: lifecycleState.owner.processStartIdentity } }; const configHash = canonicalHash(config); const configFactCore = { kind: "worker_config", configHash, config }; const configFact = { ...configFactCore, hash: canonicalHash(configFactCore) }; lifecycleContext.facts[configFact.hash] = configFact;
+    const binding = { stageAttemptId: attemptId, launchIntentId, workerStorageId, launchOwnerSessionId: lifecycleState.owner.sessionId, workerId: launchIntent.workerId, attemptNumber: 1, attemptNonce, configHash, configRef: lifecycleRef("worker_config", `config-${stage.toLowerCase()}`, configFact), supervisorPid: process.pid, supervisorStartIdentity: PROCESS_START_IDENTITY, childPid: process.pid + 1, childStartIdentity: `child-${stage}`, mailboxHash: H("6"), heartbeatAt: NOW, completionId: null, resultHash: null, processDisposition: "live", retrySafe: false };
+    const dispatchedEffect = lifecycleState.effects[launchEffectId]; const launchObservationCore = { kind: "worker_launch_observation", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, authorizationSetHash: lifecycleState.identity.authorizationSet.hash, ownerEpoch: lifecycleState.owner.ownerEpoch, effectId: launchEffectId, requestHash: dispatchedEffect.requestHash, launchIntentId, launchKey: launchIntent.launchKey, workerStorageId, launchOwnerSessionId: binding.launchOwnerSessionId, workerId: binding.workerId, attemptNumber: 1, attemptNonce, configHash, supervisorPid: binding.supervisorPid, supervisorStartIdentity: binding.supervisorStartIdentity, reconciliation: "applied_exact", observedAt: NOW }; const launchObservation = { ...launchObservationCore, hash: canonicalHash(launchObservationCore) }; lifecycleContext.facts[launchObservation.hash] = launchObservation;
+    lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "bind_worker_attempt", { stageAttemptId: attemptId, binding, launchObservation: lifecycleRef("worker_launch_observation", `launch-${stage.toLowerCase()}`, launchObservation) }, { kind: "observation", commandId: `lifecycle-${stage}-bind`, idempotencyKey: `lifecycle-${stage}-bind` }), lifecycleContext); assert.equal(lifecycleTransition.accepted, true, `${stage} binds exact worker identity: ${JSON.stringify(lifecycleTransition)}`); lifecycleState = lifecycleTransition.state;
+    const exactF5ReadOnlyOutput = stage === "F5" ? { ...exactWorkerGitOutput(lifecycleCandidate.git, lifecycleCandidate.git.commit, lifecycleCandidate.git.tree), outputCommonDirIdentityHash: canonicalHash({ lifecycle: "common-dir" }), outputWorktreeIdentityHash: canonicalHash({ stage, attemptId, worktree: true }) } : null;
+    const resultCore = { kind: "worker_result", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, workItemId: "item-api", stage, stageAttemptId: attemptId, launchIntentId, workerStorageId: binding.workerStorageId, launchOwnerSessionId: binding.launchOwnerSessionId, workerId: binding.workerId, attemptNumber: binding.attemptNumber, attemptNonce: binding.attemptNonce, configHash: binding.configHash, completionId: `completion-${stage.toLowerCase()}`, terminalStatus: "succeeded", processDisposition: "dead", retrySafe: true, ...(["F1", "F3"].includes(stage) ? exactWorkerGitOutput(stage === "F1" ? plan.repositories[0].baseline : lifecycleCandidate.git, O("c"), O("d")) : exactF5ReadOnlyOutput ?? noWorkerGitOutput()) };
+    workerResult = { ...resultCore, hash: canonicalHash(resultCore) }; const resultReference = lifecycleRef("worker_result", workerResult.completionId, workerResult); lifecycleContext.facts[workerResult.hash] = workerResult;
+    if (["F2", "F5"].includes(stage)) {
+      const divergentCore = { ...resultCore, ...exactWorkerGitOutput(lifecycleCandidate.git, O("e"), O("f")) }; const divergentResult = { ...divergentCore, hash: canonicalHash(divergentCore) }; lifecycleContext.facts[divergentResult.hash] = divergentResult;
+      const divergentInput = reducerInput(lifecycleState, "record_worker_result", { stageAttemptId: attemptId, result: lifecycleRef("worker_result", `divergent-${stage.toLowerCase()}`, divergentResult) }, { kind: "observation", commandId: `lifecycle-${stage}-divergent-result`, idempotencyKey: `lifecycle-${stage}-divergent-result` });
+      assert.equal(reduceDagRunV1(lifecycleState, divergentInput, lifecycleContext).accepted, false, `${stage} reducer ingest rejects successful read-only output that diverges from the immutable input candidate boundary`);
+      if (stage === "F2") {
+        const failedDivergentCore = { ...divergentCore, completionId: "completion-f2-failed-divergent", terminalStatus: "failed" }; const failedDivergent = { ...failedDivergentCore, hash: canonicalHash(failedDivergentCore) }; lifecycleContext.facts[failedDivergent.hash] = failedDivergent;
+        assert.equal(reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "record_worker_result", { stageAttemptId: attemptId, result: lifecycleRef("worker_result", "failed-divergent-f2", failedDivergent) }, { kind: "observation", commandId: "lifecycle-f2-failed-divergent-result", idempotencyKey: "lifecycle-f2-failed-divergent-result" }), lifecycleContext).accepted, false, "failed F2 output cannot claim a changed authoritative candidate");
+      }
+    }
+    if (stage === "F1") {
+      const wrongResultCore = { ...resultCore, attemptNonce: "wrong-nonce-0123456789" }; const wrongResult = { ...wrongResultCore, hash: canonicalHash(wrongResultCore) }; lifecycleContext.facts[wrongResult.hash] = wrongResult;
+      assert.equal(reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "record_worker_result", { stageAttemptId: attemptId, result: lifecycleRef("worker_result", "wrong-result", wrongResult) }, { kind: "observation", commandId: "lifecycle-wrong-result", idempotencyKey: "lifecycle-wrong-result" }), lifecycleContext).accepted, false, "wrong worker identity/result fails closed");
+      const missingResultRef = { ...resultReference, hash: H("9") }; assert.equal(reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "record_worker_result", { stageAttemptId: attemptId, result: missingResultRef }, { kind: "observation", commandId: "lifecycle-missing-result", idempotencyKey: "lifecycle-missing-result" }), lifecycleContext).accepted, false, "missing immutable result fact fails closed");
+    }
+    lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "record_worker_result", { stageAttemptId: attemptId, result: resultReference }, { kind: "observation", commandId: `lifecycle-${stage}-result`, idempotencyKey: `lifecycle-${stage}-result` }), lifecycleContext); assert.equal(lifecycleTransition.accepted, true, `${stage} records exact terminal worker result`); lifecycleState = lifecycleTransition.state;
+    assert.equal(lifecycleState.workItems["item-api"].stages[stage].state, "active", "generic worker success alone never advances a stage");
+  }
+  if (stage === "F1") {
+    const candidateCore = { kind: "candidate", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, workItemId: "item-api", generation: 1, candidateId: "lifecycle-candidate", base: plan.repositories[0].baseline, git: { repositoryId: "repo-main", commit: O("c"), tree: O("d") }, patchIdentityHash: H("7"), producedByStageAttemptId: attemptId, lineageHash: lifecycleState.workItems["item-api"].implementationLineageHash };
+    const badGenerationCore = { ...candidateCore, generation: 2 }; const badGeneration = { ...badGenerationCore, hash: canonicalHash(badGenerationCore) }; lifecycleContext.facts[badGeneration.hash] = badGeneration;
+    assert.equal(reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "record_candidate", { stageAttemptId: attemptId, candidate: lifecycleRef("candidate", "bad-generation", badGeneration) }, { kind: "observation", commandId: "lifecycle-bad-candidate", idempotencyKey: "lifecycle-bad-candidate" }), lifecycleContext).accepted, false, "wrong candidate generation fails closed");
+    lifecycleCandidate = { ...candidateCore, hash: canonicalHash(candidateCore) }; lifecycleContext.facts[lifecycleCandidate.hash] = lifecycleCandidate;
+  }
+  if (stage === "F3") {
+    const priorCandidate = lifecycleCandidate; const priorF2Evidence = lifecycleState.workItems["item-api"].stages.F2.currentEvidence; const priorF2Fact = lifecycleContext.facts[priorF2Evidence];
+    const candidateCore = { kind: "candidate", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, workItemId: "item-api", generation: 2, candidateId: "lifecycle-candidate-f3", base: priorCandidate.git, git: { repositoryId: "repo-main", commit: O("c"), tree: O("d") }, patchIdentityHash: priorCandidate.patchIdentityHash, producedByStageAttemptId: attemptId, lineageHash: lifecycleState.workItems["item-api"].implementationLineageHash };
+    const nextCandidate = { ...candidateCore, hash: canonicalHash(candidateCore) }; lifecycleContext.facts[nextCandidate.hash] = nextCandidate;
+    const deltaProcedure = Object.values(lifecycleContext.catalog.procedures).find(({ purpose }) => purpose === "evidence_only_delta_attestation");
+    const executionCore = { kind: "procedure_execution", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, authorizationSetHash: lifecycleState.identity.authorizationSet.hash, workItemId: "item-api", stage: "F3", stageAttemptId: attemptId, attemptInputHash: inputFact.hash, fromCandidateGeneration: 1, fromCandidateHash: priorCandidate.hash, toCandidateGeneration: 2, toCandidateHash: nextCandidate.hash, procedureHash: deltaProcedure.hash, environmentProfileHash: deltaProcedure.environmentProfileHash, executableArtifactHash: deltaProcedure.executable.executableArtifactHash, environmentHash: deltaProcedure.executable.environmentHash, executionId: "lifecycle-f3-delta-execution", disposition: "PASS", startedAt: NOW, completedAt: NOW, occurredAt: NOW };
+    const execution = { ...executionCore, hash: canonicalHash(executionCore) }; lifecycleContext.facts[execution.hash] = execution;
+    const adoptionCore = { kind: "adoption", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, workItemId: "item-api", stage: "F2", fromCandidateGeneration: 1, fromCandidateHash: priorCandidate.hash, toCandidateGeneration: 2, toCandidateHash: nextCandidate.hash, f3StageAttemptId: attemptId, evidenceHash: priorF2Evidence, sourceEvidenceProcedureHash: priorF2Fact.procedureHash, deltaAttestationProcedureHash: deltaProcedure.hash, environmentProfileHash: priorF2Fact.environmentProfileHash, deltaAttestationExecutionHash: execution.hash, occurredAt: NOW, evidenceOnlyDelta: true };
+    const adoption = { ...adoptionCore, hash: canonicalHash(adoptionCore) }; lifecycleContext.facts[adoption.hash] = adoption;
+    const candidateReference = lifecycleRef("candidate", nextCandidate.candidateId, nextCandidate); const adoptionReference = lifecycleRef("adoption", "lifecycle-f2-adoption", adoption); const executionReference = lifecycleRef("procedure_execution", execution.executionId, execution);
+    const forgedWithoutExecution = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "record_candidate", { stageAttemptId: attemptId, candidate: candidateReference, f2Transition: adoptionReference }, { kind: "observation", commandId: "lifecycle-f3-forged-adoption", idempotencyKey: "lifecycle-f3-forged-adoption" }), lifecycleContext);
+    assert.equal(forgedWithoutExecution.accepted, false, "F3 adoption cannot use a mapping/self-hash without exact executable delta execution");
+    const futureExecutionCore = { ...executionCore, executionId: "lifecycle-f3-future-execution", startedAt: "2099-01-01T00:00:00.000Z", completedAt: "2099-01-01T00:00:01.000Z", occurredAt: "2099-01-01T00:00:02.000Z" }; const futureExecution = { ...futureExecutionCore, hash: canonicalHash(futureExecutionCore) }; const futureAdoptionCore = { ...adoptionCore, deltaAttestationExecutionHash: futureExecution.hash, occurredAt: futureExecution.occurredAt }; const futureAdoption = { ...futureAdoptionCore, hash: canonicalHash(futureAdoptionCore) }; lifecycleContext.facts[futureExecution.hash] = futureExecution; lifecycleContext.facts[futureAdoption.hash] = futureAdoption;
+    const futureAdoptionResult = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "record_candidate", { stageAttemptId: attemptId, candidate: candidateReference, f2Transition: lifecycleRef("adoption", "lifecycle-f2-future-adoption", futureAdoption), procedureExecution: lifecycleRef("procedure_execution", futureExecution.executionId, futureExecution) }, { kind: "observation", commandId: "lifecycle-f3-future-adoption", idempotencyKey: "lifecycle-f3-future-adoption" }), lifecycleContext);
+    assert.equal(futureAdoptionResult.accepted, false, "future delta observations cannot adopt F2 evidence");
+    lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "record_candidate", { stageAttemptId: attemptId, candidate: candidateReference, f2Transition: adoptionReference, procedureExecution: executionReference }, { kind: "observation", commandId: "lifecycle-f3-candidate", idempotencyKey: "lifecycle-f3-candidate" }), lifecycleContext);
+    assert.equal(lifecycleTransition.accepted, true, `F3 candidate/adoption/executable PASS delta execution ingest atomically: ${JSON.stringify(lifecycleTransition)}`); lifecycleState = lifecycleTransition.state; lifecycleCandidate = nextCandidate;
+  }
+  const procedure = Object.values(lifecycleContext.catalog.procedures).find((entry) => entry.purpose === "lifecycle" && entry.stages.includes(stage)); const assertions = [];
+  const evidenceGeneration = stage === "F0" ? 0 : stage === "F1" ? 1 : lifecycleState.workItems["item-api"].candidateGeneration;
+  let materialization = null; let environmentObservation = null;
+  if (["F2", "F5", "F7"].includes(stage)) {
+    const commonDirIdentityHash = canonicalHash({ lifecycle: "common-dir" }); const worktreeIdentityHash = canonicalHash({ stage, attemptId, worktree: true });
+    const materializationCore = { kind: "workspace_materialization", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, workItemId: "item-api", stageAttemptId: attemptId, repositoryId: "repo-main", candidateGeneration: evidenceGeneration, candidateHash: lifecycleCandidate.hash, candidateTree: lifecycleCandidate.git, commonDirIdentityHash, worktreeIdentityHash, materializedAt: NOW };
+    materialization = { ...materializationCore, hash: canonicalHash(materializationCore) }; lifecycleContext.facts[materialization.hash] = materialization;
+    const observationCore = { kind: "environment_observation", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, workItemId: "item-api", stage, stageAttemptId: attemptId, attemptInputHash: inputFact.hash, repositoryId: "repo-main", candidateGeneration: evidenceGeneration, candidateHash: lifecycleCandidate.hash, candidateTree: lifecycleCandidate.git, environmentProfileHash: procedure.environmentProfileHash, workspaceMaterializationHash: materialization.hash, commonDirIdentityHash, worktreeIdentityHash, cleanliness: "clean", observedAt: NOW };
+    environmentObservation = { ...observationCore, hash: canonicalHash(observationCore) }; lifecycleContext.facts[environmentObservation.hash] = environmentObservation;
+  }
+  if (stage === "F2") { const expected = plan.acceptanceOracles[0].assertions[0]; const oracleCore = { kind: "oracle_assertion", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, workItemId: "item-api", stage: "F2", stageAttemptId: attemptId, attemptInputHash: inputFact.hash, authorizationSetHash: lifecycleState.identity.authorizationSet.hash, oracleId: "oracle-api", assertionId: expected.assertionId, procedureId: expected.procedureId, environmentProfileId: expected.environmentProfileId, observationMethod: expected.observationMethod, requiredEvidenceClass: expected.requiredEvidenceClass, disposition: "PASS", observationHash: workerResult.hash }; const oracle = { ...oracleCore, hash: canonicalHash(oracleCore) }; lifecycleContext.facts[oracle.hash] = oracle; assertions.push({ oracleId: oracle.oracleId, assertionId: oracle.assertionId, evidenceHash: oracle.hash, reference: lifecycleRef("oracle_assertion", oracle.assertionId, oracle) }); }
+  const executions = [];
+  if (stage === "F2") { const executionCore = { kind: "check_execution", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, authorizationSetHash: lifecycleState.identity.authorizationSet.hash, workItemId: "item-api", stage, stageAttemptId: attemptId, attemptInputHash: inputFact.hash, candidateGeneration: evidenceGeneration, candidateHash: lifecycleCandidate.hash, checkId: "check-api", procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, environmentObservationHash: environmentObservation.hash, executionId: `execution-${attemptId}`, disposition: "PASS", startedAt: NOW, completedAt: NOW }; const execution = { ...executionCore, hash: canonicalHash(executionCore) }; lifecycleContext.facts[execution.hash] = execution; executions.push(execution); }
+  const aggregateCore = { kind: "check_aggregate", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, authorizationSetHash: lifecycleState.identity.authorizationSet.hash, workItemId: "item-api", stage, stageAttemptId: attemptId, attemptInputHash: inputFact.hash, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, disposition: "PASS", oracleIds: ["oracle-api"], assertions: assertions.map(({ reference, ...assertion }) => assertion), checks: stage === "F2" ? [{ checkId: "check-api", disposition: "PASS", executionEvidenceHash: executions[0].hash, applicabilityEvidenceHashes: [] }] : [] };
+  const aggregate = { ...aggregateCore, hash: canonicalHash(aggregateCore) }; lifecycleContext.facts[aggregate.hash] = aggregate;
+  const evidenceCore = { kind: "stage_evidence", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, workItemId: "item-api", stage, stageAttemptId: attemptId, attemptInputHash: inputFact.hash, authorizationSetHash: lifecycleState.identity.authorizationSet.hash, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, checkAggregateHash: aggregate.hash, findingHashes: [], effectReconciliationHashes: stageEffectReconciliations.map(({ hash }) => hash), candidateGeneration: evidenceGeneration, candidateHash: stage === "F0" ? null : lifecycleCandidate?.hash ?? null, producerKind, producerResultHash: workerResult?.hash ?? null, disposition: "PASS", environmentObservationHash: environmentObservation?.hash ?? null, producedAt: NOW, readOnly: procedure.readOnly };
+  const evidence = { ...evidenceCore, hash: canonicalHash(evidenceCore) }; lifecycleContext.facts[evidence.hash] = evidence;
+  const sealBase = { stageAttemptId: attemptId, evidence: lifecycleRef("stage_evidence", `evidence-${stage}`, evidence), checkAggregate: lifecycleRef("check_aggregate", `aggregate-${stage}`, aggregate), oracleAssertions: assertions.map(({ reference }) => reference), checkDispositions: [], checkExecutions: executions.map((execution) => lifecycleRef("check_execution", execution.executionId, execution)), checkAuthorities: [], effectReconciliations: stageEffectReconciliations, ...(environmentObservation ? { environmentObservation: lifecycleRef("environment_observation", attemptId, environmentObservation), workspaceMaterialization: lifecycleRef("workspace_materialization", attemptId, materialization) } : {}) };
+  if (stage === "F2") {
+    const futureMaterializationCore = { ...materialization, materializedAt: "2099-01-01T00:00:00.000Z" }; delete futureMaterializationCore.hash; const futureMaterialization = { ...futureMaterializationCore, hash: canonicalHash(futureMaterializationCore) };
+    const futureObservationCore = { ...environmentObservation, workspaceMaterializationHash: futureMaterialization.hash, observedAt: "2099-01-01T00:00:01.000Z" }; delete futureObservationCore.hash; const futureObservation = { ...futureObservationCore, hash: canonicalHash(futureObservationCore) };
+    const futureExecutionCore = { ...executions[0], environmentObservationHash: futureObservation.hash, startedAt: "2099-01-01T00:00:01.000Z", completedAt: "2099-01-01T00:00:02.000Z" }; delete futureExecutionCore.hash; const futureExecution = { ...futureExecutionCore, hash: canonicalHash(futureExecutionCore) };
+    const futureAggregateCore = { ...aggregate, checks: [{ ...aggregate.checks[0], executionEvidenceHash: futureExecution.hash }] }; delete futureAggregateCore.hash; const futureAggregate = { ...futureAggregateCore, hash: canonicalHash(futureAggregateCore) };
+    const futureEvidenceCore = { ...evidence, checkAggregateHash: futureAggregate.hash, environmentObservationHash: futureObservation.hash }; delete futureEvidenceCore.hash; const futureEvidence = { ...futureEvidenceCore, hash: canonicalHash(futureEvidenceCore) }; Object.assign(lifecycleContext.facts, { [futureMaterialization.hash]: futureMaterialization, [futureObservation.hash]: futureObservation, [futureExecution.hash]: futureExecution, [futureAggregate.hash]: futureAggregate, [futureEvidence.hash]: futureEvidence });
+    const futureSeal = { ...sealBase, evidence: lifecycleRef("stage_evidence", "future-evidence-f2", futureEvidence), checkAggregate: lifecycleRef("check_aggregate", "future-aggregate-f2", futureAggregate), checkExecutions: [lifecycleRef("check_execution", futureExecution.executionId, futureExecution)], environmentObservation: lifecycleRef("environment_observation", attemptId, futureObservation), workspaceMaterialization: lifecycleRef("workspace_materialization", attemptId, futureMaterialization) };
+    assert.equal(reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "seal_stage_attempt", futureSeal, { kind: "observation", commandId: "lifecycle-f2-future-observation", idempotencyKey: "lifecycle-f2-future-observation" }), lifecycleContext).accepted, false, "future workspace/environment/check observations cannot become stage evidence");
+    for (const disposition of ["FAIL", "BLOCKED", "BUDGET_EXHAUSTED"]) {
+      const suffix = disposition.toLowerCase().replaceAll("_", "-");
+      const nonPassExecutionCore = { ...executions[0], executionId: `execution-f2-${suffix}`, disposition }; delete nonPassExecutionCore.hash;
+      const nonPassExecution = { ...nonPassExecutionCore, hash: canonicalHash(nonPassExecutionCore) }; lifecycleContext.facts[nonPassExecution.hash] = nonPassExecution;
+      const nonPassAggregateCore = { ...aggregate, disposition, checks: [{ ...aggregate.checks[0], disposition, executionEvidenceHash: nonPassExecution.hash }] }; delete nonPassAggregateCore.hash;
+      const nonPassAggregate = { ...nonPassAggregateCore, hash: canonicalHash(nonPassAggregateCore) }; lifecycleContext.facts[nonPassAggregate.hash] = nonPassAggregate;
+      const nonPassEvidenceCore = { ...evidence, checkAggregateHash: nonPassAggregate.hash, disposition }; delete nonPassEvidenceCore.hash;
+      const nonPassEvidence = { ...nonPassEvidenceCore, hash: canonicalHash(nonPassEvidenceCore) }; lifecycleContext.facts[nonPassEvidence.hash] = nonPassEvidence;
+      const nonPassSeal = { ...sealBase, evidence: lifecycleRef("stage_evidence", `evidence-f2-${suffix}`, nonPassEvidence), checkAggregate: lifecycleRef("check_aggregate", `aggregate-f2-${suffix}`, nonPassAggregate), checkExecutions: [lifecycleRef("check_execution", nonPassExecution.executionId, nonPassExecution)] };
+      const unknownProcedureHash = H("0");
+      const unknownExecutionCore = { ...nonPassExecution, procedureHash: unknownProcedureHash, executionId: `execution-f2-${suffix}-noncatalog` }; delete unknownExecutionCore.hash;
+      const unknownExecution = { ...unknownExecutionCore, hash: canonicalHash(unknownExecutionCore) }; lifecycleContext.facts[unknownExecution.hash] = unknownExecution;
+      const unknownAggregateCore = { ...nonPassAggregate, procedureHash: unknownProcedureHash, checks: [{ ...nonPassAggregate.checks[0], executionEvidenceHash: unknownExecution.hash }] }; delete unknownAggregateCore.hash;
+      const unknownAggregate = { ...unknownAggregateCore, hash: canonicalHash(unknownAggregateCore) }; lifecycleContext.facts[unknownAggregate.hash] = unknownAggregate;
+      const unknownEvidenceCore = { ...nonPassEvidence, procedureHash: unknownProcedureHash, checkAggregateHash: unknownAggregate.hash }; delete unknownEvidenceCore.hash;
+      const unknownEvidence = { ...unknownEvidenceCore, hash: canonicalHash(unknownEvidenceCore) }; lifecycleContext.facts[unknownEvidence.hash] = unknownEvidence;
+      const unknownSeal = { ...nonPassSeal, evidence: lifecycleRef("stage_evidence", `evidence-f2-${suffix}-noncatalog`, unknownEvidence), checkAggregate: lifecycleRef("check_aggregate", `aggregate-f2-${suffix}-noncatalog`, unknownAggregate), checkExecutions: [lifecycleRef("check_execution", unknownExecution.executionId, unknownExecution)] };
+      assert.equal(reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "seal_stage_attempt", unknownSeal, { kind: "observation", commandId: `lifecycle-f2-${suffix}-noncatalog`, idempotencyKey: `lifecycle-f2-${suffix}-noncatalog` }), lifecycleContext).accepted, false, `noncatalog ${disposition} lifecycle procedure rejects at reducer ingestion`);
+      const sealedNonPass = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "seal_stage_attempt", nonPassSeal, { kind: "observation", commandId: `lifecycle-f2-${suffix}-seal`, idempotencyKey: `lifecycle-f2-${suffix}-seal` }), lifecycleContext);
+      assert.equal(sealedNonPass.accepted, true, `reducer seals exact catalog-bound ${disposition} F2 authority: ${JSON.stringify(sealedNonPass)}`);
+      if (sealedNonPass.accepted) {
+        const sealedContext = { ...lifecycleContext, facts: { ...lifecycleContext.facts } };
+        assert.equal(validateDagRunStateV1(sealedNonPass.state, sealedContext).ok, true, `reducer-sealed ${disposition} F2 snapshot validates before forgery`);
+        nonPassFixtures.push({ disposition, state: sealedNonPass.state, context: sealedContext, evidenceHash: nonPassEvidence.hash, aggregateHash: nonPassAggregate.hash, executionHash: nonPassExecution.hash });
+      }
+    }
+  }
+  if (stage === "F5") {
+    const divergentMaterializationCore = { ...materialization, commonDirIdentityHash: H("e"), worktreeIdentityHash: H("f") }; delete divergentMaterializationCore.hash;
+    const divergentMaterialization = { ...divergentMaterializationCore, hash: canonicalHash(divergentMaterializationCore) }; lifecycleContext.facts[divergentMaterialization.hash] = divergentMaterialization;
+    const divergentObservationCore = { ...environmentObservation, workspaceMaterializationHash: divergentMaterialization.hash, commonDirIdentityHash: divergentMaterialization.commonDirIdentityHash, worktreeIdentityHash: divergentMaterialization.worktreeIdentityHash }; delete divergentObservationCore.hash;
+    const divergentObservation = { ...divergentObservationCore, hash: canonicalHash(divergentObservationCore) }; lifecycleContext.facts[divergentObservation.hash] = divergentObservation;
+    const divergentEvidenceCore = { ...evidence, environmentObservationHash: divergentObservation.hash }; delete divergentEvidenceCore.hash;
+    const divergentEvidence = { ...divergentEvidenceCore, hash: canonicalHash(divergentEvidenceCore) }; lifecycleContext.facts[divergentEvidence.hash] = divergentEvidence;
+    const divergentSeal = { ...sealBase, evidence: lifecycleRef("stage_evidence", "evidence-f5-divergent-materialization", divergentEvidence), environmentObservation: lifecycleRef("environment_observation", attemptId, divergentObservation), workspaceMaterialization: lifecycleRef("workspace_materialization", attemptId, divergentMaterialization) };
+    assert.equal(reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "seal_stage_attempt", divergentSeal, { kind: "observation", commandId: "lifecycle-f5-divergent-materialization", idempotencyKey: "lifecycle-f5-divergent-materialization" }), lifecycleContext).accepted, false, "F5 seal ingest rejects worker Git identities that diverge from the exact materialization/environment authority");
+  }
+  if (stage === "F0") { const bogusReadyCore = { kind: "integration_ready", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, workItemId: "item-api", candidateGeneration: 0, candidateHash: H("8"), f8EvidenceHash: evidence.hash, allRequiredChecksPassed: true, effectsReconciled: true, findingsClosed: true }; const bogusReady = { ...bogusReadyCore, hash: canonicalHash(bogusReadyCore) }; lifecycleContext.facts[bogusReady.hash] = bogusReady; const noChainPayload = { ...sealBase, integrationReady: lifecycleRef("integration_ready", "bogus-ready", bogusReady) }; firstF8Payload = noChainPayload; assert.equal(reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "seal_f8_integration_ready", noChainPayload, { kind: "observation", commandId: "lifecycle-f8-no-chain", idempotencyKey: "lifecycle-f8-no-chain" }), lifecycleContext).accepted, false, "F8 readiness cannot bypass the F0-F7 chain/current F8 attempt"); }
+  if (stage === "F1") {
+    assert.equal(reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "seal_stage_attempt", sealBase, { kind: "observation", commandId: "lifecycle-f1-without-candidate", idempotencyKey: "lifecycle-f1-without-candidate" }), lifecycleContext).accepted, false, "F1 cannot pass on generic success without a candidate");
+    const candidateInput = reducerInput(lifecycleState, "record_candidate", { stageAttemptId: attemptId, candidate: lifecycleRef("candidate", lifecycleCandidate.candidateId, lifecycleCandidate) }, { kind: "observation", commandId: "lifecycle-f1-candidate", idempotencyKey: "lifecycle-f1-candidate" });
+    lifecycleTransition = reduceDagRunV1(lifecycleState, candidateInput, lifecycleContext); assert.equal(lifecycleTransition.accepted, true, `F1 candidate records: ${JSON.stringify(lifecycleTransition)}`); lifecycleState = lifecycleTransition.state;
+    assert.equal(reduceDagRunV1(lifecycleState, candidateInput, lifecycleContext).duplicate, true, "candidate exact replay is idempotent before stale CAS");
+    const conflictingCandidate = { ...candidateInput, payloadHash: canonicalHash({ ...candidateInput.payload, candidate: { ...candidateInput.payload.candidate, id: "conflict" } }), payload: { ...candidateInput.payload, candidate: { ...candidateInput.payload.candidate, id: "conflict" } } }; assert.equal(reduceDagRunV1(lifecycleState, conflictingCandidate, lifecycleContext).accepted, false, "candidate natural-slot conflicting replay is rejected");
+  }
+  if (stage === "F8") { const readyCore = { kind: "integration_ready", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, workItemId: "item-api", candidateGeneration: lifecycleState.workItems["item-api"].candidateGeneration, candidateHash: lifecycleCandidate.hash, f8EvidenceHash: evidence.hash, allRequiredChecksPassed: true, effectsReconciled: true, findingsClosed: true }; const ready = { ...readyCore, hash: canonicalHash(readyCore) }; lifecycleContext.facts[ready.hash] = ready; Object.assign(sealBase, { integrationReady: lifecycleRef("integration_ready", "item-api", ready) }); }
+  const sealType = stage === "F8" ? "seal_f8_integration_ready" : "seal_stage_attempt"; const sealInput = reducerInput(lifecycleState, sealType, sealBase, { kind: "observation", commandId: `lifecycle-${stage}-seal`, idempotencyKey: `lifecycle-${stage}-seal` });
+  lifecycleTransition = reduceDagRunV1(lifecycleState, sealInput, lifecycleContext);
+  assert.equal(lifecycleTransition.accepted, true, `${stage} seals only from exact immutable aggregate/evidence: ${JSON.stringify(lifecycleTransition)}`); lifecycleState = lifecycleTransition.state;
+  assert.equal(reduceDagRunV1(lifecycleState, sealInput, lifecycleContext).duplicate, true, `${stage} exact seal replay is a no-op before stale CAS`);
+  if (stage === "F0") {
+    const conflictingSealPayload = { ...sealInput.payload, evidence: { ...sealInput.payload.evidence, id: "conflicting-evidence-ref" } }; const conflictingSeal = { ...sealInput, payload: conflictingSealPayload, payloadHash: canonicalHash(conflictingSealPayload) }; assert.equal(reduceDagRunV1(lifecycleState, conflictingSeal, lifecycleContext).accepted, false, "same stage/evidence natural seal slot rejects conflicting content");
+    sealedF0State = lifecycleState; sealedF0Context = { ...lifecycleContext, facts: { ...lifecycleContext.facts } };
+    assert.deepEqual(sealedF0State.workItems["item-api"].stages.F0.currentEvidence && sealedF0Context.facts[sealedF0State.workItems["item-api"].stages.F0.currentEvidence].effectReconciliationHashes, [sealedF0State.effects[lifecycleStageEffect.effectId].observationHash], "pre-seal effect reconciliation is included exactly in sealed stage evidence");
+    const lateEffect = { ...lifecycleStageEffect, effectId: "lifecycle-f0-post-seal-effect", requestHash: H("0"), state: "intended", dispatchCount: 0, createdRevision: sealedF0State.revision + 1, lastDispatchAt: null, observationHash: null, reconciliation: "not_started" };
+    const lateIntentInput = reducerInput(sealedF0State, "put_effect_intent", { effect: lateEffect }, { commandId: "lifecycle-f0-post-seal-intent", idempotencyKey: "lifecycle-f0-post-seal-intent" });
+    assert.equal(reduceDagRunV1(sealedF0State, lateIntentInput, sealedF0Context).accepted, false, "post-seal exact-attempt effect intent is rejected");
+    assert.equal(reduceDagRunV1(sealedF0State, reducerInput(sealedF0State, "mark_effect_dispatching", { effectId: lifecycleStageEffect.effectId, expectedDispatchCount: 1 }, { commandId: "lifecycle-f0-post-seal-dispatch", idempotencyKey: "lifecycle-f0-post-seal-dispatch" }), sealedF0Context).accepted, false, "post-seal exact-attempt effect cannot acquire new dispatch authority");
+    const forgedLateIntent = clone(sealedF0State); forgedLateIntent.effects[lateEffect.effectId] = lateEffect;
+    const lateSlotId = canonicalHash({ type: "put_effect_intent", naturalIdentity: lateEffect.effectId }); forgedLateIntent.idempotencySlots[lateSlotId] = { slotId: lateSlotId, inputType: "put_effect_intent", commandId: lateIntentInput.commandId, idempotencyKey: lateIntentInput.idempotencyKey, payloadHash: lateIntentInput.payloadHash, inputHash: canonicalHash(lateIntentInput), appliedRevision: lateEffect.createdRevision };
+    forgedLateIntent.previousSnapshotHash = sealedF0State.snapshotHash; forgedLateIntent.revision = lateEffect.createdRevision; forgedLateIntent.current.updatedByCommandId = lateIntentInput.commandId; rehashRun(forgedLateIntent);
+    expectInvalid((value) => validateDagRunStateV1(value, sealedF0Context), forgedLateIntent, "at-rest validation rejects a canonically slotted stage-bound intent first authorized after attempt seal");
+    for (const [forgedStateValue, forgedReconciliation] of [["failed", "applied_exact"], ["failed", "conflict"], ["ambiguous", "unknown"], ["cancelled", "unknown"]]) {
+      const forgedState = clone(sealedF0State); const forgedFacts = { ...sealedF0Context.facts };
+      const forgedEffect = forgedState.effects[lifecycleStageEffect.effectId]; const oldObservation = forgedFacts[forgedEffect.observationHash];
+      const forgedObservation = rehashFact({ ...oldObservation, reconciliation: forgedReconciliation }); forgedFacts[forgedObservation.hash] = forgedObservation;
+      forgedEffect.state = forgedStateValue; forgedEffect.reconciliation = forgedReconciliation; forgedEffect.observationHash = forgedObservation.hash;
+      const projection = forgedState.workItems["item-api"].stages.F0; const attempt = forgedState.stageAttempts[projection.currentAttemptId]; const oldEvidence = forgedFacts[projection.currentEvidence];
+      const forgedEvidence = rehashFact({ ...oldEvidence, effectReconciliationHashes: [forgedObservation.hash] }); forgedFacts[forgedEvidence.hash] = forgedEvidence;
+      attempt.evidence = lifecycleRef("stage_evidence", `forged-${forgedStateValue}-${forgedReconciliation}`, forgedEvidence); projection.currentEvidence = forgedEvidence.hash;
+      forgedState.evidenceIndex.stageEvidence[forgedEvidence.hash] = clone(attempt.evidence); forgedState.evidenceIndex.effectReconciliations[forgedEffect.effectId] = lifecycleRef("effect_reconciliation", forgedEffect.effectId, forgedObservation); rehashRun(forgedState);
+      expectInvalid((value) => validateDagRunStateV1(value, { ...sealedF0Context, facts: forgedFacts }), forgedState, `PASS stage rejects ${forgedStateValue}/${forgedReconciliation} effect closure forgery at rest`);
+    }
+  }
+  const releasedReservation = lifecycleState.scheduler.reservations[reservation.reservationId]; assert.equal(releasedReservation.state, "released", `${stage} releases its reservation exactly`);
+  assert(releasedReservation.leaseIds.every((leaseId) => lifecycleState.leases[leaseId].state === "released"), `${stage} releases every exact reservation lease`);
+  assert.deepEqual(lifecycleState.workItems["item-api"].activeLeaseIds, [], `${stage} removes exactly its released leases from the work item`);
+  for (const capacity of Object.values(lifecycleState.scheduler.operationalCapacities)) { assert.equal(capacity.allocatedUnits, 0, `${stage} release restores exact operational allocation`); assert(!capacity.reservationIds.includes(reservation.reservationId), `${stage} release removes its exact operational reservation identity`); }
+}
+assert.equal(nonPassFixtures.length, 3, "reducer produced FAIL/BLOCKED/BUDGET F2 snapshot fixtures");
+for (const fixture of nonPassFixtures) {
+  const closureForgeryState = clone(fixture.state); const closureForgeryFacts = { ...fixture.context.facts };
+  const closureProjection = closureForgeryState.workItems["item-api"].stages.F2; const closureAttempt = closureForgeryState.stageAttempts[closureProjection.currentAttemptId];
+  const closureEffect = { ...lifecycleStageEffect, effectId: `forged-${fixture.disposition.toLowerCase()}-effect`, boundStageAttemptId: closureAttempt.stageAttemptId, requestHash: canonicalHash({ fixture: fixture.disposition, conflict: true }), state: "failed", dispatchCount: 0, createdRevision: Math.max(1, closureForgeryState.revision - 1), lastDispatchAt: null, reconciliation: "conflict" };
+  const conflictObservationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: closureForgeryState.runId, runNonce: closureForgeryState.runNonce, effectId: closureEffect.effectId, requestHash: closureEffect.requestHash, reconciliation: "conflict", closedAt: NOW };
+  const conflictObservation = { ...conflictObservationCore, hash: canonicalHash(conflictObservationCore) }; closureForgeryFacts[conflictObservation.hash] = conflictObservation;
+  closureEffect.observationHash = conflictObservation.hash; closureForgeryState.effects[closureEffect.effectId] = closureEffect;
+  const conflictEvidence = rehashFact({ ...closureForgeryFacts[closureProjection.currentEvidence], effectReconciliationHashes: [conflictObservation.hash] }); closureForgeryFacts[conflictEvidence.hash] = conflictEvidence;
+  closureAttempt.evidence = lifecycleRef("stage_evidence", `forged-${fixture.disposition.toLowerCase()}-effect-closure`, conflictEvidence); closureProjection.currentEvidence = conflictEvidence.hash;
+  closureForgeryState.evidenceIndex.stageEvidence[conflictEvidence.hash] = clone(closureAttempt.evidence); closureForgeryState.evidenceIndex.effectReconciliations[closureEffect.effectId] = lifecycleRef("effect_reconciliation", closureEffect.effectId, conflictObservation); rehashRun(closureForgeryState);
+  expectInvalid((value) => validateDagRunStateV1(value, { ...fixture.context, facts: closureForgeryFacts }), closureForgeryState, `${fixture.disposition} non-PASS stage rejects failed/conflict effect closure forgery at rest`);
+
+  const forgedState = clone(fixture.state); const forgedFacts = { ...fixture.context.facts }; const unknownProcedureHash = H("0");
+  const priorExecution = forgedFacts[fixture.executionHash]; const forgedExecutionCore = { ...priorExecution, procedureHash: unknownProcedureHash, executionId: `${priorExecution.executionId}-forged-noncatalog` }; delete forgedExecutionCore.hash;
+  const forgedExecution = { ...forgedExecutionCore, hash: canonicalHash(forgedExecutionCore) }; forgedFacts[forgedExecution.hash] = forgedExecution;
+  const priorAggregate = forgedFacts[fixture.aggregateHash]; const forgedAggregateCore = { ...priorAggregate, procedureHash: unknownProcedureHash, checks: [{ ...priorAggregate.checks[0], executionEvidenceHash: forgedExecution.hash }] }; delete forgedAggregateCore.hash;
+  const forgedAggregate = { ...forgedAggregateCore, hash: canonicalHash(forgedAggregateCore) }; forgedFacts[forgedAggregate.hash] = forgedAggregate;
+  const priorEvidence = forgedFacts[fixture.evidenceHash]; const forgedEvidenceCore = { ...priorEvidence, procedureHash: unknownProcedureHash, checkAggregateHash: forgedAggregate.hash }; delete forgedEvidenceCore.hash;
+  const forgedEvidence = { ...forgedEvidenceCore, hash: canonicalHash(forgedEvidenceCore) }; forgedFacts[forgedEvidence.hash] = forgedEvidence;
+  const attempt = forgedState.stageAttempts[forgedEvidence.stageAttemptId]; const stageProjection = forgedState.workItems[forgedEvidence.workItemId].stages[forgedEvidence.stage];
+  attempt.evidence = lifecycleRef("stage_evidence", `forged-${fixture.disposition.toLowerCase()}-evidence`, forgedEvidence); stageProjection.currentEvidence = forgedEvidence.hash;
+  forgedState.evidenceIndex.stageEvidence[forgedEvidence.hash] = clone(attempt.evidence);
+  forgedState.evidenceIndex.checkAggregates[forgedAggregate.hash] = lifecycleRef("check_aggregate", `forged-${fixture.disposition.toLowerCase()}-aggregate`, forgedAggregate);
+  forgedState.evidenceIndex.checkExecutions[forgedExecution.hash] = lifecycleRef("check_execution", forgedExecution.executionId, forgedExecution);
+  rehashRun(forgedState);
+  expectInvalid((value) => validateDagRunStateV1(value, { ...fixture.context, facts: forgedFacts }), forgedState, `forged self-consistent noncatalog ${fixture.disposition} snapshot fails at-rest lifecycle catalog validation`);
+}
+const nonPassEnvironmentFixture = nonPassFixtures.find(({ disposition }) => disposition === "FAIL");
+assert(nonPassEnvironmentFixture, "reducer-produced non-PASS F2 environment fixture exists");
+const forgeNonPassEnvironment = ({ removeEnvironment = false, divergentMaterialization = false, readOnly = null } = {}) => {
+  const state = clone(nonPassEnvironmentFixture.state); const facts = { ...nonPassEnvironmentFixture.context.facts };
+  const priorEvidence = facts[nonPassEnvironmentFixture.evidenceHash]; const priorAggregate = facts[nonPassEnvironmentFixture.aggregateHash]; const priorExecution = facts[nonPassEnvironmentFixture.executionHash];
+  let environmentObservationHash = priorEvidence.environmentObservationHash;
+  if (divergentMaterialization) {
+    const priorObservation = facts[environmentObservationHash]; const priorMaterialization = facts[priorObservation.workspaceMaterializationHash];
+    const materializationCore = { ...priorMaterialization, commonDirIdentityHash: H("8"), worktreeIdentityHash: H("9") }; delete materializationCore.hash;
+    const materialization = { ...materializationCore, hash: canonicalHash(materializationCore) }; facts[materialization.hash] = materialization;
+    const observationCore = { ...priorObservation, workspaceMaterializationHash: materialization.hash, commonDirIdentityHash: materialization.commonDirIdentityHash, worktreeIdentityHash: materialization.worktreeIdentityHash }; delete observationCore.hash;
+    const observation = { ...observationCore, hash: canonicalHash(observationCore) }; facts[observation.hash] = observation; environmentObservationHash = observation.hash;
+    state.evidenceIndex.workspaceMaterializations[materialization.hash] = lifecycleRef("workspace_materialization", materialization.stageAttemptId, materialization);
+    state.evidenceIndex.environmentObservations[observation.hash] = lifecycleRef("environment_observation", observation.stageAttemptId, observation);
+  }
+  if (removeEnvironment) environmentObservationHash = null;
+  const executionCore = { ...priorExecution, executionId: `${priorExecution.executionId}-${removeEnvironment ? "null-environment" : divergentMaterialization ? "divergent-materialization" : "read-only"}`, environmentObservationHash }; delete executionCore.hash;
+  const execution = { ...executionCore, hash: canonicalHash(executionCore) }; facts[execution.hash] = execution;
+  const aggregateCore = { ...priorAggregate, checks: [{ ...priorAggregate.checks[0], executionEvidenceHash: execution.hash }] }; delete aggregateCore.hash;
+  const aggregate = { ...aggregateCore, hash: canonicalHash(aggregateCore) }; facts[aggregate.hash] = aggregate;
+  const evidenceCore = { ...priorEvidence, checkAggregateHash: aggregate.hash, environmentObservationHash, ...(readOnly === null ? {} : { readOnly }) }; delete evidenceCore.hash;
+  const evidence = { ...evidenceCore, hash: canonicalHash(evidenceCore) }; facts[evidence.hash] = evidence;
+  const attempt = state.stageAttempts[evidence.stageAttemptId]; const projection = state.workItems[evidence.workItemId].stages[evidence.stage];
+  attempt.evidence = lifecycleRef("stage_evidence", `forged-nonpass-${execution.executionId}`, evidence); projection.currentEvidence = evidence.hash;
+  state.evidenceIndex.stageEvidence[evidence.hash] = clone(attempt.evidence); state.evidenceIndex.checkAggregates[aggregate.hash] = lifecycleRef("check_aggregate", `forged-${aggregate.hash.slice(7, 19)}`, aggregate); state.evidenceIndex.checkExecutions[execution.hash] = lifecycleRef("check_execution", execution.executionId, execution);
+  rehashRun(state); return { state, context: { ...nonPassEnvironmentFixture.context, facts } };
+};
+const nullNonPassEnvironment = forgeNonPassEnvironment({ removeEnvironment: true });
+expectInvalid((value) => validateDagRunStateV1(value, nullNonPassEnvironment.context), nullNonPassEnvironment.state, "non-PASS F2 cannot null its exact environment/materialization authority at rest");
+const divergentNonPassMaterialization = forgeNonPassEnvironment({ divergentMaterialization: true });
+expectInvalid((value) => validateDagRunStateV1(value, divergentNonPassMaterialization.context), divergentNonPassMaterialization.state, "non-PASS F2 cannot replace exact common-dir/worktree materialization identities at rest");
+const writableNonPassEvidence = forgeNonPassEnvironment({ readOnly: false });
+expectInvalid((value) => validateDagRunStateV1(value, writableNonPassEvidence.context), writableNonPassEvidence.state, "non-PASS F2 cannot bypass read-only procedure/output closure at rest");
+
+const divergentF5State = clone(lifecycleState); const divergentF5Facts = { ...lifecycleContext.facts }; const divergentF5Attempt = divergentF5State.stageAttempts[divergentF5State.workItems["item-api"].stages.F5.currentAttemptId];
+const priorF5Result = divergentF5Facts[divergentF5Attempt.workerResult.hash]; const divergentF5ResultCore = { ...priorF5Result, outputCommonDirIdentityHash: H("f") }; delete divergentF5ResultCore.hash;
+const divergentF5Result = { ...divergentF5ResultCore, hash: canonicalHash(divergentF5ResultCore) }; divergentF5Facts[divergentF5Result.hash] = divergentF5Result;
+divergentF5Attempt.workerResult = lifecycleRef("worker_result", divergentF5Result.completionId, divergentF5Result); divergentF5State.workerBindings[divergentF5Attempt.stageAttemptId].resultHash = divergentF5Result.hash; divergentF5State.evidenceIndex.workerResults[divergentF5Result.hash] = clone(divergentF5Attempt.workerResult);
+const priorF5Evidence = divergentF5Facts[divergentF5Attempt.evidence.hash]; const divergentF5EvidenceCore = { ...priorF5Evidence, producerResultHash: divergentF5Result.hash }; delete divergentF5EvidenceCore.hash;
+const divergentF5Evidence = { ...divergentF5EvidenceCore, hash: canonicalHash(divergentF5EvidenceCore) }; divergentF5Facts[divergentF5Evidence.hash] = divergentF5Evidence;
+divergentF5Attempt.evidence = lifecycleRef("stage_evidence", "forged-f5-divergent-output", divergentF5Evidence); divergentF5State.workItems["item-api"].stages.F5.currentEvidence = divergentF5Evidence.hash; divergentF5State.evidenceIndex.stageEvidence[divergentF5Evidence.hash] = clone(divergentF5Attempt.evidence); rehashRun(divergentF5State);
+expectInvalid((value) => validateDagRunStateV1(value, { ...lifecycleContext, facts: divergentF5Facts }), divergentF5State, "forged canonical F5 result cannot diverge from exact materialization common-dir authority at rest");
+assert.equal(lifecycleState.workItems["item-api"].current, "integration_ready", "reducer-only F0-F8 chain reaches integration readiness");
+assert.deepEqual(lifecycleState.integrationTrains["repo-main"].entryOrder, ["entry-000-item-api"], "F8 creates one pristine plan-ordered train entry atomically");
+assert.equal(lifecycleState.integrationTrains["repo-main"].entries["entry-000-item-api"].state, "eligible", "plan head enqueue is pristine and eligible");
+const reachableIntegration = scheduleDagRunV1(plan, lifecycleState); assert.equal(reachableIntegration.selected[0]?.operationKind, "integration", "F8 atomic enqueue makes scheduler integration reachable");
+assert(firstAttemptState && firstF8Payload, "negative lifecycle fixtures were reducer-produced from genesis");
+const firstF0Attempt = firstAttemptState.stageAttempts["lifecycle-attempt-f0"]; const firstF0Evidence = Object.values(lifecycleContext.facts).find((fact) => fact.kind === "stage_evidence" && fact.stageAttemptId === firstF0Attempt.stageAttemptId);
+const findingCore = { kind: "finding", planHash: plan.planHash, runId: firstAttemptState.runId, runNonce: firstAttemptState.runNonce, authorizationSetHash: firstAttemptState.identity.authorizationSet.hash, findingId: "finding-resolution-probe", workItemId: "item-api", stage: "F0", stageAttemptId: firstF0Attempt.stageAttemptId, attemptInputHash: firstF0Attempt.attemptInput.hash, evidenceHash: firstF0Evidence.hash, findingKind: "product_defect", severity: "advisory", materiality: "local", fingerprint: H("1"), semanticSubjectId: "subject-api", observedAt: NOW }; const findingFact = { ...findingCore, hash: canonicalHash(findingCore) }; const findingContext = { ...lifecycleContext, facts: { ...lifecycleContext.facts, [findingFact.hash]: findingFact } };
+const findingRecorded = reduceDagRunV1(firstAttemptState, reducerInput(firstAttemptState, "record_finding", { finding: lifecycleRef("finding", findingFact.findingId, findingFact) }, { kind: "observation", commandId: "command-finding-probe", idempotencyKey: "finding-probe" }), findingContext); assert.equal(findingRecorded.accepted, true, "finding probe records exact attempt-bound authority");
+if (findingRecorded.accepted) {
+  const crossItemCorrectionCore = { kind: "finding_correction", planHash: plan.planHash, runId: firstAttemptState.runId, runNonce: firstAttemptState.runNonce, authorizationSetHash: firstAttemptState.identity.authorizationSet.hash, findingId: findingFact.findingId, findingHash: findingFact.hash, workItemId: "item-other", stage: "F0", stageAttemptId: firstF0Attempt.stageAttemptId, attemptInputHash: firstF0Attempt.attemptInput.hash, candidateGeneration: 0, candidateHash: null, observedAt: NOW }; const crossItemCorrection = { ...crossItemCorrectionCore, hash: canonicalHash(crossItemCorrectionCore) };
+  const resolutionCore = { kind: "finding_resolution", planHash: plan.planHash, runId: firstAttemptState.runId, runNonce: firstAttemptState.runNonce, authorizationSetHash: firstAttemptState.identity.authorizationSet.hash, findingId: findingFact.findingId, findingHash: findingFact.hash, workItemId: "item-api", stage: "F0", stageAttemptId: firstF0Attempt.stageAttemptId, attemptInputHash: firstF0Attempt.attemptInput.hash, disposition: "corrected", supersedingEvidenceHash: crossItemCorrection.hash, resolvedAt: NOW }; const resolutionFact = { ...resolutionCore, hash: canonicalHash(resolutionCore) }; const resolutionContext = { ...findingContext, facts: { ...findingContext.facts, [crossItemCorrection.hash]: crossItemCorrection, [resolutionFact.hash]: resolutionFact } };
+  const crossItemResolution = reduceDagRunV1(findingRecorded.state, reducerInput(findingRecorded.state, "record_finding_resolution", { resolution: lifecycleRef("finding_resolution", findingFact.findingId, resolutionFact) }, { kind: "observation", commandId: "command-cross-item-resolution", idempotencyKey: "cross-item-resolution" }), resolutionContext);
+  assert.equal(crossItemResolution.accepted, false, "cross-item correction evidence cannot resolve a finding");
+}
+
+const hydrationRoot = await mkdtemp(join(tmpdir(), "pi-dag-lifecycle-hydration-"));
+try {
+  const hydrationStore = new DagRunSnapshotStoreV1(hydrationRoot, lifecycleGenesis.runId); const hydrationContext = { ...runContext, normalizedSchedulerIndexHash: lifecycleSchedulerIndex.indexHash, facts: {} };
+  const hydrationInitializationLock = { lockIdentity: H("3"), ownerTokenHash: H("4"), sessionId: "hydration-init", pid: process.pid, processStartIdentity: PROCESS_START_IDENTITY, acquiredAt: NOW }; await seedBaselineFacts(hydrationStore); await hydrationStore.initialize(lifecycleGenesis, hydrationContext, hydrationInitializationLock); await hydrationStore.putImmutableFact(lifecycleOwnership);
+  const hydrationLock = { ...lifecycleOwner, acquiredAt: NOW };
+  let hydrationResult = await hydrationStore.mutate({ input: reducerInput(lifecycleGenesis, "attach_owner", { ...lifecycleOwner, ownershipReceipt: lifecycleOwnership.hash, priorOwnerDisposition: "absent" }, { kind: "observation", commandId: "hydration-attach", idempotencyKey: "hydration-attach" }), context: hydrationContext, lock: hydrationLock }); assert.equal(hydrationResult.accepted, true);
+  let hydrationState = hydrationResult.state; const hydrationDecision = scheduleDagRunV1(plan, hydrationState); const hydrationReserve = { decisionHash: hydrationDecision.decisionHash, decisionSequence: hydrationDecision.decisionSequence, policyHash: hydrationDecision.policyHash, normalizedIndexHash: hydrationDecision.normalizedIndexHash, inputSnapshotHash: hydrationState.snapshotHash, reservations: hydrationDecision.selected, bypassSlotIds: hydrationDecision.bypassIncrements };
+  hydrationResult = await hydrationStore.mutate({ input: reducerInput(hydrationState, "reserve_scheduler_batch", hydrationReserve, { commandId: "hydration-reserve", idempotencyKey: "hydration-reserve" }), context: hydrationContext, lock: hydrationLock }); hydrationState = hydrationResult.state; const hydrationReservation = hydrationDecision.selected[0];
+  hydrationResult = await hydrationStore.mutate({ input: reducerInput(hydrationState, "mark_scheduler_reservation_dispatch", { reservationId: hydrationReservation.reservationId, normalizedRequestHash: hydrationReservation.normalizedRequestHash }, { commandId: "hydration-dispatch", idempotencyKey: "hydration-dispatch" }), context: hydrationContext, lock: hydrationLock }); hydrationState = hydrationResult.state;
+  hydrationResult = await hydrationStore.mutate({ input: reducerInput(hydrationState, "record_scheduler_reservation_dispatch", { reservationId: hydrationReservation.reservationId, normalizedRequestHash: hydrationReservation.normalizedRequestHash, disposition: "active" }, { kind: "observation", commandId: "hydration-active", idempotencyKey: "hydration-active" }), context: hydrationContext, lock: hydrationLock }); hydrationState = hydrationResult.state;
+  const hydrationInputCore = { kind: "stage_attempt_input", planHash: plan.planHash, runId: hydrationState.runId, runNonce: hydrationState.runNonce, workItemId: "item-api", stage: "F0", stageAttemptId: "hydration-attempt-f0", candidateGeneration: 0, candidateHash: null, authorizationSetHash: hydrationState.identity.authorizationSet.hash, producerKind: "conductor", implementationLineageHash: null }; const hydrationFact = { ...hydrationInputCore, hash: canonicalHash(hydrationInputCore) }; const hydrationReference = lifecycleRef("stage_attempt_input", "hydration-attempt-f0", hydrationFact); const hydrationBeginPayload = { reservationId: hydrationReservation.reservationId, stageAttemptId: "hydration-attempt-f0", attemptInput: hydrationReference, launchIntent: null, launchEffect: null };
+  const missingHydrationPayload = { ...hydrationBeginPayload, attemptInput: { ...hydrationReference, hash: H("9") } }; await assert.rejects(() => hydrationStore.mutate({ input: reducerInput(hydrationState, "begin_stage_attempt", missingHydrationPayload, { commandId: "hydration-missing", idempotencyKey: "hydration-missing" }), context: hydrationContext, lock: hydrationLock }), DagRunStoreCorruptError, "store fails closed when an exact per-input new fact is missing");
+  const storedHydrationFact = await hydrationStore.putImmutableFact(hydrationFact); const hydrationFactText = await readFile(storedHydrationFact.path, "utf8"); await writeFile(storedHydrationFact.path, "{corrupt");
+  await assert.rejects(() => hydrationStore.mutate({ input: reducerInput(hydrationState, "begin_stage_attempt", hydrationBeginPayload, { commandId: "hydration-corrupt", idempotencyKey: "hydration-corrupt" }), context: hydrationContext, lock: hydrationLock }), DagRunStoreCorruptError, "store fails closed when exact per-input fact hydration is corrupt");
+  await writeFile(storedHydrationFact.path, hydrationFactText);
+  hydrationResult = await hydrationStore.mutate({ input: reducerInput(hydrationState, "begin_stage_attempt", hydrationBeginPayload, { commandId: "hydration-valid", idempotencyKey: "hydration-valid" }), context: hydrationContext, lock: hydrationLock });
+  assert.equal(hydrationResult.accepted, true, "store hydrates exactly the input's newly referenced immutable fact without caller context injection");
+} finally { await rm(hydrationRoot, { recursive: true, force: true }); }
+
 const schedulerReplay = scheduleDagRunV1(plan, clone(schedulableRun));
 assert.equal(schedulerReplay.decisionHash, schedulerDecision.decisionHash, "scheduler replay is byte-deterministic for one snapshot");
 const pausedSchedulerRun = clone(schedulableRun); pausedSchedulerRun.desired.run = "paused"; pausedSchedulerRun.current.run = "paused"; rehashRun(pausedSchedulerRun);
@@ -1063,31 +1634,56 @@ function buildIntegrationReadyFixture(fixturePlan, attachedState, baseContext, o
     const inputFact = { ...inputCore, hash: canonicalHash(inputCore) }; facts[inputFact.hash] = inputFact; const inputRef = ref("stage_attempt_input", attemptId, inputFact.hash); state.evidenceIndex.stageAttemptInputs[attemptId] = inputRef;
     let workerResultHash = null; let workerResultRef = null; let launchIntentId = null;
     if (producerKind === "owned_worker") {
-      const workerCore = { kind: "worker_result", workerStorageId: "storage-integration", launchOwnerSessionId: `session-${prefix}-${stage.toLowerCase()}`, workerId: `worker-${prefix}-${stage.toLowerCase()}`, attemptNumber: 1, attemptNonce: `nonce-${stage.toLowerCase()}-0123456789`, configHash: canonicalHash({ stage, config: true }), completionId: `completion-${prefix}-${stage.toLowerCase()}`, terminalStatus: "succeeded", processDisposition: "dead", retrySafe: true };
+      const workerStorageId = `storage-${prefix}`; const workerId = `worker-${prefix}-${stage.toLowerCase()}`; const attemptNonce = `nonce-${stage.toLowerCase()}-0123456789`; const launchKey = `launch-key-${prefix}-${stage.toLowerCase()}`; const configRequestHash = H("5");
+      const config = { storageId: workerStorageId, ownerSessionId: state.owner.sessionId, workerId, attemptNumber: 1, attemptNonce, launchKey, requestHash: configRequestHash, launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity } }; const configHash = canonicalHash(config); const configFactCore = { kind: "worker_config", configHash, config }; const configFact = { ...configFactCore, hash: canonicalHash(configFactCore) }; facts[configFact.hash] = configFact;
+      const workerCore = { kind: "worker_result", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", stage, stageAttemptId: attemptId, launchIntentId: `launch-${prefix}-${stage.toLowerCase()}`, workerStorageId, launchOwnerSessionId: state.owner.sessionId, workerId, attemptNumber: 1, attemptNonce, configHash, completionId: `completion-${prefix}-${stage.toLowerCase()}`, terminalStatus: "succeeded", processDisposition: "dead", retrySafe: true, ...(["F1", "F3"].includes(stage) ? exactWorkerGitOutput(stage === "F1" ? fixturePlan.repositories[0].baseline : candidateFact.git, candidateFact.git.commit, candidateFact.git.tree) : noWorkerGitOutput()) };
       const workerFact = { ...workerCore, hash: canonicalHash(workerCore) }; facts[workerFact.hash] = workerFact; workerResultHash = workerFact.hash; workerResultRef = ref("worker_result", `result-${stage.toLowerCase()}`, workerFact.hash); state.evidenceIndex.workerResults[workerFact.hash] = workerResultRef;
-      const effectId = `effect-launch-${prefix}-${stage.toLowerCase()}`; state.effects[effectId] = { effectId, kind: "launch_worker", subject: { kind: "work_item", id: "item-api" }, effectScopeId: null, effectScopeKind: null, provider: null, procedureClass: "idempotent", requestHash: canonicalHash({ stage, launch: true }), boundOwnerEpoch: 0, boundAuthorizationSetHash: state.identity.authorizationSet.hash, boundFreshnessReceiptHash: state.freshness.receipt.hash, boundCandidateGeneration: inputGeneration, boundGateEpochHash: H("3"), state: "reconciled", dispatchCount: 1, createdRevision: 0, createdAt: NOW, lastDispatchAt: NOW, observationHash: null, reconciliation: "applied_exact", blockerId: null };
-      launchIntentId = `launch-${prefix}-${stage.toLowerCase()}`; state.launchIntents[launchIntentId] = { launchIntentId, effectId, stageAttemptId: attemptId, state: "closed", adapter: "owned-worker-v1", launchKey: `launch-key-${prefix}-${stage.toLowerCase()}`, workerId: workerCore.workerId, expectedAttemptNumber: 1, taskPacketHash: H("4"), cwdRepositoryId: "repo-main", configRequestHash: H("5"), dispatchCount: 1, lastDispatchAt: NOW, boundAt: NOW, ambiguityReason: null };
-      state.workerBindings[attemptId] = { stageAttemptId: attemptId, launchIntentId, workerStorageId: workerCore.workerStorageId, launchOwnerSessionId: workerCore.launchOwnerSessionId, workerId: workerCore.workerId, attemptNumber: 1, attemptNonce: workerCore.attemptNonce, configHash: workerCore.configHash, configRef: ref("verification", `config-${stage.toLowerCase()}`, workerCore.configHash), supervisorPid: 1000 + PLAN_STAGE_IDS.indexOf(stage), supervisorStartIdentity: `proc:${stage}:supervisor`, childPid: 2000 + PLAN_STAGE_IDS.indexOf(stage), childStartIdentity: `proc:${stage}:child`, mailboxHash: H("6"), heartbeatAt: NOW, completionId: workerCore.completionId, resultHash: workerFact.hash, processDisposition: "dead", retrySafe: true };
+      const effectId = `effect-launch-${prefix}-${stage.toLowerCase()}`; const effectRequestHash = canonicalHash({ stage, launch: true }); const supervisorPid = 1000 + PLAN_STAGE_IDS.indexOf(stage); const supervisorStartIdentity = `proc:${stage}:supervisor`;
+      launchIntentId = `launch-${prefix}-${stage.toLowerCase()}`; const launchObservationCore = { kind: "worker_launch_observation", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, authorizationSetHash: state.identity.authorizationSet.hash, ownerEpoch: state.owner.ownerEpoch, effectId, requestHash: effectRequestHash, launchIntentId, launchKey, workerStorageId, launchOwnerSessionId: state.owner.sessionId, workerId, attemptNumber: 1, attemptNonce, configHash, supervisorPid, supervisorStartIdentity, reconciliation: "applied_exact", observedAt: NOW }; const launchObservation = { ...launchObservationCore, hash: canonicalHash(launchObservationCore) }; facts[launchObservation.hash] = launchObservation;
+      state.effects[effectId] = { effectId, kind: "launch_worker", subject: { kind: "work_item", id: "item-api" }, effectScopeId: null, effectScopeKind: null, provider: null, procedureClass: "idempotent", requestHash: effectRequestHash, boundOwnerEpoch: state.owner.ownerEpoch, boundAuthorizationSetHash: state.identity.authorizationSet.hash, boundFreshnessReceiptHash: state.freshness.receipt.hash, boundCandidateGeneration: inputGeneration, boundGateEpochHash: H("3"), state: "reconciled", dispatchCount: 1, createdRevision: 0, createdAt: NOW, lastDispatchAt: NOW, observationHash: launchObservation.hash, reconciliation: "applied_exact", blockerId: null };
+      state.launchIntents[launchIntentId] = { launchIntentId, effectId, stageAttemptId: attemptId, state: "closed", adapter: "owned-worker-v1", launchKey, workerId, expectedAttemptNumber: 1, taskPacketHash: H("4"), cwdRepositoryId: "repo-main", configRequestHash, dispatchCount: 1, lastDispatchAt: NOW, boundAt: NOW, ambiguityReason: null };
+      state.workerBindings[attemptId] = { stageAttemptId: attemptId, launchIntentId, workerStorageId, launchOwnerSessionId: state.owner.sessionId, workerId, attemptNumber: 1, attemptNonce, configHash, configRef: { ...ref("worker_config", `config-${stage.toLowerCase()}`, configFact.hash), bytes: Buffer.byteLength(canonicalStringify(configFact)) }, supervisorPid, supervisorStartIdentity, childPid: 2000 + PLAN_STAGE_IDS.indexOf(stage), childStartIdentity: `proc:${stage}:child`, mailboxHash: H("6"), heartbeatAt: NOW, completionId: workerCore.completionId, resultHash: workerFact.hash, processDisposition: "dead", retrySafe: true };
     }
     const procedure = Object.values(procedures).find((value) => value.stages.includes(stage));
     const assertions = [];
+    let environmentObservation = null;
+    if (["F2", "F5", "F7"].includes(stage)) {
+      const commonDirIdentityHash = canonicalHash({ fixture: prefix, commonDir: true });
+      const worktreeIdentityHash = canonicalHash({ fixture: prefix, stage, attemptId });
+      const materializationCore = { kind: "workspace_materialization", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", stageAttemptId: attemptId, repositoryId: "repo-main", candidateGeneration: generation, candidateHash: candidateFact.hash, candidateTree: candidateFact.git, commonDirIdentityHash, worktreeIdentityHash, materializedAt: NOW };
+      const materialization = { ...materializationCore, hash: canonicalHash(materializationCore) }; facts[materialization.hash] = materialization;
+      state.evidenceIndex.workspaceMaterializations ??= {}; state.evidenceIndex.workspaceMaterializations[materialization.hash] = ref("workspace_materialization", attemptId, materialization.hash);
+      const observationCore = { kind: "environment_observation", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", stage, stageAttemptId: attemptId, attemptInputHash: inputFact.hash, repositoryId: "repo-main", candidateGeneration: generation, candidateHash: candidateFact.hash, candidateTree: candidateFact.git, environmentProfileHash: procedure.environmentProfileHash, workspaceMaterializationHash: materialization.hash, commonDirIdentityHash, worktreeIdentityHash, cleanliness: "clean", observedAt: NOW };
+      environmentObservation = { ...observationCore, hash: canonicalHash(observationCore) }; facts[environmentObservation.hash] = environmentObservation;
+      state.evidenceIndex.environmentObservations ??= {}; state.evidenceIndex.environmentObservations[environmentObservation.hash] = ref("environment_observation", attemptId, environmentObservation.hash);
+    }
     if (stage === "F2") {
-      const assertion = fixturePlan.acceptanceOracles[0].assertions[0]; const oracleCore = { kind: "oracle_assertion", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", stage: "F2", oracleId: fixturePlan.acceptanceOracles[0].oracleId, assertionId: assertion.assertionId, procedureId: assertion.procedureId, environmentProfileId: assertion.environmentProfileId, observationMethod: assertion.observationMethod, requiredEvidenceClass: assertion.requiredEvidenceClass, disposition: "PASS", observationHash: workerResultHash };
+      const assertion = fixturePlan.acceptanceOracles[0].assertions[0]; const oracleCore = { kind: "oracle_assertion", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", stage: "F2", stageAttemptId: attemptId, attemptInputHash: inputFact.hash, authorizationSetHash: state.identity.authorizationSet.hash, oracleId: fixturePlan.acceptanceOracles[0].oracleId, assertionId: assertion.assertionId, procedureId: assertion.procedureId, environmentProfileId: assertion.environmentProfileId, observationMethod: assertion.observationMethod, requiredEvidenceClass: assertion.requiredEvidenceClass, disposition: "PASS", observationHash: workerResultHash };
       const oracleFact = { ...oracleCore, hash: canonicalHash(oracleCore) }; facts[oracleFact.hash] = oracleFact; state.evidenceIndex.oracleAssertions[oracleFact.hash] = ref("oracle_assertion", "oracle-assert-integration", oracleFact.hash); assertions.push({ oracleId: oracleCore.oracleId, assertionId: oracleCore.assertionId, evidenceHash: oracleFact.hash });
     }
-    const aggregateCore = { workItemId: "item-api", stage, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, disposition: "PASS", oracleIds: state.workItems["item-api"].planEntityHash ? fixturePlan.workItems[0].oracleIds : [], assertions, checks: stage === "F2" ? [{ checkId: "check-api", disposition: "PASS", applicabilityEvidenceHashes: [] }] : [] };
-    const aggregate = { ...aggregateCore, hash: canonicalHash(aggregateCore) }; checkAggregates[aggregate.hash] = aggregate;
-    const evidenceCore = { kind: "stage_evidence", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", stage, stageAttemptId: attemptId, attemptInputHash: inputFact.hash, authorizationSetHash: state.identity.authorizationSet.hash, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, checkAggregateHash: aggregate.hash, findingHashes: [], effectReconciliationHashes: [], candidateGeneration: stage === "F0" ? 0 : generation, candidateHash: stage === "F0" ? null : candidateFact.hash, producerKind, producerResultHash: workerResultHash, disposition: "PASS", freshIndependent: ["F2", "F5"].includes(stage), readOnly: procedure.readOnly, cleanEnvironment: stage === "F7" };
+    let checkExecution = null;
+    if (stage === "F2") { const executionCore = { kind: "check_execution", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, authorizationSetHash: state.identity.authorizationSet.hash, workItemId: "item-api", stage, stageAttemptId: attemptId, attemptInputHash: inputFact.hash, candidateGeneration: generation, candidateHash: candidateFact.hash, checkId: "check-api", procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, environmentObservationHash: environmentObservation.hash, executionId: `execution-${attemptId}`, disposition: "PASS", startedAt: NOW, completedAt: NOW }; checkExecution = { ...executionCore, hash: canonicalHash(executionCore) }; facts[checkExecution.hash] = checkExecution; state.evidenceIndex.checkExecutions ??= {}; state.evidenceIndex.checkExecutions[checkExecution.hash] = ref("check_execution", checkExecution.executionId, checkExecution.hash); }
+    const checks = stage === "F2" ? [{ checkId: "check-api", disposition: "PASS", executionEvidenceHash: checkExecution.hash, applicabilityEvidenceHashes: [] }] : [];
+    const aggregateCatalogCore = { workItemId: "item-api", stage, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, disposition: "PASS", oracleIds: state.workItems["item-api"].planEntityHash ? fixturePlan.workItems[0].oracleIds : [], assertions, checks };
+    const aggregateCatalogEntry = { ...aggregateCatalogCore, hash: canonicalHash(aggregateCatalogCore) }; checkAggregates[aggregateCatalogEntry.hash] = aggregateCatalogEntry;
+    const aggregateCore = { kind: "check_aggregate", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, authorizationSetHash: state.identity.authorizationSet.hash, workItemId: "item-api", stage, stageAttemptId: attemptId, attemptInputHash: inputFact.hash, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, disposition: "PASS", oracleIds: aggregateCatalogCore.oracleIds, assertions, checks: aggregateCatalogCore.checks };
+    const aggregate = { ...aggregateCore, hash: canonicalHash(aggregateCore) }; facts[aggregate.hash] = aggregate; state.evidenceIndex.checkAggregates[aggregate.hash] = ref("check_aggregate", `aggregate-${stage.toLowerCase()}`, aggregate.hash);
+    const evidenceCore = { kind: "stage_evidence", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", stage, stageAttemptId: attemptId, attemptInputHash: inputFact.hash, authorizationSetHash: state.identity.authorizationSet.hash, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, checkAggregateHash: aggregate.hash, findingHashes: [], effectReconciliationHashes: [], candidateGeneration: stage === "F0" ? 0 : generation, candidateHash: stage === "F0" ? null : candidateFact.hash, producerKind, producerResultHash: workerResultHash, disposition: "PASS", environmentObservationHash: environmentObservation?.hash ?? null, producedAt: NOW, readOnly: procedure.readOnly };
     const evidenceFact = { ...evidenceCore, hash: canonicalHash(evidenceCore) }; facts[evidenceFact.hash] = evidenceFact; const evidenceRef = ref("stage_evidence", `evidence-${stage.toLowerCase()}`, evidenceFact.hash); state.evidenceIndex.stageEvidence[evidenceFact.hash] = evidenceRef;
     state.stageAttempts[attemptId] = { stageAttemptId: attemptId, workItemId: "item-api", stage, ordinal: 1, producerKind, implementationLineageHash, inputGeneration, reservedOutputGeneration: stage === "F1" ? generation : null, attemptInput: inputRef, authorizationSetHash: state.identity.authorizationSet.hash, state: "sealed", launchIntentId, leaseIds: [], workerResult: workerResultRef, evidence: evidenceRef, failure: null, createdAt: NOW, updatedAt: NOW, terminalAt: NOW };
     state.workItems["item-api"].stages[stage] = { stage, state: "passed", attemptIds: [attemptId], currentAttemptId: attemptId, currentEvidence: evidenceFact.hash, adoptionReceipt: null, invalidationIds: [], lastDisposition: "PASS", blockerIds: [] };
   }
   const f8EvidenceHash = state.workItems["item-api"].stages.F8.currentEvidence; const readyCore = { kind: "integration_ready", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", candidateGeneration: generation, candidateHash: candidateFact.hash, f8EvidenceHash, allRequiredChecksPassed: true, effectsReconciled: true, findingsClosed: true };
   const readyFact = { ...readyCore, hash: canonicalHash(readyCore) }; facts[readyFact.hash] = readyFact; state.evidenceIndex.integrationReady["item-api"] = ref("integration_ready", "item-api", readyFact.hash);
-  const item = state.workItems["item-api"]; item.current = "integration_ready"; item.currentStage = "F8"; item.integrationReadyReceipt = readyFact.hash; item.laneAdmissionSequence = 1; item.admittedAt = NOW;
+  const item = state.workItems["item-api"]; item.current = "integrating"; item.currentStage = "F8"; item.integrationReadyReceipt = readyFact.hash; item.laneAdmissionSequence = 1; item.admittedAt = NOW;
   state.scheduler.activeNodeLanes["item-api"] = { workItemId: "item-api", admissionSequence: 1, admittedAt: NOW, releaseDisposition: null, releasedAt: null }; state.scheduler.nextReservationSequence = 2;
-  state.current.run = "integration"; state.current.activeWorkItemIds = ["item-api"]; state.current.readyWorkItemIds = []; state.current.integrationReadyWorkItemIds = ["item-api"];
-  if (!preserveTrain) { state.integrationTrains["repo-main"].entryOrder = []; state.integrationTrains["repo-main"].entries = {}; state.integrationTrains["repo-main"].acceptedPrefixOrdinal = 0; }
+  state.current.run = "integration"; state.current.activeWorkItemIds = ["item-api"]; state.current.readyWorkItemIds = []; state.current.integrationReadyWorkItemIds = [];
+  if (!preserveTrain) { const entryId = "entry-000-item-api"; state.integrationTrains["repo-main"].entryOrder = [entryId]; state.integrationTrains["repo-main"].entries = { [entryId]: { entryId, workItemId: "item-api", ordinal: 0, state: "eligible", integrationReadyHash: readyFact.hash, sourceCandidate: clone(item.candidate), attemptIds: [], currentAttemptId: null, integrationReceipt: null, blockerIds: [] } }; state.integrationTrains["repo-main"].acceptedPrefixOrdinal = 0; item.integrationEntryId = entryId; }
+  const integrationReservationId = `reservation-${prefix}-integration`; const integrationSequence = state.scheduler.nextReservationSequence;
+  const integrationLeaseId = `lease-${prefix}-integration`;
+  state.leases[integrationLeaseId] = { leaseId: integrationLeaseId, kind: "stage_claim", subject: { kind: "work_item", id: "item-api" }, holderStageAttemptId: null, holderIntegrationAttemptId: null, candidateGeneration: generation, units: 0, ownerEpoch: state.owner.ownerEpoch, state: "active", acquiredAt: NOW, expiresAt: null, releasedAt: null, releaseReason: null };
+  state.workItems["item-api"].activeLeaseIds = [integrationLeaseId];
+  state.scheduler.reservations[integrationReservationId] = { reservationId: integrationReservationId, reservationSequence: integrationSequence, workItemId: "item-api", stage: "F8", attemptOrdinal: 2, operationKind: "integration", state: "active", candidateGeneration: generation, ownerEpoch: state.owner.ownerEpoch, authorizationSetHash: state.identity.authorizationSet.hash, normalizedRequestHash: canonicalHash({ prefix, integration: true }), leaseIds: [integrationLeaseId], mutexGroupIds: [], resourceUnits: {}, operationalUnits: {}, workerRole: "none", repositoryId: "repo-main", createdAt: NOW, releasedAt: null }; state.scheduler.nextReservationSequence += 1;
   rehashRun(state);
   const context = { ...baseContext, catalog: { ...baseContext.catalog, procedures, checkAggregates }, facts };
   return { state, context };
@@ -1102,13 +1698,19 @@ const repositoryBinding = gitFact({ kind: "git_transaction", factType: "reposito
 integrationContext = { ...integrationContext, facts: { ...integrationContext.facts, [repositoryBinding.hash]: repositoryBinding } };
 const compositionEffect = { effectId: "integration-001-compose", kind: "compose_candidate", subject: { kind: "train", id: "train-main" }, effectScopeId: null, effectScopeKind: null, provider: null, procedureClass: "idempotent", requestHash: H("4"), boundOwnerEpoch: integrationState.owner.ownerEpoch, boundAuthorizationSetHash: integrationState.identity.authorizationSet.hash, boundFreshnessReceiptHash: integrationState.freshness.receipt.hash, boundCandidateGeneration: 1, boundGateEpochHash: H("5"), state: "intended", dispatchCount: 0, createdRevision: integrationState.revision + 1, createdAt: NOW, lastDispatchAt: null, observationHash: null, reconciliation: "not_started", blockerId: null };
 const reserveIntegrationPayload = { integrationAttemptId: "integration-001", entryId: "entry-000-item-api", repositoryId: "repo-main", workItemId: "item-api", retryOrdinal: 0, retryAuthorizationKey: null, sourceCandidateHash: integrationState.workItems["item-api"].candidate.candidateHash, sourceBase: integrationState.workItems["item-api"].candidate.base, sourceCandidate: integrationState.workItems["item-api"].candidate.git, expectedPrefix: integrationState.integrationTrains["repo-main"].acceptedPrefix, expectedTarget: integrationState.integrationTrains["repo-main"].expectedTarget, temporaryRef: "refs/pi-dag/v1/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/composed", repositoryBindingFactHash: repositoryBinding.hash, lockLeaseId: "lease-integration-001", compositionEffect };
+for (const [label, observedAt] of [["future", "2099-01-01T00:00:00.000Z"], ["predated", "2020-01-01T00:00:00.000Z"]]) {
+  const forgedBinding = rehashFact({ ...repositoryBinding, observedAt });
+  const forgedPayload = { ...reserveIntegrationPayload, repositoryBindingFactHash: forgedBinding.hash };
+  const forgedContext = { ...integrationContext, facts: { ...integrationContext.facts, [forgedBinding.hash]: forgedBinding } };
+  assert.equal(reduceDagRunV1(integrationState, reducerInput(integrationState, "reserve_integration_attempt", forgedPayload, { commandId: `command-${label}-repository-binding`, idempotencyKey: `${label}-repository-binding` }), forgedContext).accepted, false, `${label} repository binding observation cannot reserve integration authority`);
+}
 let conflictState = integrationState;
 let conflictTransition = reduceDagRunV1(conflictState, reducerInput(conflictState, "reserve_integration_attempt", { ...reserveIntegrationPayload, integrationAttemptId: "integration-conflict", lockLeaseId: "lease-integration-conflict", compositionEffect: { ...compositionEffect, effectId: "integration-conflict-compose" } }, { commandId: "command-conflict-reserve", idempotencyKey: "conflict-reserve" }), integrationContext); assert.equal(conflictTransition.accepted, true); conflictState = conflictTransition.state;
 conflictTransition = reduceDagRunV1(conflictState, reducerInput(conflictState, "mark_effect_dispatching", { effectId: "integration-conflict-compose", expectedDispatchCount: 0 }, { commandId: "command-conflict-dispatch", idempotencyKey: "conflict-dispatch" }), integrationContext); assert.equal(conflictTransition.accepted, true); conflictState = conflictTransition.state;
 const conflictFact = gitFact({ kind: "git_transaction", factType: "composition", planHash: plan.planHash, runId: conflictState.runId, runNonce: conflictState.runNonce, repositoryId: "repo-main", integrationAttemptId: "integration-conflict", effectId: "integration-conflict-compose", requestHash: compositionEffect.requestHash, commonDirIdentityHash: H("2"), targetRef: null, commit: null, tree: null, parentCommit: O("a"), reconciliation: "conflict", detailsHash: H("0"), observedAt: NOW });
 const conflictContext = { ...integrationContext, facts: { ...integrationContext.facts, [conflictFact.hash]: conflictFact } };
 conflictTransition = reduceDagRunV1(conflictState, reducerInput(conflictState, "record_git_composition_conflict", { integrationAttemptId: "integration-conflict", compositionFactHash: conflictFact.hash, conflictClass: "mechanical" }, { kind: "observation", commandId: "command-conflict-observe", idempotencyKey: "conflict-observe" }), conflictContext);
-assert.equal(conflictTransition.accepted, true, "exact composition conflict releases only the integration lock while retaining the sticky lane");
+assert.equal(conflictTransition.accepted, true, `exact composition conflict releases only the integration lock while retaining the sticky lane: ${JSON.stringify(conflictTransition)}`);
 assert.equal(conflictTransition.accepted && conflictTransition.state.repositories["repo-main"].integrationLockLeaseId, null); assert.equal(conflictTransition.accepted && conflictTransition.state.workItems["item-api"].current, "active"); assert.equal(conflictTransition.accepted && conflictTransition.state.workItems["item-api"].currentStage, "F1"); assert.equal(conflictTransition.accepted && conflictTransition.state.workItems["item-api"].candidateGeneration, 2); assert.equal(conflictTransition.accepted && conflictTransition.state.workItems["item-api"].candidate, null); assert.equal(conflictTransition.accepted && conflictTransition.state.scheduler.activeNodeLanes["item-api"].releaseDisposition, null);
 if (conflictTransition.accepted) {
   const unauthorizedEffect = { ...compositionEffect, effectId: "integration-unauthorized-compose", boundCandidateGeneration: 2, createdRevision: conflictTransition.state.revision + 1 }; const unauthorized = reduceDagRunV1(conflictTransition.state, reducerInput(conflictTransition.state, "reserve_integration_attempt", { ...reserveIntegrationPayload, integrationAttemptId: "integration-unauthorized", retryOrdinal: 1, sourceCandidateHash: H("f"), retryAuthorizationKey: null, lockLeaseId: "lease-integration-unauthorized", compositionEffect: unauthorizedEffect }, { commandId: "command-conflict-unauthorized", idempotencyKey: "conflict-unauthorized" }), conflictContext); assert.equal(unauthorized.accepted, false, "a terminal composition conflict cannot bypass fresh-candidate and retry authorization");
@@ -1123,25 +1725,139 @@ let transition = reduceDagRunV1(integrationState, reducerInput(integrationState,
 assert.equal(transition.accepted, true, "integration head reservation atomically binds lock, entry, attempt, and composition intent"); integrationState = transition.state;
 transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "mark_effect_dispatching", { effectId: compositionEffect.effectId, expectedDispatchCount: 0 }, { commandId: "command-compose-dispatch", idempotencyKey: "compose-dispatch" }), integrationContext);
 assert.equal(transition.accepted, true, "composition dispatch requires persisted effect intent"); integrationState = transition.state;
+const integrationSuccessor = { ownerTokenHash: H("1"), sessionId: "session-integration-successor", pid: process.pid, processStartIdentity: PROCESS_START_IDENTITY, lockIdentity: H("0") };
+const integrationOwnership = ownershipFactFor(integrationState, integrationSuccessor, "same_manager");
+const integrationTransferPayload = { ...integrationSuccessor, ownershipReceipt: integrationOwnership.hash, priorOwnerDisposition: "same_manager" };
+integrationContext = { ...integrationContext, facts: { ...integrationContext.facts, [integrationOwnership.hash]: integrationOwnership } };
+transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "transfer_owner", integrationTransferPayload, { commandId: "command-integration-owner-transfer", idempotencyKey: "integration-owner-transfer" }), integrationContext);
+assert.equal(transition.accepted, true, "owner successor safely rebinds an already-dispatching composition operation");
+assert.equal(transition.accepted && transition.state.effects[compositionEffect.effectId].dispatchCount, 1, "composition takeover preserves dispatch count and operation identity");
+assert.equal(transition.accepted && transition.state.effects[compositionEffect.effectId].boundOwnerEpoch, integrationState.owner.ownerEpoch + 1);
+if (transition.accepted) integrationState = transition.state;
 const composed = { repositoryId: "repo-main", commit: O("e"), tree: O("f") };
 const compositionFact = gitFact({ kind: "git_transaction", factType: "composition", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, repositoryId: "repo-main", integrationAttemptId: "integration-001", effectId: compositionEffect.effectId, requestHash: compositionEffect.requestHash, commonDirIdentityHash: H("2"), targetRef: null, commit: composed.commit, tree: composed.tree, parentCommit: O("a"), reconciliation: "applied_exact", detailsHash: H("6"), observedAt: NOW });
 const privateRefs = Object.fromEntries(["baseline", "candidate", "prefix", "composed", "proposal"].map((role) => [role, `refs/pi-dag/v1/transactions/test/${role}`]));
 const privateRefFacts = Object.entries(privateRefs).map(([role, targetRef]) => gitFact({ kind: "git_transaction", factType: "private_ref", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, repositoryId: "repo-main", integrationAttemptId: "integration-001", effectId: compositionEffect.effectId, requestHash: compositionEffect.requestHash, commonDirIdentityHash: H("2"), targetRef, commit: ["baseline", "prefix"].includes(role) ? O("a") : role === "candidate" ? O("c") : composed.commit, tree: ["baseline", "prefix"].includes(role) ? O("b") : role === "candidate" ? O("d") : composed.tree, parentCommit: ["composed", "proposal"].includes(role) ? O("a") : null, reconciliation: "applied_exact", detailsHash: canonicalHash(role), observedAt: NOW }));
 integrationContext = { ...integrationContext, facts: { ...integrationContext.facts, [compositionFact.hash]: compositionFact, ...Object.fromEntries(privateRefFacts.map((fact) => [fact.hash, fact])) } };
+for (const [label, observedAt] of [["future", "2099-01-01T00:00:00.000Z"], ["predated", "2020-01-01T00:00:00.000Z"]]) {
+  const forgedComposition = rehashFact({ ...compositionFact, observedAt }); const forgedRefs = privateRefFacts.map((fact) => rehashFact({ ...fact, observedAt }));
+  const forgedContext = { ...integrationContext, facts: { ...integrationContext.facts, [forgedComposition.hash]: forgedComposition, ...Object.fromEntries(forgedRefs.map((fact) => [fact.hash, fact])) } };
+  const forgedPayload = { integrationAttemptId: "integration-001", compositionFactHash: forgedComposition.hash, composedTree: composed, syntheticParentCommit: O("a"), sourceToIntegratedLineageHash: H("8"), conflictClass: "none", privateRefFactHashes: forgedRefs.map(({ hash }) => hash) };
+  assert.equal(reduceDagRunV1(integrationState, reducerInput(integrationState, "record_git_composition", forgedPayload, { kind: "observation", commandId: `command-compose-${label}`, idempotencyKey: `compose-${label}` }), forgedContext).accepted, false, `${label} composition/private-ref facts cannot advance integration`);
+}
+const orderedComposition = rehashFact({ ...compositionFact, observedAt: "2026-08-04T15:00:00.100Z" }); const latePrivateRefs = privateRefFacts.map((fact, index) => rehashFact({ ...fact, observedAt: index === 0 ? "2026-08-04T15:00:00.200Z" : "2026-08-04T15:00:00.100Z" }));
+const invertedPrivateContext = { ...integrationContext, facts: { ...integrationContext.facts, [orderedComposition.hash]: orderedComposition, ...Object.fromEntries(latePrivateRefs.map((fact) => [fact.hash, fact])) } };
+assert.equal(reduceDagRunV1(integrationState, reducerInput(integrationState, "record_git_composition", { integrationAttemptId: "integration-001", compositionFactHash: orderedComposition.hash, composedTree: composed, syntheticParentCommit: O("a"), sourceToIntegratedLineageHash: H("8"), conflictClass: "none", privateRefFactHashes: latePrivateRefs.map(({ hash }) => hash) }, { kind: "observation", commandId: "command-compose-private-inversion", idempotencyKey: "compose-private-inversion", occurredAt: "2026-08-04T15:00:00.300Z" }), invertedPrivateContext).accepted, false, "private-ref observation later than composition is a rejected temporal inversion even before the accepting input");
 transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "record_git_composition", { integrationAttemptId: "integration-001", compositionFactHash: compositionFact.hash, composedTree: composed, syntheticParentCommit: O("a"), sourceToIntegratedLineageHash: H("8"), conflictClass: "none", privateRefFactHashes: privateRefFacts.map(({ hash }) => hash) }, { kind: "observation", commandId: "command-compose-observe", idempotencyKey: "compose-observe" }), integrationContext);
 assert.equal(transition.accepted, true, "exact composition observation advances only the current integration attempt"); integrationState = transition.state;
-const prefixVerification = gitFact({ kind: "verification", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, repositoryId: "repo-main", trainId: "train-main", integrationAttemptId: "integration-001", phase: "prefix", profileId: "checks-prefix", profileHash: H("e"), tree: composed, disposition: "PASS" });
-const finalVerification = gitFact({ kind: "verification", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, repositoryId: "repo-main", trainId: "train-main", integrationAttemptId: "integration-001", phase: "final", profileId: "checks-final", profileHash: H("f"), tree: composed, disposition: "PASS" });
-const environmentClosureHash = H("6"); const proposalVerificationDetailsHash = canonicalHash({ prefixEvidenceHashes: [prefixVerification.hash], finalEvidenceHashes: [finalVerification.hash], environmentClosureHash });
-const proposalVerification = gitFact({ kind: "git_transaction", factType: "proposal_verification", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, repositoryId: "repo-main", integrationAttemptId: "integration-001", effectId: compositionEffect.effectId, requestHash: compositionEffect.requestHash, commonDirIdentityHash: H("2"), targetRef: "refs/heads/main", commit: composed.commit, tree: composed.tree, parentCommit: O("a"), reconciliation: "applied_exact", detailsHash: proposalVerificationDetailsHash, observedAt: NOW });
-integrationContext = { ...integrationContext, facts: { ...integrationContext.facts, [prefixVerification.hash]: prefixVerification, [finalVerification.hash]: finalVerification, [proposalVerification.hash]: proposalVerification } };
-transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "record_proposal_verification", { integrationAttemptId: "integration-001", proposalVerificationFactHash: proposalVerification.hash, prefixEvidenceHashes: [prefixVerification.hash], finalEvidenceHashes: [finalVerification.hash], environmentClosureHash }, { kind: "observation", commandId: "command-proposal-verify", idempotencyKey: "proposal-verify" }), integrationContext);
-assert.equal(transition.accepted, true, "prefix and final verification bind exact future composed state"); integrationState = transition.state;
-const landingEffect = { ...compositionEffect, effectId: "integration-001-land", kind: "land_target", subject: { kind: "repository", id: "repo-main" }, requestHash: H("a"), createdRevision: integrationState.revision + 1 };
+const verificationFor = (phase, profileHash, profile, effect) => gitFact({ kind: "verification", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, authorizationSetHash: effect.boundAuthorizationSetHash, ownerEpoch: effect.boundOwnerEpoch, freshnessReceiptHash: effect.boundFreshnessReceiptHash, effectId: effect.effectId, requestHash: effect.requestHash, requestIdentityHash: effect.requestHash, repositoryId: "repo-main", trainId: "train-main", integrationAttemptId: "integration-001", phase, profileId: profile.profileId, profileHash, executableArtifactHash: profile.executableArtifactHash, argvHash: canonicalHash(profile.argv), cwdMode: profile.cwdMode, environmentProfileId: profile.environmentProfileId, environmentProfileHash: profile.environmentProfileHash, environmentHash: profile.environmentHash, timeoutMs: profile.timeoutMs, readOnly: true, noEdit: true, tree: composed, commonDirIdentityHash: H("2"), worktreeIdentityHash: H("9"), objectFormat: "sha1", executionId: `verification-${phase}`, exitCode: 0, signal: null, outputHash: H("6"), stdoutHash: H("7"), stderrHash: H("8"), outputBytes: 22, parser: "strict-json-disposition-v1", parserDisposition: "PASS", parsedResultHash: canonicalHash({ disposition: "PASS" }), startedAt: NOW, completedAt: NOW, disposition: "PASS" });
+const validationFacts = {};
+for (const [phase, profileHash, profile] of [["prefix", PREFIX_VALIDATION_PROFILE_HASH, PREFIX_VALIDATION_PROFILE], ["final", FINAL_VALIDATION_PROFILE_HASH, FINAL_VALIDATION_PROFILE]]) {
+  const executionRequest = integrationValidationEffectRequestV1(integrationState, integrationContext, "integration-001", phase);
+  const effectId = `integration-001-verify-${phase}`;
+  const effect = { effectId, kind: "verify_prefix", subject: { kind: "train", id: "train-main" }, boundStageAttemptId: null, boundIntegrationAttemptId: "integration-001", boundWorkerResultHash: null, executionRequest, executionObservationHash: null, effectScopeId: null, effectScopeKind: null, provider: null, procedureClass: "idempotent", requestHash: canonicalHash(executionRequest), boundOwnerEpoch: integrationState.owner.ownerEpoch, boundAuthorizationSetHash: integrationState.identity.authorizationSet.hash, boundFreshnessReceiptHash: integrationState.freshness.receipt.hash, boundCandidateGeneration: 1, boundGateEpochHash: H("5"), state: "intended", dispatchCount: 0, createdRevision: integrationState.revision + 1, createdAt: NOW, lastDispatchAt: null, observationHash: null, reconciliation: "not_started", blockerId: null };
+  transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "put_effect_intent", { effect }, { commandId: `command-${phase}-validation-intent`, idempotencyKey: `${phase}-validation-intent` }), integrationContext); assert.equal(transition.accepted, true); integrationState = transition.state;
+  transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "mark_effect_dispatching", { effectId, expectedDispatchCount: 0 }, { commandId: `command-${phase}-validation-dispatch`, idempotencyKey: `${phase}-validation-dispatch` }), integrationContext); assert.equal(transition.accepted, true); integrationState = transition.state;
+  const verification = verificationFor(phase, profileHash, profile, integrationState.effects[effectId]); integrationContext.facts[verification.hash] = verification;
+  if (phase === "prefix") for (const [label, startedAt, completedAt, occurredAt] of [["predated", "2020-01-01T00:00:00.000Z", "2020-01-01T00:00:01.000Z", NOW], ["future", "2099-01-01T00:00:00.000Z", "2099-01-01T00:00:01.000Z", NOW], ["reversed", "2026-08-04T15:00:00.200Z", "2026-08-04T15:00:00.100Z", "2026-08-04T15:00:00.300Z"]]) {
+    const forgedVerification = rehashFact({ ...verification, executionId: `verification-prefix-${label}`, startedAt, completedAt }); const forgedContext = { ...integrationContext, facts: { ...integrationContext.facts, [forgedVerification.hash]: forgedVerification } };
+    assert.equal(reduceDagRunV1(integrationState, reducerInput(integrationState, "record_effect_execution", { effectId, executionObservationHash: forgedVerification.hash }, { kind: "observation", commandId: `command-prefix-validation-${label}`, idempotencyKey: `prefix-validation-${label}`, occurredAt }), forgedContext).accepted, false, `${label} validation execution timestamps cannot enter effect closure`);
+  }
+  transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "record_effect_execution", { effectId, executionObservationHash: verification.hash }, { kind: "observation", commandId: `command-${phase}-validation-result`, idempotencyKey: `${phase}-validation-result` }), integrationContext); assert.equal(transition.accepted, true); integrationState = transition.state;
+  const reconciliationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, effectId, requestHash: effect.requestHash, reconciliation: "applied_exact", executionObservationHash: verification.hash, resultIdentityHash: verification.hash, closedAt: verification.completedAt };
+  const reconciliation = { ...reconciliationCore, hash: canonicalHash(reconciliationCore) }; integrationContext.facts[reconciliation.hash] = reconciliation;
+  transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "record_effect_observation", { effectId, observationHash: reconciliation.hash, reconciliation: "applied_exact", terminalState: "reconciled" }, { kind: "observation", commandId: `command-${phase}-validation-reconcile`, idempotencyKey: `${phase}-validation-reconcile` }), integrationContext); assert.equal(transition.accepted, true); integrationState = transition.state;
+  validationFacts[phase] = { verification, reconciliation };
+}
+const cancellationAttributionState = clone(integrationState);
+const attributionEffect = cancellationAttributionState.effects["integration-001-verify-prefix"];
+const executionRevision = Object.values(cancellationAttributionState.idempotencySlots).find((slot) => slot.inputType === "record_effect_execution" && slot.appliedRevision < attributionEffect.reconciliationRevision).appliedRevision;
+const originalAttributionEntry = Object.entries(cancellationAttributionState.idempotencySlots).find(([, slot]) => slot.appliedRevision === attributionEffect.reconciliationRevision && slot.inputType === "record_effect_observation");
+assert(originalAttributionEntry, "exact execution fixture retains its accepted reconciliation command record");
+const installClosedCancellationRecord = (state, cancellationId, resultHash, appliedRevision, reconciliationBindings = []) => {
+  state.cancellations[cancellationId] = { cancellationId, scope: "integration_attempt", subjectId: "integration-001", fencedGenerations: {}, state: "closed", reason: `attribution fixture ${cancellationId}`, requestedAt: NOW, effectIds: [], resultHash };
+  const slotId = canonicalHash({ type: "record_cancellation", naturalIdentity: `${cancellationId}/${resultHash}` });
+  state.idempotencySlots[slotId] = { slotId, inputType: "record_cancellation", commandId: `command-${cancellationId}`, idempotencyKey: `key-${cancellationId}`, payloadHash: canonicalHash({ cancellationId, resultHash, reconciliationBindings }), inputHash: canonicalHash({ command: cancellationId, resultHash, reconciliationBindings }), appliedRevision, reconciliationCancellationId: cancellationId, ...(reconciliationBindings.length ? { reconciliationBindings: clone(reconciliationBindings) } : {}) };
+  return slotId;
+};
+const firstHistoricalSlot = Object.entries(cancellationAttributionState.idempotencySlots).find(([, slot]) => slot.appliedRevision === 1); assert(firstHistoricalSlot); delete cancellationAttributionState.idempotencySlots[firstHistoricalSlot[0]];
+installClosedCancellationRecord(cancellationAttributionState, "cancel-attribution-first-unrelated", H("1"), 1);
+const [, originalAttribution] = originalAttributionEntry; delete cancellationAttributionState.idempotencySlots[originalAttributionEntry[0]];
+const secondAttributionSlotId = installClosedCancellationRecord(cancellationAttributionState, "cancel-attribution-second-execution", H("2"), originalAttribution.appliedRevision, originalAttribution.reconciliationBindings);
+rehashRun(cancellationAttributionState);
+const cancellationAttributionValidation = validateDagRunStateV1(cancellationAttributionState, integrationContext);
+assert.equal(cancellationAttributionValidation.ok, true, `two sequential cancellations pass when the second specific transaction closes the execution effect after an unrelated first cancellation: ${JSON.stringify(cancellationAttributionValidation.issues)}`);
+const missingAttributionState = clone(cancellationAttributionState); delete missingAttributionState.idempotencySlots[secondAttributionSlotId].reconciliationBindings; rehashRun(missingAttributionState);
+assert.equal(validateDagRunStateV1(missingAttributionState, integrationContext).ok, false, "missing per-effect cancellation reconciliation attribution fails closed");
+const ambiguousAttributionState = clone(cancellationAttributionState); ambiguousAttributionState.idempotencySlots[secondAttributionSlotId].reconciliationBindings.push(clone(ambiguousAttributionState.idempotencySlots[secondAttributionSlotId].reconciliationBindings[0])); rehashRun(ambiguousAttributionState);
+assert.equal(validateDagRunStateV1(ambiguousAttributionState, integrationContext).ok, false, "ambiguous duplicate cancellation reconciliation attribution fails closed");
+const invertedAttributionState = clone(cancellationAttributionState); invertedAttributionState.effects[attributionEffect.effectId].reconciliationRevision = executionRevision; invertedAttributionState.idempotencySlots[secondAttributionSlotId].appliedRevision = executionRevision; rehashRun(invertedAttributionState);
+assert.equal(validateDagRunStateV1(invertedAttributionState, integrationContext).ok, false, "forged execution-before-reconciliation revision ordering fails closed");
+const prefixVerification = validationFacts.prefix.verification; const finalVerification = validationFacts.final.verification;
+const prefixReconciliation = validationFacts.prefix.reconciliation; const finalReconciliation = validationFacts.final.reconciliation;
+const environmentClosureHash = H("6"); const proposalClosure = { prefixEvidenceHashes: [prefixVerification.hash], finalEvidenceHashes: [finalVerification.hash], prefixEffectReconciliationHashes: [prefixReconciliation.hash], finalEffectReconciliationHashes: [finalReconciliation.hash], environmentClosureHash };
+const proposalVerificationRequestHash = canonicalHash({ kind: "proposal_verification", integrationAttemptId: "integration-001", closure: proposalClosure });
+const proposalVerification = gitFact({ kind: "git_transaction", factType: "proposal_verification", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, repositoryId: "repo-main", integrationAttemptId: "integration-001", effectId: null, requestHash: proposalVerificationRequestHash, commonDirIdentityHash: H("2"), targetRef: "refs/heads/main", commit: composed.commit, tree: composed.tree, parentCommit: O("a"), reconciliation: "applied_exact", detailsHash: canonicalHash(proposalClosure), observedAt: NOW });
+integrationContext = { ...integrationContext, facts: { ...integrationContext.facts, [proposalVerification.hash]: proposalVerification } };
+const verificationInput = reducerInput(integrationState, "record_proposal_verification", { integrationAttemptId: "integration-001", proposalVerificationFactHash: proposalVerification.hash, ...proposalClosure }, { kind: "observation", commandId: "command-proposal-verify", idempotencyKey: "proposal-verify" });
+for (const [label, observedAt] of [["future", "2099-01-01T00:00:00.000Z"], ["predated", "2020-01-01T00:00:00.000Z"]]) {
+  const forgedProposal = rehashFact({ ...proposalVerification, observedAt }); const forgedContext = { ...integrationContext, facts: { ...integrationContext.facts, [forgedProposal.hash]: forgedProposal } };
+  assert.equal(reduceDagRunV1(integrationState, reducerInput(integrationState, "record_proposal_verification", { integrationAttemptId: "integration-001", proposalVerificationFactHash: forgedProposal.hash, ...proposalClosure }, { kind: "observation", commandId: `command-proposal-${label}`, idempotencyKey: `proposal-${label}` }), forgedContext).accepted, false, `${label} proposal verification cannot authorize landing`);
+}
+assert.equal(reduceDagRunV1(integrationState, verificationInput, { ...integrationContext, integrationValidationProfiles: {} }).accepted, false, "production verification fails closed when the exact plan-hashed mapping is absent");
+const forgedExecution = { ...prefixVerification, exitCode: 1 }; forgedExecution.hash = canonicalHash(Object.fromEntries(Object.entries(forgedExecution).filter(([key]) => key !== "hash")));
+const forgedInput = reducerInput(integrationState, "record_proposal_verification", { integrationAttemptId: "integration-001", proposalVerificationFactHash: proposalVerification.hash, ...proposalClosure, prefixEvidenceHashes: [forgedExecution.hash] }, { kind: "observation", commandId: "command-proposal-forged", idempotencyKey: "proposal-forged" });
+assert.equal(reduceDagRunV1(integrationState, forgedInput, { ...integrationContext, facts: { ...integrationContext.facts, [forgedExecution.hash]: forgedExecution } }).accepted, false, "a synthesized PASS with nonzero exact execution cannot authorize landing");
+transition = reduceDagRunV1(integrationState, verificationInput, integrationContext);
+assert.equal(transition.accepted, true, "prefix and final verification bind exact plan-hashed mapping, execution, parser, environment, composed state, and terminal effects"); integrationState = transition.state;
+const landingEffect = { ...compositionEffect, effectId: "integration-001-land", kind: "land_target", subject: { kind: "repository", id: "repo-main" }, requestHash: H("a"), boundOwnerEpoch: integrationState.owner.ownerEpoch, createdRevision: integrationState.revision + 1 };
 transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "prepare_git_landing", { integrationAttemptId: "integration-001", landingEffect, intendedLandedTree: composed }, { commandId: "command-landing-prepare", idempotencyKey: "landing-prepare" }), integrationContext);
 assert.equal(transition.accepted, true, "landing intent is durable only after exact proposal verification"); integrationState = transition.state;
 transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "mark_effect_dispatching", { effectId: landingEffect.effectId, expectedDispatchCount: 0 }, { commandId: "command-landing-dispatch", idempotencyKey: "landing-dispatch" }), integrationContext);
 assert.equal(transition.accepted, true, "landing dispatch is separately guarded after intent"); integrationState = transition.state;
+{
+  let historyState = integrationState; let historyContext = integrationContext;
+  const oldOwnerEpoch = historyState.owner.ownerEpoch;
+  const absentLandingFact = gitFact({ kind: "git_transaction", factType: "landing", planHash: plan.planHash, runId: historyState.runId, runNonce: historyState.runNonce, repositoryId: "repo-main", integrationAttemptId: "integration-001", effectId: landingEffect.effectId, requestHash: landingEffect.requestHash, ownerEpoch: oldOwnerEpoch, commonDirIdentityHash: H("2"), targetRef: "refs/heads/main", commit: O("a"), tree: O("b"), parentCommit: O("a"), reconciliation: "proven_absent", detailsHash: H("5"), observedAt: NOW });
+  historyContext = { ...historyContext, facts: { ...historyContext.facts, [absentLandingFact.hash]: absentLandingFact } };
+  let historyTransition = reduceDagRunV1(historyState, reducerInput(historyState, "record_git_landing_reconciliation", { integrationAttemptId: "integration-001", landingObservationFactHash: absentLandingFact.hash, reconciliation: "proven_absent" }, { kind: "observation", commandId: "command-history-old-absent", idempotencyKey: "history-old-absent" }), historyContext);
+  assert.equal(historyTransition.accepted, true, `old-owner proven-absent landing observation is accepted: ${JSON.stringify(historyTransition)}`); historyState = historyTransition.state;
+  assert.equal(validateDagRunStateV1(historyState, historyContext).ok, true, "committed old-owner landing history validates before transfer");
+  const historySuccessor = { ownerTokenHash: H("6"), sessionId: "session-history-successor", pid: process.pid, processStartIdentity: PROCESS_START_IDENTITY, lockIdentity: H("7") };
+  const historyOwnership = ownershipFactFor(historyState, historySuccessor, "same_manager"); historyContext = { ...historyContext, facts: { ...historyContext.facts, [historyOwnership.hash]: historyOwnership } };
+  historyTransition = reduceDagRunV1(historyState, reducerInput(historyState, "transfer_owner", { ...historySuccessor, ownershipReceipt: historyOwnership.hash, priorOwnerDisposition: "same_manager" }, { commandId: "command-history-transfer", idempotencyKey: "history-transfer" }), historyContext);
+  assert.equal(historyTransition.accepted, true, `exact successor transfer preserves committed old-owner landing history: ${JSON.stringify(historyTransition)}`); historyState = historyTransition.state;
+  assert.equal(historyState.effects[landingEffect.effectId].boundOwnerEpoch, oldOwnerEpoch + 1, "replayable landing effect alone rebinds to successor dispatch authority");
+  assert.equal(historyState.integrationAttempts["integration-001"].landingObservationFactHash, absentLandingFact.hash, "owner transfer never rewrites the historical landing fact");
+  assert.equal(validateDagRunStateV1(historyState, historyContext).ok, true, "at-rest validation resolves the old fact through its accepted command/owner/dispatch rather than current effect authority");
+  historyTransition = reduceDagRunV1(historyState, reducerInput(historyState, "retry_effect_dispatch", { effectId: landingEffect.effectId, expectedDispatchCount: 1, reason: "uncertain_acknowledgement" }, { commandId: "command-history-successor-retry", idempotencyKey: "history-successor-retry" }), historyContext);
+  assert.equal(historyTransition.accepted && historyTransition.effects.length, 1, "successor receives one explicit idempotent landing redispatch"); historyState = historyTransition.state;
+  const successorLandingFact = gitFact({ kind: "git_transaction", factType: "landing", planHash: plan.planHash, runId: historyState.runId, runNonce: historyState.runNonce, repositoryId: "repo-main", integrationAttemptId: "integration-001", effectId: landingEffect.effectId, requestHash: landingEffect.requestHash, ownerEpoch: historyState.owner.ownerEpoch, commonDirIdentityHash: H("2"), targetRef: "refs/heads/main", commit: composed.commit, tree: composed.tree, parentCommit: O("a"), reconciliation: "applied_exact", detailsHash: H("8"), observedAt: NOW });
+  const forgedOwnerLanding = rehashFact({ ...successorLandingFact, ownerEpoch: historyState.owner.ownerEpoch + 1 });
+  assert.equal(reduceDagRunV1(historyState, reducerInput(historyState, "record_git_landing_reconciliation", { integrationAttemptId: "integration-001", landingObservationFactHash: forgedOwnerLanding.hash, reconciliation: "applied_exact" }, { kind: "observation", commandId: "command-history-forged-owner", idempotencyKey: "history-forged-owner" }), { ...historyContext, facts: { ...historyContext.facts, [forgedOwnerLanding.hash]: forgedOwnerLanding } }).accepted, false, "a future/forged owner epoch cannot claim the current redispatch");
+  historyContext = { ...historyContext, facts: { ...historyContext.facts, [successorLandingFact.hash]: successorLandingFact } };
+  historyTransition = reduceDagRunV1(historyState, reducerInput(historyState, "record_git_landing_reconciliation", { integrationAttemptId: "integration-001", landingObservationFactHash: successorLandingFact.hash, reconciliation: "applied_exact" }, { kind: "observation", commandId: "command-history-successor-applied", idempotencyKey: "history-successor-applied" }), historyContext);
+  assert.equal(historyTransition.accepted, true, `successor applied-exact fact closes its own redispatch: ${JSON.stringify(historyTransition)}`); historyState = historyTransition.state;
+  const absentSlotId = canonicalHash({ type: "record_git_landing_reconciliation", naturalIdentity: `integration-001/${absentLandingFact.hash}` });
+  assert.deepEqual({ ownerEpoch: historyState.idempotencySlots[absentSlotId].landingObservationBinding.ownerEpoch, dispatchCount: historyState.idempotencySlots[absentSlotId].landingObservationBinding.dispatchCount }, { ownerEpoch: oldOwnerEpoch, dispatchCount: 1 }, "old observation retains exact accepted owner and first-dispatch attribution after successor closure");
+  assert.equal(validateDagRunStateV1(historyState, historyContext).ok, true, "both immutable landing command histories remain valid after successor reconciliation");
+  const forgedHistory = clone(historyState); forgedHistory.idempotencySlots[absentSlotId].landingObservationBinding.ownerEpoch = historyState.owner.ownerEpoch; rehashRun(forgedHistory);
+  assert.equal(validateDagRunStateV1(forgedHistory, historyContext).ok, false, "forged rebinding of historical landing authority fails closed");
+  const thirdSuccessor = { ownerTokenHash: H("9"), sessionId: "session-history-third", pid: process.pid, processStartIdentity: PROCESS_START_IDENTITY, lockIdentity: H("0") };
+  const thirdOwnership = ownershipFactFor(historyState, thirdSuccessor, "same_manager"); historyContext = { ...historyContext, facts: { ...historyContext.facts, [thirdOwnership.hash]: thirdOwnership } };
+  historyTransition = reduceDagRunV1(historyState, reducerInput(historyState, "transfer_owner", { ...thirdSuccessor, ownershipReceipt: thirdOwnership.hash, priorOwnerDisposition: "same_manager" }, { commandId: "command-history-third-transfer", idempotencyKey: "history-third-transfer" }), historyContext);
+  assert.equal(historyTransition.accepted, true, "an exact third ownership epoch may take over the run without receiving completed landing authority"); historyState = historyTransition.state;
+  assert.equal(historyState.effects[landingEffect.effectId].boundOwnerEpoch, oldOwnerEpoch + 1, "applied landing remains bound to the successor dispatch that completed it");
+  assert.equal(reduceDagRunV1(historyState, reducerInput(historyState, "retry_effect_dispatch", { effectId: landingEffect.effectId, expectedDispatchCount: 2, reason: "uncertain_acknowledgement" }, { commandId: "command-history-third-retry", idempotencyKey: "history-third-retry" }), historyContext).accepted, false, "third epoch cannot mint redispatch authority after applied-exact closure");
+}
+const landingSuccessor = { ownerTokenHash: H("2"), sessionId: "session-landing-successor", pid: process.pid, processStartIdentity: PROCESS_START_IDENTITY, lockIdentity: H("3") };
+const landingOwnership = ownershipFactFor(integrationState, landingSuccessor, "same_manager");
+const landingTransferPayload = { ...landingSuccessor, ownershipReceipt: landingOwnership.hash, priorOwnerDisposition: "same_manager" };
+integrationContext = { ...integrationContext, facts: { ...integrationContext.facts, [landingOwnership.hash]: landingOwnership } };
+transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "transfer_owner", landingTransferPayload, { commandId: "command-landing-owner-transfer", idempotencyKey: "landing-owner-transfer" }), integrationContext);
+assert.equal(transition.accepted, true, "owner successor safely rebinds an already-dispatching landing operation");
+assert.equal(transition.accepted && transition.state.effects[landingEffect.effectId].dispatchCount, 1, "landing takeover preserves dispatch count and operation identity");
+if (transition.accepted) integrationState = transition.state;
 const thirdTargetFact = gitFact({ kind: "git_transaction", factType: "landing", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, repositoryId: "repo-main", integrationAttemptId: "integration-001", effectId: landingEffect.effectId, requestHash: landingEffect.requestHash, commonDirIdentityHash: H("2"), targetRef: "refs/heads/main", commit: O("9"), tree: O("8"), parentCommit: O("a"), reconciliation: "conflict", detailsHash: H("7"), observedAt: NOW });
 const thirdTargetContext = { ...integrationContext, facts: { ...integrationContext.facts, [thirdTargetFact.hash]: thirdTargetFact } };
 const thirdTarget = reduceDagRunV1(integrationState, reducerInput(integrationState, "record_git_landing_reconciliation", { integrationAttemptId: "integration-001", landingObservationFactHash: thirdTargetFact.hash, reconciliation: "conflict" }, { kind: "observation", commandId: "command-landing-third", idempotencyKey: "landing-third" }), thirdTargetContext);
@@ -1149,21 +1865,57 @@ assert.equal(thirdTarget.accepted, true, "exact third-target observation blocks 
 const targetObservationHash = canonicalHash({ targetRef: "refs/heads/main", observed: { commit: composed.commit, tree: composed.tree }, expectedOld: { repositoryId: "repo-main", commit: O("a"), tree: O("b") }, intendedNew: composed });
 const landingFact = gitFact({ kind: "git_transaction", factType: "landing", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, repositoryId: "repo-main", integrationAttemptId: "integration-001", effectId: landingEffect.effectId, requestHash: landingEffect.requestHash, commonDirIdentityHash: H("2"), targetRef: "refs/heads/main", commit: composed.commit, tree: composed.tree, parentCommit: O("a"), reconciliation: "applied_exact", detailsHash: targetObservationHash, observedAt: NOW });
 integrationContext = { ...integrationContext, facts: { ...integrationContext.facts, [landingFact.hash]: landingFact } };
+for (const [label, observedAt] of [["future", "2099-01-01T00:00:00.000Z"], ["predated", "2020-01-01T00:00:00.000Z"]]) {
+  const forgedLanding = rehashFact({ ...landingFact, observedAt }); const forgedContext = { ...integrationContext, facts: { ...integrationContext.facts, [forgedLanding.hash]: forgedLanding } };
+  assert.equal(reduceDagRunV1(integrationState, reducerInput(integrationState, "record_git_landing_reconciliation", { integrationAttemptId: "integration-001", landingObservationFactHash: forgedLanding.hash, reconciliation: "applied_exact" }, { kind: "observation", commandId: `command-landing-${label}`, idempotencyKey: `landing-${label}` }), forgedContext).accepted, false, `${label} landing observation cannot reconcile the target effect`);
+}
 transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "record_git_landing_reconciliation", { integrationAttemptId: "integration-001", landingObservationFactHash: landingFact.hash, reconciliation: "applied_exact" }, { kind: "observation", commandId: "command-landing-observe", idempotencyKey: "landing-observe" }), integrationContext);
 assert.equal(transition.accepted, true, "target new observation reconciles exact landing without claiming completion"); integrationState = transition.state;
-const transactionReceiptCore = { schemaVersion: 1, kind: "IntegrationReceiptV1", transactionId: "integration-001", runId: integrationState.runId, runNonce: integrationState.runNonce, planHash: plan.planHash, authorizationSetHash: integrationState.identity.authorizationSet.hash, ownerEpoch: integrationState.owner.ownerEpoch, repositoryId: "repo-main", commonDirIdentityHash: H("2"), worktreeIdentityHash: H("3"), gitVersion: "git version 2.test", configHash: H("4"), objectFormat: "sha1", targetRef: "refs/heads/main", sourceBase: integrationState.workItems["item-api"].candidate.base, candidate: integrationState.workItems["item-api"].candidate.git, expectedPrefix: { repositoryId: "repo-main", commit: O("a"), tree: O("b") }, composed, workItemId: "item-api", candidateGeneration: 1, compositionProfileHash: H("d"), prefixValidationProfileHash: H("e"), finalValidationProfileHash: H("f"), prefixEvidenceHashes: [prefixVerification.hash], finalEvidenceHashes: [finalVerification.hash], environmentClosureHash, privateRefs, landing: { expectedOldOid: O("a"), newOid: composed.commit, reconciliation: "applied_exact", targetObservationHash }, sealedAt: NOW };
+const transactionReceiptCore = { schemaVersion: 1, kind: "IntegrationReceiptV1", transactionId: "integration-001", runId: integrationState.runId, runNonce: integrationState.runNonce, planHash: plan.planHash, authorizationSetHash: integrationState.identity.authorizationSet.hash, ownerEpoch: integrationState.owner.ownerEpoch, repositoryId: "repo-main", commonDirIdentityHash: H("2"), worktreeIdentityHash: H("3"), gitVersion: "git version 2.test", configHash: H("4"), objectFormat: "sha1", targetRef: "refs/heads/main", sourceBase: integrationState.workItems["item-api"].candidate.base, candidate: integrationState.workItems["item-api"].candidate.git, expectedPrefix: { repositoryId: "repo-main", commit: O("a"), tree: O("b") }, composed, workItemId: "item-api", candidateGeneration: 1, compositionProfileHash: H("d"), prefixValidationProfileHash: PREFIX_VALIDATION_PROFILE_HASH, finalValidationProfileHash: FINAL_VALIDATION_PROFILE_HASH, prefixEvidenceHashes: [prefixVerification.hash], finalEvidenceHashes: [finalVerification.hash], prefixEffectReconciliationHashes: [prefixReconciliation.hash], finalEffectReconciliationHashes: [finalReconciliation.hash], environmentClosureHash, privateRefs, landing: { expectedOldOid: O("a"), newOid: composed.commit, reconciliation: "applied_exact", targetObservationHash }, sealedAt: NOW };
 const transactionReceipt = { ...transactionReceiptCore, receiptHash: canonicalHash(transactionReceiptCore) }; const transactionReceiptHash = transactionReceipt.receiptHash;
 const transactionReceiptFactCore = { kind: "git_integration_receipt", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, authorizationSetHash: integrationState.identity.authorizationSet.hash, repositoryId: "repo-main", integrationAttemptId: "integration-001", transactionReceiptHash, receipt: transactionReceipt }; const transactionReceiptFact = { ...transactionReceiptFactCore, hash: canonicalHash(transactionReceiptFactCore) }; const transactionReceiptFactHash = transactionReceiptFact.hash;
-const integrationReceipt = gitFact({ kind: "integration", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, authorizationSetHash: integrationState.identity.authorizationSet.hash, workItemId: "item-api", repositoryId: "repo-main", integrationAttemptId: "integration-001", candidateHash: integrationState.workItems["item-api"].candidate.candidateHash, strategy: "merge_tree_one_parent", compositionProfileHash: H("d"), expectedPrefix: { repositoryId: "repo-main", commit: O("a"), tree: O("b") }, expectedTarget: { repositoryId: "repo-main", commit: O("a"), tree: O("b") }, prefixEvidenceHashes: [prefixVerification.hash], finalEvidenceHashes: [finalVerification.hash], environmentClosureHash, sourceBase: integrationState.workItems["item-api"].candidate.base, sourceCandidate: integrationState.workItems["item-api"].candidate.git, syntheticParentCommit: O("a"), sourceToIntegratedLineageHash: H("8"), landed: composed, combinedStateVerified: true, reconciled: true, acceptingOwnerEpoch: integrationState.owner.ownerEpoch, commonDirIdentityHash: H("2"), worktreeIdentityHash: H("3"), gitConfigHash: H("4"), gitVersionHash: canonicalHash("git version 2.test"), objectFormat: "sha1", transactionReceiptHash, transactionReceiptFactHash, landingObservationHash: landingFact.hash });
+const integrationReceipt = gitFact({ kind: "integration", planHash: plan.planHash, runId: integrationState.runId, runNonce: integrationState.runNonce, authorizationSetHash: integrationState.identity.authorizationSet.hash, workItemId: "item-api", repositoryId: "repo-main", integrationAttemptId: "integration-001", candidateHash: integrationState.workItems["item-api"].candidate.candidateHash, strategy: "merge_tree_one_parent", compositionProfileHash: H("d"), expectedPrefix: { repositoryId: "repo-main", commit: O("a"), tree: O("b") }, expectedTarget: { repositoryId: "repo-main", commit: O("a"), tree: O("b") }, prefixEvidenceHashes: [prefixVerification.hash], finalEvidenceHashes: [finalVerification.hash], prefixEffectReconciliationHashes: [prefixReconciliation.hash], finalEffectReconciliationHashes: [finalReconciliation.hash], environmentClosureHash, sourceBase: integrationState.workItems["item-api"].candidate.base, sourceCandidate: integrationState.workItems["item-api"].candidate.git, syntheticParentCommit: O("a"), sourceToIntegratedLineageHash: H("8"), landed: composed, combinedStateVerified: true, reconciled: true, acceptingOwnerEpoch: integrationState.owner.ownerEpoch, commonDirIdentityHash: H("2"), worktreeIdentityHash: H("3"), gitConfigHash: H("4"), gitVersionHash: canonicalHash("git version 2.test"), objectFormat: "sha1", transactionReceiptHash, transactionReceiptFactHash, landingObservationHash: landingFact.hash, sealedAt: NOW });
 integrationContext = { ...integrationContext, facts: { ...integrationContext.facts, [transactionReceiptFact.hash]: transactionReceiptFact, [integrationReceipt.hash]: integrationReceipt } };
+const forgedReceiptAuthority = (transactionSealedAt, integrationSealedAt, label) => {
+  const transactionCore = { ...transactionReceipt, sealedAt: transactionSealedAt }; delete transactionCore.receiptHash;
+  const transaction = { ...transactionCore, receiptHash: canonicalHash(transactionCore) };
+  const transactionFactCore = { ...transactionReceiptFact, transactionReceiptHash: transaction.receiptHash, receipt: transaction }; delete transactionFactCore.hash;
+  const transactionFact = { ...transactionFactCore, hash: canonicalHash(transactionFactCore) };
+  const integration = rehashFact({ ...integrationReceipt, transactionReceiptHash: transaction.receiptHash, transactionReceiptFactHash: transactionFact.hash, sealedAt: integrationSealedAt });
+  return { label, transactionFact, integration, context: { ...integrationContext, facts: { ...integrationContext.facts, [transactionFact.hash]: transactionFact, [integration.hash]: integration } } };
+};
+for (const forged of [forgedReceiptAuthority("2099-01-01T00:00:00.000Z", "2099-01-01T00:00:01.000Z", "future"), forgedReceiptAuthority("2020-01-01T00:00:00.000Z", "2020-01-01T00:00:01.000Z", "predated"), forgedReceiptAuthority("2026-08-04T15:00:00.200Z", "2026-08-04T15:00:00.100Z", "inverted"), forgedReceiptAuthority("2026-99-01T00:00:00.000Z", NOW, "invalid")]) {
+  const occurredAt = forged.label === "inverted" ? "2026-08-04T15:00:00.300Z" : NOW;
+  const result = reduceDagRunV1(integrationState, reducerInput(integrationState, "accept_integration_receipt", { integrationAttemptId: "integration-001", integrationReceiptHash: forged.integration.hash, transactionReceiptHash: forged.transactionFact.transactionReceiptHash, transactionReceiptFactHash: forged.transactionFact.hash }, { kind: "observation", commandId: `command-integration-${forged.label}-time`, idempotencyKey: `integration-${forged.label}-time`, occurredAt }), forged.context);
+  assert.equal(result.accepted, false, `${forged.label} transaction/integration receipt sealing cannot complete integration`);
+}
 const inventedReceipt = reduceDagRunV1(integrationState, reducerInput(integrationState, "accept_integration_receipt", { integrationAttemptId: "integration-001", integrationReceiptHash: integrationReceipt.hash, transactionReceiptHash: H("c"), transactionReceiptFactHash: H("d") }, { kind: "observation", commandId: "command-integration-invented", idempotencyKey: "integration-invented" }), integrationContext); assert.equal(inventedReceipt.accepted, false, "an invented transaction receipt hash cannot become canonical integration authority");
 transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "accept_integration_receipt", { integrationAttemptId: "integration-001", integrationReceiptHash: integrationReceipt.hash, transactionReceiptHash, transactionReceiptFactHash }, { kind: "observation", commandId: "command-integration-accept", idempotencyKey: "integration-accept" }), integrationContext);
 assert.equal(transition.accepted, true, "only exact immutable transaction and integration receipts atomically mark completion");
 assert.equal(transition.accepted && transition.state.workItems["item-api"].current, "complete");
 assert.equal(transition.accepted && transition.state.integrationTrains["repo-main"].acceptedPrefix.commit, composed.commit);
 assert.equal(transition.accepted && transition.state.scheduler.activeNodeLanes["item-api"].releaseDisposition, "integrated", "receipt acceptance releases sticky lane only after exact landing");
+if (transition.accepted) {
+  const exactCompleted = transition.state;
+  const prefixEffect = Object.values(exactCompleted.effects).find((effect) => effect.kind === "verify_prefix" && effect.executionRequest?.phase === "prefix");
+  const mismatchedRequest = clone(exactCompleted); mismatchedRequest.effects[prefixEffect.effectId].executionRequest.argvHash = H("0"); rehashRun(mismatchedRequest);
+  expectInvalid((value) => validateDagRunStateV1(value, integrationContext), mismatchedRequest, "at-rest validation rejects a validation effect whose persisted canonical request identity no longer matches its profile/argv/environment/tree authority");
+  const missingValidationEffect = clone(exactCompleted); delete missingValidationEffect.effects[prefixEffect.effectId]; rehashRun(missingValidationEffect);
+  expectInvalid((value) => validateDagRunStateV1(value, integrationContext), missingValidationEffect, "at-rest proposal/receipt validation rejects a missing terminal profile effect even when execution facts remain");
+  const missingExecutionObservation = { ...integrationContext, facts: { ...integrationContext.facts } }; delete missingExecutionObservation.facts[prefixEffect.executionObservationHash];
+  expectInvalid((value) => validateDagRunStateV1(value, missingExecutionObservation), exactCompleted, "at-rest validation rejects a missing immutable profile execution observation");
+  const compositionAuthorityMisuse = clone(exactCompleted); const proposal = { ...integrationContext.facts[compositionAuthorityMisuse.integrationAttempts["integration-001"].proposalVerificationFactHash], effectId: compositionEffect.effectId }; proposal.hash = canonicalHash(Object.fromEntries(Object.entries(proposal).filter(([key]) => key !== "hash"))); compositionAuthorityMisuse.integrationAttempts["integration-001"].proposalVerificationFactHash = proposal.hash; rehashRun(compositionAuthorityMisuse);
+  expectInvalid((value) => validateDagRunStateV1(value, { ...integrationContext, facts: { ...integrationContext.facts, [proposal.hash]: proposal } }), compositionAuthorityMisuse, "proposal verification cannot borrow composition-effect authority");
+  const futureCompositionState = clone(exactCompleted); const futureCompositionFacts = { ...integrationContext.facts }; const exactAttempt = futureCompositionState.integrationAttempts["integration-001"];
+  const futureComposition = rehashFact({ ...futureCompositionFacts[exactAttempt.compositionFactHash], observedAt: "2099-01-01T00:00:00.000Z" }); futureCompositionFacts[futureComposition.hash] = futureComposition; exactAttempt.compositionFactHash = futureComposition.hash; rehashRun(futureCompositionState);
+  expectInvalid((value) => validateDagRunStateV1(value, { ...integrationContext, facts: futureCompositionFacts }), futureCompositionState, "at-rest integration rejects a future composition fact even when every identity/hash reference is self-consistent");
+  const predatedReceiptAuthority = forgedReceiptAuthority("2020-01-01T00:00:00.000Z", "2020-01-01T00:00:01.000Z", "at-rest-predated"); const predatedReceiptState = clone(exactCompleted); const predatedAttempt = predatedReceiptState.integrationAttempts["integration-001"]; const predatedEntry = predatedReceiptState.integrationTrains["repo-main"].entries[predatedAttempt.entryId];
+  predatedAttempt.integrationReceipt = predatedReceiptAuthority.integration.hash; predatedEntry.integrationReceipt = predatedReceiptAuthority.integration.hash; predatedReceiptState.workItems["item-api"].integrationReceipt = predatedReceiptAuthority.integration.hash; predatedReceiptState.integrationTrains["repo-main"].acceptedPrefixReceipt = predatedReceiptAuthority.integration.hash; predatedReceiptState.evidenceIndex.integrationReceipts["integration-001"].hash = predatedReceiptAuthority.integration.hash; rehashRun(predatedReceiptState);
+  expectInvalid((value) => validateDagRunStateV1(value, predatedReceiptAuthority.context), predatedReceiptState, "at-rest integration rejects self-consistent receipts sealed before landing");
+}
 
 const conductorRoot = await mkdtemp(join(tmpdir(), "pi-dag-conductor-v1-"));
+let conductorOwnershipChild = null;
 try {
   await execFileAsync("git", ["init", "-b", "main"], { cwd: conductorRoot });
   const artifactsDir = join(conductorRoot, ".ai", "start-artifacts"); await mkdir(artifactsDir, { recursive: true });
@@ -1176,21 +1928,315 @@ try {
   await writeFile(join(artifactsDir, "plan.json"), canonicalStringify(plan));
   await writeFile(join(artifactsDir, "genesis.json"), canonicalStringify(conductorGenesis));
   await writeFile(join(artifactsDir, "context.json"), canonicalStringify(conductorContext));
-  let exactDispatches = 0; const conductor = new DagConductorServiceV1({ async dispatchEffect(request, state) { requireSchedulerDispatchIntentV1(state, request); exactDispatches += 1; } });
+  let launches = 0; let integrationDelegations = 0;
+  const conductor = new DagConductorServiceV1({ lifecycle: {
+    worker: {
+      async launchExact(request, state) {
+        launches += 1;
+        const attemptNonce = `nonce-${request.workerId}-0123456789`; const config = { storageId: "deterministic-manager-storage", ownerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, launchKey: request.launchKey, requestHash: request.configRequestHash, launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity } };
+        const configHash = canonicalHash(config); const configFactCore = { kind: "worker_config", configHash, config };
+        return { workerStorageId: config.storageId, launchOwnerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, configHash, configFact: { ...configFactCore, hash: canonicalHash(configFactCore) }, supervisorPid: process.pid, supervisorStartIdentity: PROCESS_START_IDENTITY, childPid: null, childStartIdentity: null, mailboxHash: null, heartbeatAt: NOW };
+      },
+      async readTerminalExact(binding, state) { const attempt = state.stageAttempts[binding.stageAttemptId]; const item = state.workItems[attempt.workItemId]; const sourceBase = attempt.stage === "F1" ? state.repositories[item.writeRepositoryId].baseline : item.candidate?.git ?? state.repositories[item.writeRepositoryId].baseline; return { completionId: `completion-${binding.workerId}`, terminalStatus: "succeeded", processDisposition: "dead", retrySafe: true, workerOutput: ["F1", "F3"].includes(attempt.stage) ? exactWorkerGitOutput(sourceBase, O("c"), O("d")) : noWorkerGitOutput() }; },
+    },
+    candidate: {
+      async inspectAndSealCandidate({ plan: exactPlan, state, attempt, repositoryId }) {
+        const item = state.workItems[attempt.workItemId]; const base = attempt.stage === "F1" ? exactPlan.repositories.find((repository) => repository.repositoryId === repositoryId).baseline : item.candidate.git; const git = { repositoryId, commit: O("c"), tree: O("d") };
+        const core = { kind: "candidate", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: item.workItemId, generation: item.candidateGeneration + 1, candidateId: `candidate-${attempt.stageAttemptId}`, base, git, patchIdentityHash: canonicalHash({ base, git }), producedByStageAttemptId: attempt.stageAttemptId, lineageHash: item.implementationLineageHash };
+        return { candidate: { ...core, hash: canonicalHash(core) }, workerOutput: exactWorkerGitOutput(base, git.commit, git.tree) };
+      },
+    },
+    procedure: {
+      adapterKind: "immutable-catalog-command-v1",
+      allowlistedProcedureHashes: Object.keys(conductorContext.catalog.procedures).sort(),
+      allowlistHash: canonicalHash(Object.keys(conductorContext.catalog.procedures).sort()),
+      async executeExact({ plan: exactPlan, state, attempt, procedure }) {
+        const item = state.workItems[attempt.workItemId]; const candidateGeneration = attempt.reservedOutputGeneration ?? attempt.inputGeneration;
+        let workspaceMaterialization; let environmentObservation;
+        if (["F2", "F5", "F7"].includes(attempt.stage)) {
+          const commonDirIdentityHash = canonicalHash({ conductor: "common-dir" }); const worktreeIdentityHash = canonicalHash({ conductor: attempt.stageAttemptId });
+          const materializationCore = { kind: "workspace_materialization", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stageAttemptId: attempt.stageAttemptId, repositoryId: item.writeRepositoryId, candidateGeneration, candidateHash: item.candidate.candidateHash, candidateTree: item.candidate.git, commonDirIdentityHash, worktreeIdentityHash, materializedAt: NOW };
+          workspaceMaterialization = { ...materializationCore, hash: canonicalHash(materializationCore) };
+          const observationCore = { kind: "environment_observation", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, repositoryId: item.writeRepositoryId, candidateGeneration, candidateHash: item.candidate.candidateHash, candidateTree: item.candidate.git, environmentProfileHash: procedure.environmentProfileHash, workspaceMaterializationHash: workspaceMaterialization.hash, commonDirIdentityHash, worktreeIdentityHash, cleanliness: "clean", observedAt: NOW };
+          environmentObservation = { ...observationCore, hash: canonicalHash(observationCore) };
+        }
+        const oracleAssertions = [];
+        if (attempt.stage === "F2") { const expected = exactPlan.acceptanceOracles[0].assertions[0]; const core = { kind: "oracle_assertion", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stage: "F2", stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, authorizationSetHash: state.identity.authorizationSet.hash, oracleId: exactPlan.acceptanceOracles[0].oracleId, assertionId: expected.assertionId, procedureId: expected.procedureId, environmentProfileId: expected.environmentProfileId, observationMethod: expected.observationMethod, requiredEvidenceClass: expected.requiredEvidenceClass, disposition: "PASS", observationHash: attempt.workerResult.hash }; oracleAssertions.push({ ...core, hash: canonicalHash(core) }); }
+        const checkExecutions = [];
+        if (attempt.stage === "F2") { const core = { kind: "check_execution", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, authorizationSetHash: state.identity.authorizationSet.hash, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, candidateGeneration, candidateHash: item.candidate.candidateHash, checkId: "check-api", procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, environmentObservationHash: environmentObservation.hash, executionId: `execution-${attempt.stageAttemptId}`, disposition: "PASS", startedAt: NOW, completedAt: NOW }; checkExecutions.push({ ...core, hash: canonicalHash(core) }); }
+        const aggregateCore = { kind: "check_aggregate", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, authorizationSetHash: state.identity.authorizationSet.hash, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, disposition: "PASS", oracleIds: ["oracle-api"], assertions: oracleAssertions.map((fact) => ({ oracleId: fact.oracleId, assertionId: fact.assertionId, evidenceHash: fact.hash })), checks: attempt.stage === "F2" ? [{ checkId: "check-api", disposition: "PASS", executionEvidenceHash: checkExecutions[0].hash, applicabilityEvidenceHashes: [] }] : [] };
+        const checkAggregate = { ...aggregateCore, hash: canonicalHash(aggregateCore) };
+        const evidenceCore = { kind: "stage_evidence", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, authorizationSetHash: state.identity.authorizationSet.hash, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, checkAggregateHash: checkAggregate.hash, findingHashes: [], effectReconciliationHashes: [], candidateGeneration, candidateHash: attempt.stage === "F0" ? null : item.candidate.candidateHash, producerKind: attempt.producerKind, producerResultHash: attempt.workerResult?.hash ?? null, disposition: "PASS", environmentObservationHash: environmentObservation?.hash ?? null, producedAt: NOW, readOnly: procedure.readOnly };
+        const evidence = { ...evidenceCore, hash: canonicalHash(evidenceCore) }; const output = { checkAggregate, evidence, oracleAssertions, checkDispositions: [], checkExecutions, checkAuthorities: [], ...(workspaceMaterialization ? { workspaceMaterialization, environmentObservation } : {}) };
+        if (attempt.stage === "F8") { const readyCore = { kind: "integration_ready", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, candidateGeneration: item.candidateGeneration, candidateHash: item.candidate.candidateHash, f8EvidenceHash: evidence.hash, allRequiredChecksPassed: true, effectsReconciled: true, findingsClosed: true }; output.integrationReady = { ...readyCore, hash: canonicalHash(readyCore) }; }
+        return output;
+      },
+    },
+    integration: { async reconcileExact({ reservation }) { assert.equal(reservation.operationKind, "integration"); integrationDelegations += 1; } },
+  } });
   const conductorCtx = { cwd: conductorRoot, sessionManager: { getSessionId: () => "session-conductor", getSessionFile: () => null, getHeader: () => ({ type: "session", id: "session-conductor", cwd: conductorRoot }) } };
-  const started = await conductor.start(conductorCtx, { runId: conductorGenesis.runId, runNonce: conductorGenesis.runNonce, planHash: plan.planHash, planPath: ".ai/start-artifacts/plan.json", genesisPath: ".ai/start-artifacts/genesis.json", contextPath: ".ai/start-artifacts/context.json", maxActiveNodes: 1, occurredAt: NOW });
-  assert.equal(started.state.owner.sessionId, "session-conductor", "dag_run_start attaches one exact current session owner"); assert.equal(Object.values(started.state.scheduler.reservations)[0]?.state, "active", "dag_run_start durably reserves, dispatches, and observes the first deterministic scheduler operation"); assert.equal(exactDispatches, 1, "the production scheduler adapter accepts exactly the committed dispatch_intent identity before active observation");
-  assert.equal((await conductor.binding(conductorCtx)).runId, conductorGenesis.runId, "session binding names one exact run instead of inferring latest");
-  const conductorStatus = await conductor.status(conductorCtx, conductorGenesis.runId);
-  assert.equal(conductorStatus.projection.runSnapshotHash, conductorStatus.state.snapshotHash, "conductor status uses a stable exact projection join"); assert.equal(conductorStatus.projection.nodes[0].glyph, "*", "an exact active scheduler reservation renders as genuinely in-flight");
-  const pauseGuard = { runId: conductorStatus.state.runId, runNonce: conductorStatus.state.runNonce, expectedRevision: conductorStatus.state.revision, expectedSnapshotHash: conductorStatus.state.snapshotHash, ownerEpoch: conductorStatus.state.owner.ownerEpoch, commandId: "command-conductor-pause", idempotencyKey: "conductor-pause", occurredAt: NOW };
-  const conductorPaused = await conductor.control(conductorCtx, pauseGuard, "pause", "test pause");
-  assert.equal(conductorPaused.current.run, "paused", "conductor control compiles pause through guarded reducer CAS");
-  const resumeGuard = { ...pauseGuard, expectedRevision: conductorPaused.revision, expectedSnapshotHash: conductorPaused.snapshotHash, ownerEpoch: conductorPaused.owner.ownerEpoch, commandId: "command-conductor-resume", idempotencyKey: "conductor-resume" };
-  const conductorResumed = await conductor.control(conductorCtx, resumeGuard, "resume", "test resume");
-  assert.equal(conductorResumed.current.run, "active", "conductor control resumes only the exact paused revision");
-  await assert.rejects(() => conductor.control(conductorCtx, pauseGuard, "pause", "stale pause"), /guard is stale/, "stale conductor mutation guards fail closed");
-} finally { await rm(conductorRoot, { recursive: true, force: true }); }
+
+  const exerciseCrossProcessAdapterWindow = async (adapterKind) => {
+    const root = await mkdtemp(join(tmpdir(), `pi-dag-owner-${adapterKind}-`)); let identityChild = null;
+    try {
+      await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+      const artifacts = join(root, ".ai", "start-artifacts"); await mkdir(artifacts, { recursive: true });
+      await writeFile(join(artifacts, "plan.json"), canonicalStringify(plan)); await writeFile(join(artifacts, "genesis.json"), canonicalStringify(conductorGenesis)); await writeFile(join(artifacts, "context.json"), canonicalStringify(conductorContext));
+      const sessionId = `session-owner-${adapterKind}`; const ctx = { cwd: root, sessionManager: { getSessionId: () => sessionId, getSessionFile: () => null, getHeader: () => ({ type: "session", id: sessionId, cwd: root }) } };
+      const baseLifecycle = conductor.lifecycle; let initialCalls = 0; let successorCalls = 0;
+      const initialLifecycle = adapterKind === "procedure"
+        ? { ...baseLifecycle, procedure: { ...baseLifecycle.procedure, async executeExact() { initialCalls += 1; throw new Error("task113 procedure window"); } } }
+        : { ...baseLifecycle, worker: { ...baseLifecycle.worker, async launchExact() { initialCalls += 1; throw new Error("task113 worker window"); } } };
+      const starter = new DagConductorServiceV1({ lifecycle: initialLifecycle });
+      await assert.rejects(() => starter.start(ctx, { runId: conductorGenesis.runId, runNonce: conductorGenesis.runNonce, planHash: plan.planHash, planPath: ".ai/start-artifacts/plan.json", genesisPath: ".ai/start-artifacts/genesis.json", contextPath: ".ai/start-artifacts/context.json", maxActiveNodes: 1, occurredAt: NOW }), new RegExp(`task113 ${adapterKind} window`), `${adapterKind} fixture stops after durable dispatch and before external acknowledgement`);
+      assert.equal(initialCalls, 1, `${adapterKind} fixture reaches exactly one external adapter call`);
+      const binding = await starter.binding(ctx); const store = new DagRunSnapshotStoreV1(join(root, ".ai", "dag-runs-v1"), conductorGenesis.runId); const persistedContext = parseStrictJson(await readFile(join(store.runDirectory, "authority", "context.json"), "utf8")); const state = await store.read(persistedContext);
+      const dispatchingEffects = Object.values(state.effects).filter((effect) => effect.state === "dispatching");
+      if (adapterKind === "procedure") assert(dispatchingEffects.some((effect) => effect.kind === "run_procedure" && effect.boundStageAttemptId), "procedure window retains exact durable dispatch authority");
+      else assert(dispatchingEffects.some((effect) => effect.kind === "launch_worker") && Object.keys(state.workerBindings).length === 0, "worker window retains launch dispatch without a worker binding");
+
+      const childRoot = join(root, ".ai", "owner-child"); await mkdir(childRoot, { recursive: true }); const childInputPath = join(childRoot, "input.json"); const childLockPath = join(childRoot, "lock.json"); const releasePath = join(childRoot, "release");
+      await writeFile(childInputPath, canonicalStringify(reducerInput(state, "set_desired_run", { desired: "running", reason: null, requestedBy: "conductor" }, { commandId: `owner-${adapterKind}-placeholder`, idempotencyKey: `owner-${adapterKind}-placeholder` })));
+      await writeFile(childLockPath, canonicalStringify({ ownerTokenHash: canonicalHash({ adapterKind, token: true }), sessionId, pid: 1, processStartIdentity: "pending", lockIdentity: canonicalHash({ adapterKind, lock: true }), acquiredAt: NOW }));
+      identityChild = spawn(process.execPath, ["scripts/fixtures/dag-store-child.mjs", store.rootDirectory, state.runId, join(store.runDirectory, "authority", "context.json"), childInputPath, childLockPath, "", "hold-identity", releasePath], { cwd: resolve("."), stdio: ["ignore", "pipe", "pipe"] });
+      const childLock = await new Promise((resolveReady, rejectReady) => { let stdout = ""; let stderr = ""; identityChild.stdout.on("data", (chunk) => { stdout += chunk; const line = stdout.split("\n").find(Boolean); if (line) { try { resolveReady(JSON.parse(line)); } catch {} } }); identityChild.stderr.on("data", (chunk) => { stderr += chunk; }); identityChild.once("error", rejectReady); identityChild.once("exit", (code) => { if (code !== null && code !== 0) rejectReady(new Error(`owner ${adapterKind} child exited ${code}: ${stderr}`)); }); });
+      const currentOwnership = await store.readImmutableFact(state.owner.ownershipReceipt); ownershipFacts.set(currentOwnership.hash, currentOwnership);
+      const childOwner = { ownerTokenHash: childLock.ownerTokenHash, sessionId: childLock.sessionId, pid: childLock.pid, processStartIdentity: childLock.processStartIdentity, lockIdentity: childLock.lockIdentity }; const ownership = ownershipFactFor(state, childOwner, "same_manager"); await store.putImmutableFact(ownership);
+      const transferred = await store.mutate({ input: reducerInput(state, "transfer_owner", { ...childOwner, ownershipReceipt: ownership.hash, priorOwnerDisposition: "same_manager" }, { commandId: `owner-${adapterKind}-transfer`, idempotencyKey: `owner-${adapterKind}-transfer` }), context: { ...persistedContext, facts: { ...(persistedContext.facts ?? {}), [ownership.hash]: ownership } }, lock: dagRunStoreLockIdentityFromOwner(state.owner) }); assert.equal(transferred.accepted, true, `real child assumes ${adapterKind} window authority: ${JSON.stringify(transferred)}`);
+      const childBindingCore = { ...binding, ownerEpoch: transferred.state.owner.ownerEpoch, ownershipReceiptHash: transferred.state.owner.ownershipReceipt, lineage: { kind: "direct_fork", priorBindingHash: binding.bindingHash, priorSessionId: binding.sessionId, proofHash: ownership.hash }, boundAt: NOW }; delete childBindingCore.bindingHash; const childBinding = { ...childBindingCore, bindingHash: canonicalHash(childBindingCore) }; await store.putImmutableFact(childBinding); const [bindingName] = await readdir(join(root, ".ai", "dag-session-bindings-v1")); await writeFile(join(root, ".ai", "dag-session-bindings-v1", bindingName), canonicalStringify(childBinding));
+      await writeFile(releasePath, "release\n"); await new Promise((resolveExit, rejectExit) => { identityChild.once("exit", (code) => code === 0 ? resolveExit() : rejectExit(new Error(`owner ${adapterKind} child exited ${code}`))); identityChild.once("error", rejectExit); }); identityChild = null;
+
+      const marker = join(root, `.task113-${adapterKind}-marker`);
+      const successorLifecycle = adapterKind === "procedure"
+        ? { ...baseLifecycle, procedure: { ...baseLifecycle.procedure, async executeExact() { successorCalls += 1; await writeFile(marker, "procedure\n"); return null; } } }
+        : { ...baseLifecycle, worker: { ...baseLifecycle.worker, async launchExact(request, exactState) { successorCalls += 1; await writeFile(marker, "worker\n"); return baseLifecycle.worker.launchExact(request, exactState); } } };
+      const successor = new DagConductorServiceV1({ lifecycle: successorLifecycle });
+      await assert.rejects(() => successor.advance(ctx, transferred.state.runId, NOW), /Current process does not own the exact DAG conductor epoch/, `${adapterKind} successor is fenced before external work`);
+      assert.equal(successorCalls, 0, `${adapterKind} adapter is not invoked before current-process ownership proof`); await assert.rejects(() => readFile(marker, "utf8"), /ENOENT/, `${adapterKind} marker is absent before reattach`);
+      const guard = { runId: transferred.state.runId, runNonce: transferred.state.runNonce, expectedRevision: transferred.state.revision, expectedSnapshotHash: transferred.state.snapshotHash, ownerEpoch: transferred.state.owner.ownerEpoch, commandId: `owner-${adapterKind}-reattach`, idempotencyKey: `owner-${adapterKind}-reattach`, occurredAt: NOW };
+      const reattached = await successor.reattach(ctx, guard); await successor.advance(ctx, reattached.runId, NOW);
+      assert(successorCalls >= 1, `${adapterKind} external recovery runs only after exact dead-owner reattach`); assert.equal((await readFile(marker, "utf8")).trim(), adapterKind);
+    } finally { identityChild?.kill("SIGKILL"); await rm(root, { recursive: true, force: true }); }
+  };
+  await exerciseCrossProcessAdapterWindow("procedure");
+  await exerciseCrossProcessAdapterWindow("worker");
+
+  const conductorStarted = await conductor.start(conductorCtx, { runId: conductorGenesis.runId, runNonce: conductorGenesis.runNonce, planHash: plan.planHash, planPath: ".ai/start-artifacts/plan.json", genesisPath: ".ai/start-artifacts/genesis.json", contextPath: ".ai/start-artifacts/context.json", maxActiveNodes: 1, occurredAt: NOW });
+  assert.equal(conductorStarted.state.owner.ownerEpoch, 1, "conductor emits the fully chained epoch-one ownership receipt");
+  assert.equal(conductorStarted.state.owner.sessionId, "session-conductor");
+
+  const conductorStore = new DagRunSnapshotStoreV1(join(conductorRoot, ".ai", "dag-runs-v1"), conductorGenesis.runId);
+  const persistedConductorContext = parseStrictJson(await readFile(join(conductorStore.runDirectory, "authority", "context.json"), "utf8"));
+  const priorState = await conductorStore.read(persistedConductorContext); const priorBinding = conductorStarted.binding;
+  const priorOwnership = await conductorStore.readImmutableFact(priorState.owner.ownershipReceipt); ownershipFacts.set(priorOwnership.hash, priorOwnership);
+  const childFixtureRoot = join(conductorRoot, ".ai", "owner-child"); await mkdir(childFixtureRoot, { recursive: true });
+  const childContextPath = join(conductorStore.runDirectory, "authority", "context.json"); const childInputPath = join(childFixtureRoot, "input.json"); const childLockPath = join(childFixtureRoot, "lock.json"); const childReleasePath = join(childFixtureRoot, "release");
+  await writeFile(childInputPath, canonicalStringify(reducerInput(priorState, "set_desired_run", { desired: "running", reason: null, requestedBy: "conductor" }, { commandId: "owner-child-placeholder", idempotencyKey: "owner-child-placeholder" })));
+  await writeFile(childLockPath, canonicalStringify({ ownerTokenHash: H("9"), sessionId: "session-conductor", pid: 1, processStartIdentity: "pending", lockIdentity: H("8"), acquiredAt: NOW }));
+  conductorOwnershipChild = spawn(process.execPath, ["scripts/fixtures/dag-store-child.mjs", conductorStore.rootDirectory, priorState.runId, childContextPath, childInputPath, childLockPath, "", "hold-identity", childReleasePath], { cwd: resolve("."), stdio: ["ignore", "pipe", "pipe"] });
+  const abandonedChildLock = await new Promise((resolveReady, rejectReady) => {
+    let stdout = ""; let stderr = "";
+    conductorOwnershipChild.stdout.on("data", (chunk) => { stdout += chunk; const line = stdout.split("\n").find(Boolean); if (line) { try { resolveReady(JSON.parse(line)); } catch {} } });
+    conductorOwnershipChild.stderr.on("data", (chunk) => { stderr += chunk; });
+    conductorOwnershipChild.once("error", rejectReady); conductorOwnershipChild.once("exit", (code) => { if (code !== null && code !== 0) rejectReady(new Error(`owner identity child exited ${code}: ${stderr}`)); });
+  });
+  const abandonedSameSessionOwner = { ownerTokenHash: abandonedChildLock.ownerTokenHash, sessionId: abandonedChildLock.sessionId, pid: abandonedChildLock.pid, processStartIdentity: abandonedChildLock.processStartIdentity, lockIdentity: abandonedChildLock.lockIdentity };
+  const abandonedOwnership = ownershipFactFor(priorState, abandonedSameSessionOwner, "same_manager"); await conductorStore.putImmutableFact(abandonedOwnership);
+  const abandonedContext = { ...persistedConductorContext, facts: { ...(persistedConductorContext.facts ?? {}), [abandonedOwnership.hash]: abandonedOwnership } };
+  const abandonedTransfer = await conductorStore.mutate({ input: reducerInput(priorState, "transfer_owner", { ...abandonedSameSessionOwner, ownershipReceipt: abandonedOwnership.hash, priorOwnerDisposition: "same_manager" }, { commandId: "conductor-abandon-same-session", idempotencyKey: "conductor-abandon-same-session" }), context: abandonedContext, lock: dagRunStoreLockIdentityFromOwner(priorState.owner) });
+  assert.equal(abandonedTransfer.accepted, true, `same-session authority transfers to a distinct live child process identity: ${JSON.stringify(abandonedTransfer)}`);
+  await writeFile(childReleasePath, "release\n"); await new Promise((resolveExit, rejectExit) => { conductorOwnershipChild.once("exit", (code) => code === 0 ? resolveExit() : rejectExit(new Error(`owner identity child exited ${code}`))); conductorOwnershipChild.once("error", rejectExit); }); conductorOwnershipChild = null;
+  const abandonedBindingCore = { ...priorBinding, ownerEpoch: abandonedTransfer.state.owner.ownerEpoch, ownershipReceiptHash: abandonedTransfer.state.owner.ownershipReceipt, lineage: { kind: "direct_fork", priorBindingHash: priorBinding.bindingHash, priorSessionId: priorBinding.sessionId, proofHash: abandonedOwnership.hash }, boundAt: NOW }; delete abandonedBindingCore.bindingHash;
+  const abandonedBinding = { ...abandonedBindingCore, bindingHash: canonicalHash(abandonedBindingCore) }; await conductorStore.putImmutableFact(abandonedBinding);
+  const bindingDirectory = join(conductorRoot, ".ai", "dag-session-bindings-v1"); const [sameSessionBindingName] = await readdir(bindingDirectory);
+  await writeFile(join(bindingDirectory, sameSessionBindingName), canonicalStringify(abandonedBinding));
+
+  const integrationMarkerRef = "refs/pi-dag/v1/task113-owner-window"; const integrationMarkerPath = join(childFixtureRoot, "integration-marker.txt"); await writeFile(integrationMarkerPath, "task113 exact-owner integration marker\n"); const integrationMarkerOid = (await execFileAsync("git", ["hash-object", "-w", integrationMarkerPath], { cwd: conductorRoot })).stdout.trim();
+  const restartedLifecycle = { ...conductor.lifecycle, integration: { async reconcileExact({ reservation }) { assert.equal(reservation.operationKind, "integration"); integrationDelegations += 1; await execFileAsync("git", ["update-ref", integrationMarkerRef, integrationMarkerOid], { cwd: conductorRoot }); } } };
+  const restartedConductor = new DagConductorServiceV1({ lifecycle: restartedLifecycle });
+  const delegationsBeforeOwnershipProof = integrationDelegations;
+  await assert.rejects(() => restartedConductor.advance(conductorCtx, abandonedTransfer.state.runId, NOW), /Current process does not own the exact DAG conductor epoch/, "same-session successor cannot enter automatic integration work before explicit dead-owner reattach");
+  assert.equal(integrationDelegations, delegationsBeforeOwnershipProof, "current ownership proof runs before invoking the integration adapter");
+  await assert.rejects(() => execFileAsync("git", ["rev-parse", "--verify", integrationMarkerRef], { cwd: conductorRoot }), "successor cannot change any Git ref before exact reattach");
+  const abandonedGuard = { runId: abandonedTransfer.state.runId, runNonce: abandonedTransfer.state.runNonce, expectedRevision: abandonedTransfer.state.revision, expectedSnapshotHash: abandonedTransfer.state.snapshotHash, ownerEpoch: abandonedTransfer.state.owner.ownerEpoch, commandId: "conductor-same-session-reattach", idempotencyKey: "conductor-same-session-reattach", occurredAt: NOW };
+  const reattachedState = await restartedConductor.reattach(conductorCtx, abandonedGuard);
+  const successorBinding = await restartedConductor.binding(conductorCtx);
+  assert.equal(successorBinding.ownerEpoch, reattachedState.owner.ownerEpoch); assert.equal(successorBinding.ownershipReceiptHash, reattachedState.owner.ownershipReceipt);
+  assert.equal(successorBinding.lineage.priorBindingHash, abandonedBinding.bindingHash, "same-session successor binding hash-binds the exact pre-transfer binding");
+  assert.equal(successorBinding.lineage.proofHash, reattachedState.owner.ownershipReceipt, "same-session successor binding hash-binds the exact dead-owner ownership receipt");
+  assert.equal((await restartedConductor.status(conductorCtx, reattachedState.runId)).state.snapshotHash, reattachedState.snapshotHash, "same-session restart status resolves through the canonical successor binding");
+  const advancedAfterReattach = await restartedConductor.advance(conductorCtx, reattachedState.runId, NOW);
+  assert.equal((await execFileAsync("git", ["rev-parse", "--verify", integrationMarkerRef], { cwd: conductorRoot })).stdout.trim(), integrationMarkerOid, "exact dead-owner reattach permits the previously fenced integration ref operation");
+  const cancelGuard = { runId: advancedAfterReattach.state.runId, runNonce: advancedAfterReattach.state.runNonce, expectedRevision: advancedAfterReattach.state.revision, expectedSnapshotHash: advancedAfterReattach.state.snapshotHash, ownerEpoch: advancedAfterReattach.state.owner.ownerEpoch, commandId: "conductor-same-session-cancel", idempotencyKey: "conductor-same-session-cancel", occurredAt: NOW };
+  const cancelledAfterReattach = await restartedConductor.control(conductorCtx, cancelGuard, "cancel", "same-session restart cancellation test");
+  assert.equal(cancelledAfterReattach.desired.run, "cancelled", "same-session successor binding authorizes guarded advance and cancellation");
+
+  const conflictingBindingCore = { ...successorBinding, ownerEpoch: abandonedBinding.ownerEpoch, ownershipReceiptHash: abandonedBinding.ownershipReceiptHash, boundAt: "2026-08-10T00:00:00.000Z" }; delete conflictingBindingCore.bindingHash;
+  const conflictingBinding = { ...conflictingBindingCore, bindingHash: canonicalHash(conflictingBindingCore) }; await writeFile(join(bindingDirectory, sameSessionBindingName), canonicalStringify(conflictingBinding));
+  const conflictRevision = cancelledAfterReattach.revision;
+  await assert.rejects(() => restartedConductor.reattach(conductorCtx, { runId: cancelledAfterReattach.runId, runNonce: cancelledAfterReattach.runNonce, expectedRevision: cancelledAfterReattach.revision, expectedSnapshotHash: cancelledAfterReattach.snapshotHash, ownerEpoch: cancelledAfterReattach.owner.ownerEpoch, commandId: "conductor-conflicting-binding", idempotencyKey: "conductor-conflicting-binding", occurredAt: NOW }), /binding conflicts|pre-transfer authority|No exact current-session binding/, "conflicting same-session binding is rejected before owner transfer");
+  assert.equal((await conductorStore.read(persistedConductorContext)).revision, conflictRevision, "conflicting binding rejection cannot advance owner authority");
+} finally { conductorOwnershipChild?.kill("SIGKILL"); await rm(conductorRoot, { recursive: true, force: true }); }
+
+async function exerciseRealManagerLifecycle(label, terminalOverrides = {}, launchCrash = null) {
+  const root = await mkdtemp(join(tmpdir(), `pi-dag-real-${label}-`));
+  let manager;
+  const priorMode = process.env.FAKE_WORKER_RPC_MODE;
+  try {
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "DAG Test"], { cwd: root }); await execFileAsync("git", ["config", "user.email", "dag-test@example.invalid"], { cwd: root });
+    await writeFile(join(root, "tracked.txt"), "baseline\n"); await execFileAsync("git", ["add", "tracked.txt"], { cwd: root }); await execFileAsync("git", ["commit", "-m", "baseline"], { cwd: root });
+    const commit = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim(); const tree = (await execFileAsync("git", ["rev-parse", "HEAD^{tree}"], { cwd: root })).stdout.trim();
+    const exactPlan = planFixture({ repositoryId: "repo-main", commit, tree }); const exactIndex = buildSchedulerPlanIndexV1(exactPlan); const genesis = clone(runFixture(exactPlan));
+    genesis.runId = `run-real-${label}`; genesis.runNonce = `nonce-real-${label}-0123456789`; genesis.scheduler.policyHash = DAG_SCHEDULER_POLICY_HASH_V1; genesis.scheduler.normalizedIndexHash = exactIndex.indexHash;
+    genesis.workItems["item-api"].current = "ready"; genesis.current.run = "active"; genesis.current.readyWorkItemIds = ["item-api"]; rehashRun(genesis);
+    const authorization = authorizationBinding(exactPlan, genesis.identity.reviewReceipt.hash, genesis.identity.authorizationReceipts.map(({ hash }) => hash), genesis.identity.authorizationSet.hash);
+    const exactContext = { plan: exactPlan, authorization, historicalAuthorizations: {}, catalog: catalogBinding(exactPlan), normalizedSchedulerIndexHash: exactIndex.indexHash, facts: {}, integrationValidationProfiles: INTEGRATION_VALIDATION_PROFILES };
+    const seedFacts = [simpleFact("plan_review", "review-plan"), simpleFact("plan_authorization", "authorization-plan"), simpleFact("staleness", "freshness"), simpleFact("repository_observation", "repo-main-observation"), authorization];
+    const artifacts = join(root, ".ai", "start-artifacts"); await mkdir(artifacts, { recursive: true });
+    await writeFile(join(artifacts, "plan.json"), canonicalStringify(exactPlan)); await writeFile(join(artifacts, "genesis.json"), canonicalStringify(genesis)); await writeFile(join(artifacts, "context.json"), canonicalStringify({ ...exactContext, seedFacts }));
+    const sessionId = `real-manager-${label}`; const sessionFile = join(root, "session.jsonl"); await writeFile(sessionFile, `${JSON.stringify({ type: "session", version: 3, id: sessionId, timestamp: NOW, cwd: root })}\n`);
+    const ctx = { cwd: root, model: { provider: "fake-provider", id: "fake-model" }, thinkingLevel: "off", sessionManager: { getSessionId: () => sessionId, getSessionFile: () => sessionFile, getHeader: () => ({ type: "session", id: sessionId, cwd: root }) } };
+    process.env.FAKE_WORKER_RPC_MODE = "valid";
+    manager = new WorkerManager({ getActiveTools: () => ["read", "subagent_report"], sendMessage() {} }, { piCliPath: resolve("scripts/fixtures/fake-worker-rpc.mjs"), watchIntervalMs: 60_000 });
+    await manager.attach(ctx);
+    const adapters = managerLifecycleAdapters(manager, exactContext, terminalOverrides); const conductor = new DagConductorServiceV1({ lifecycle: adapters.options });
+    let launchCrashTriggered = false;
+    if (launchCrash) {
+      const launchExact = adapters.options.worker.launchExact;
+      adapters.options.worker.launchExact = async (request, state) => {
+        const attempt = Object.values(state.stageAttempts).find((candidate) => candidate.launchIntentId && state.launchIntents[candidate.launchIntentId]?.workerId === request.workerId);
+        const shouldCrash = !launchCrashTriggered && attempt?.stage === "F1";
+        if (shouldCrash && launchCrash === "dispatch_recorded") { launchCrashTriggered = true; throw new Error("simulated crash after durable dispatch before external launch"); }
+        const observation = await launchExact(request, state);
+        if (shouldCrash && launchCrash === "launch_returned") { launchCrashTriggered = true; throw new Error("simulated crash after launch return before DAG binding"); }
+        return observation;
+      };
+    }
+    let state; let crashError = null;
+    try { state = (await conductor.start(ctx, { runId: genesis.runId, runNonce: genesis.runNonce, planHash: exactPlan.planHash, planPath: ".ai/start-artifacts/plan.json", genesisPath: ".ai/start-artifacts/genesis.json", contextPath: ".ai/start-artifacts/context.json", maxActiveNodes: 1, occurredAt: NOW })).state; }
+    catch (error) {
+      if (!launchCrash || !launchCrashTriggered || !/simulated crash/.test(error.message)) throw error;
+      crashError = error; state = (await conductor.status(ctx, genesis.runId)).state;
+    }
+    if (!crashError) for (let pass = 0; pass < 150; pass += 1) {
+      const done = terminalOverrides.F1 === "cancelled" ? state.workItems["item-api"].stages.F1.state === "blocked" : state.workItems["item-api"].stages.F5.state === "passed";
+      if (done) break;
+      await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+      state = (await conductor.advance(ctx, genesis.runId, NOW)).state;
+    }
+    return { root, manager, ctx, exactPlan, exactContext, conductor, adapters, state, priorMode, crashError };
+  } catch (error) {
+    if (manager) await manager.detach();
+    await rm(root, { recursive: true, force: true });
+    if (priorMode === undefined) delete process.env.FAKE_WORKER_RPC_MODE; else process.env.FAKE_WORKER_RPC_MODE = priorMode;
+    throw error;
+  }
+}
+
+const realLifecycle = await exerciseRealManagerLifecycle("f0-f5");
+try {
+  assert.equal(realLifecycle.state.workItems["item-api"].stages.F5.state, "passed", "real WorkerManager lifecycle advances through exact F0-F5 closure");
+  const independent = ["F1", "F2", "F5"].map((stage) => realLifecycle.state.workerBindings[realLifecycle.state.workItems["item-api"].stages[stage].currentAttemptId]);
+  assert.equal(new Set(independent.map(({ workerStorageId }) => workerStorageId)).size, 1, "F1/F2/F5 share one real manager session storage identity");
+  assert.equal(new Set(independent.map(({ workerId }) => workerId)).size, 3); assert.equal(new Set(independent.map(({ attemptNonce }) => attemptNonce)).size, 3); assert.equal(new Set(independent.map(({ configHash }) => configHash)).size, 3, "independent lifecycle roles retain distinct exact worker/nonce/config identities in shared storage");
+  const implementation = realLifecycle.adapters.launches.find(({ stage }) => stage === "F1"); const replay = await realLifecycle.manager.launchOwnedAttempt(implementation.request);
+  assert.equal(replay.attemptNonce, implementation.observation.attemptNonce); assert.equal(replay.configHash, implementation.observation.configHash);
+  const managerState = await realLifecycle.manager.store.load(); assert.equal(managerState.workers[implementation.request.workerId].attempts.length, 1, "exact same-launch replay preserves the original attempt while cross-attempt launch-key reuse already failed closed");
+} finally {
+  await realLifecycle.manager.detach(); await rm(realLifecycle.root, { recursive: true, force: true });
+  if (realLifecycle.priorMode === undefined) delete process.env.FAKE_WORKER_RPC_MODE; else process.env.FAKE_WORKER_RPC_MODE = realLifecycle.priorMode;
+}
+
+const cancelledLifecycle = await exerciseRealManagerLifecycle("cancelled", { F1: "cancelled" });
+try {
+  const cancelledAttemptId = cancelledLifecycle.state.workItems["item-api"].stages.F1.currentAttemptId;
+  assert.equal(cancelledLifecycle.state.workItems["item-api"].stages.F1.state, "blocked"); assert.equal(cancelledLifecycle.state.workItems["item-api"].stages.F1.lastDisposition, "BLOCKED", "retry-safe cancelled terminal canonically seals BLOCKED");
+  assert.equal(cancelledLifecycle.adapters.procedureCalls.get(cancelledAttemptId), 1, "cancelled terminal seals in one lifecycle procedure pass");
+  const revision = cancelledLifecycle.state.revision; const restarted = new DagConductorServiceV1({ lifecycle: cancelledLifecycle.adapters.options });
+  const afterRestart = await restarted.advance(cancelledLifecycle.ctx, cancelledLifecycle.state.runId, NOW);
+  assert.equal(afterRestart.state.revision, revision); assert.equal(cancelledLifecycle.adapters.procedureCalls.get(cancelledAttemptId), 1, "restart observes the sealed cancelled attempt without a retry loop");
+} finally {
+  await cancelledLifecycle.manager.detach(); await rm(cancelledLifecycle.root, { recursive: true, force: true });
+  if (cancelledLifecycle.priorMode === undefined) delete process.env.FAKE_WORKER_RPC_MODE; else process.env.FAKE_WORKER_RPC_MODE = cancelledLifecycle.priorMode;
+}
+
+for (const launchCrash of ["dispatch_recorded", "launch_returned"]) {
+  const recoveryLifecycle = await exerciseRealManagerLifecycle(`cancel-${launchCrash}`, {}, launchCrash);
+  try {
+    assert.match(recoveryLifecycle.crashError?.message ?? "", /simulated crash/, `${launchCrash} fixture crosses its exact pre-bind crash boundary`);
+    const attemptId = recoveryLifecycle.state.workItems["item-api"].stages.F1.currentAttemptId;
+    const attempt = recoveryLifecycle.state.stageAttempts[attemptId]; const launch = recoveryLifecycle.state.launchIntents[attempt.launchIntentId]; const launchEffectBeforeCancellation = recoveryLifecycle.state.effects[launch.effectId];
+    assert.equal(launchEffectBeforeCancellation.state, "dispatching"); assert.equal(launchEffectBeforeCancellation.dispatchCount, 1); assert.equal(recoveryLifecycle.state.workerBindings[attemptId], undefined, `${launchCrash} crash leaves durable dispatch authority without a DAG worker binding`);
+    const restarted = new DagConductorServiceV1({ lifecycle: recoveryLifecycle.adapters.options });
+    const guard = { runId: recoveryLifecycle.state.runId, runNonce: recoveryLifecycle.state.runNonce, expectedRevision: recoveryLifecycle.state.revision, expectedSnapshotHash: recoveryLifecycle.state.snapshotHash, ownerEpoch: recoveryLifecycle.state.owner.ownerEpoch, commandId: `cancel-prebind-${launchCrash}`, idempotencyKey: `cancel-prebind-${launchCrash}`, occurredAt: NOW };
+    let cancelled = await restarted.control(recoveryLifecycle.ctx, guard, "cancel", `recover ${launchCrash} launch only to cancel its exact worker`);
+    const cancellationId = `cancel-${guard.commandId}`;
+    assert.equal(cancelled.effects[launch.effectId].state, "ambiguous"); assert.equal(cancelled.blockers[`cancellation-effect-${launch.effectId}`].active, true, "dispatched launch is never inferred absent when cancellation starts");
+    for (let pass = 0; pass < 150 && cancelled.cancellations[cancellationId].state !== "closed"; pass += 1) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+      cancelled = (await restarted.advance(recoveryLifecycle.ctx, cancelled.runId, NOW)).state;
+    }
+    assert.equal(cancelled.cancellations[cancellationId].state, "closed", `${launchCrash} restart recovers, binds, cancels, and exactly closes the pre-bind worker`);
+    assert.equal(cancelled.effects[launch.effectId].reconciliation, "applied_exact", "the original launch effect is reconciled under its unchanged durable identity");
+    const exactBinding = cancelled.workerBindings[attemptId]; assert(exactBinding, "cancellation recovery binds the exact worker attempt before issuing cancellation");
+    const cancellationEffects = cancelled.cancellations[cancellationId].effectIds.map((effectId) => cancelled.effects[effectId]);
+    assert.equal(cancellationEffects.length, 1); assert.equal(cancellationEffects[0].kind, "cancel_worker"); assert(["applied_exact", "proven_absent"].includes(cancellationEffects[0].reconciliation), "exact worker cancellation is terminally reconciled");
+    assert.equal(cancelled.stageAttempts[attemptId].terminalAt !== null && cancelled.workerBindings[attemptId].processDisposition, "dead", "cancellation closes only with exact terminal process proof");
+    assert(cancelled.stageAttempts[attemptId].leaseIds.every((leaseId) => cancelled.leases[leaseId].state === "released"), "all exact stage/resource authority releases only after worker/effect reconciliation");
+    const managerState = await recoveryLifecycle.manager.store.load(); const launchRecord = managerState.launchRecords.find((record) => record.launchKey === launch.launchKey); const managerWorker = launchRecord ? managerState.workers[launchRecord.workerId] : null;
+    assert(launchRecord && managerWorker); assert.equal(managerWorker.attempts.length, 1, "old dispatch and cancellation recovery converge on one manager attempt without an untracked worker race");
+    const recoveryCalls = recoveryLifecycle.adapters.launches.filter(({ request }) => request.launchKey === launch.launchKey);
+    assert.equal(new Set(recoveryCalls.map(({ request }) => canonicalHash(request))).size, 1, "every recovery call reuses the exact launchKey/request identity instead of minting fresh authority");
+    assert.equal(managerWorker.attempts[0].attemptNonce, exactBinding.attemptNonce); assert.equal(managerWorker.attempts[0].configHash, exactBinding.configHash, "the sole manager attempt is the exact DAG-bound cancellation target");
+  } finally {
+    await recoveryLifecycle.manager.detach(); await rm(recoveryLifecycle.root, { recursive: true, force: true });
+    if (recoveryLifecycle.priorMode === undefined) delete process.env.FAKE_WORKER_RPC_MODE; else process.env.FAKE_WORKER_RPC_MODE = recoveryLifecycle.priorMode;
+  }
+}
+
+const ownedIdentityRoot = await mkdtemp(join(tmpdir(), "pi-dag-owned-identity-"));
+try {
+  await execFileAsync("git", ["init", "-b", "main"], { cwd: ownedIdentityRoot });
+  await execFileAsync("git", ["config", "user.name", "DAG Test"], { cwd: ownedIdentityRoot }); await execFileAsync("git", ["config", "user.email", "dag-test@example.invalid"], { cwd: ownedIdentityRoot });
+  await writeFile(join(ownedIdentityRoot, "tracked.txt"), "baseline\n"); await execFileAsync("git", ["add", "tracked.txt"], { cwd: ownedIdentityRoot }); await execFileAsync("git", ["commit", "-m", "baseline"], { cwd: ownedIdentityRoot });
+  const baseCommit = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: ownedIdentityRoot })).stdout.trim();
+  const unsafeSchemaNonce = "nonce with spaces/~^?0123456789"; const unsafeNonceCandidateRef = privateCandidateRefV1(unsafeSchemaNonce, "attempt-safe-nonce-ref");
+  assert(!unsafeNonceCandidateRef.includes(unsafeSchemaNonce) && !/[ ~^?]/.test(unsafeNonceCandidateRef), "every dynamic private candidate ref segment is digest-encoded rather than embedding a schema-valid unsafe run nonce");
+  assert.equal(await sealPrivateCandidateRefV1(ownedIdentityRoot, unsafeSchemaNonce, "attempt-safe-nonce-ref", baseCommit), unsafeNonceCandidateRef);
+  await execFileAsync("git", ["check-ref-format", unsafeNonceCandidateRef], { cwd: ownedIdentityRoot }); assert.equal((await execFileAsync("git", ["rev-parse", "--verify", unsafeNonceCandidateRef], { cwd: ownedIdentityRoot })).stdout.trim(), baseCommit, "unsafe schema nonce seals one valid immutable private Git ref");
+  assert.equal(await sealPrivateCandidateRefV1(ownedIdentityRoot, unsafeSchemaNonce, "attempt-safe-nonce-ref", baseCommit), unsafeNonceCandidateRef, "private candidate seal replays exactly");
+  const sessionFile = join(ownedIdentityRoot, "session.jsonl"); await writeFile(sessionFile, `${JSON.stringify({ type: "session", version: 3, id: "owned-identity-session", timestamp: NOW, cwd: ownedIdentityRoot })}\n`);
+  const pi = { getActiveTools: () => ["read", "subagent_report"], sendMessage() {} }; let ownedSpawnCount = 0; const spawnOwnedSupervisor = async () => { ownedSpawnCount += 1; return { pid: process.pid, unref() {} }; }; const manager = new WorkerManager(pi, { piCliPath: process.execPath, watchIntervalMs: 60_000, observeUninspectableProcesses: async () => ({ status: "observed", processes: [] }), spawnSupervisor: spawnOwnedSupervisor });
+  const managerCtx = { cwd: ownedIdentityRoot, model: { provider: "test", id: "test" }, thinkingLevel: "off", sessionManager: { getSessionId: () => "owned-identity-session", getSessionFile: () => sessionFile, getHeader: () => ({ type: "session", id: "owned-identity-session", cwd: ownedIdentityRoot }) } }; await manager.attach(managerCtx);
+  const launchRequest = { launchKey: "dag-owned-identity", workerId: "worker-owned-identity", expectedAttemptNumber: 1, configRequestHash: H("4"), baseCommit, worktreeKey: "dag-owned-identity", label: "owned identity", task: "Return exact bounded evidence." };
+  const identity = await manager.launchOwnedAttempt(launchRequest, managerCtx); const replay = await manager.launchOwnedAttempt(launchRequest, managerCtx); const originalOwnedStore = manager.store;
+  assert.equal(identity.workerStorageId, "owned-identity-session"); assert.equal(identity.launchOwnerSessionId, "owned-identity-session"); assert.equal(identity.workerId, launchRequest.workerId); assert.equal(identity.attemptNumber, 1); assert.equal(identity.configFact.kind, "worker_config"); assert.equal(identity.configFact.config.requestHash, launchRequest.configRequestHash, "real manager path binds exact launch/config identity in a per-node disposable Git worktree"); assert.deepEqual(replay, identity, "real opaque launch-key replay returns the same full worker identity without another generation");
+  await writeFile(join(ownedIdentityRoot, "wrong.txt"), "wrong base\n"); await execFileAsync("git", ["add", "wrong.txt"], { cwd: ownedIdentityRoot }); await execFileAsync("git", ["commit", "-m", "wrong existing head"], { cwd: ownedIdentityRoot });
+  const wrongHead = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: ownedIdentityRoot })).stdout.trim(); const wrongRoot = join(ownedIdentityRoot, ".ai", "worker-roots", "dag-owned-wrong-head");
+  await execFileAsync("git", ["worktree", "add", "--detach", wrongRoot, wrongHead], { cwd: ownedIdentityRoot });
+  await assert.rejects(() => manager.launchOwnedAttempt({ ...launchRequest, launchKey: "dag-owned-wrong-head", workerId: "worker-owned-wrong-head", worktreeKey: "dag-owned-wrong-head" }, managerCtx), /does not match exact base/, "existing disposable worktree with the wrong clean detached HEAD is rejected before launch authority");
+  await manager.detach();
+  await originalOwnedStore.mutate((draft) => { draft.quarantinedArtifacts.push({ quarantineId: "unbound-launch-conflict", workerId: identity.workerId, attemptNumber: identity.attemptNumber, attemptNonce: identity.attemptNonce, configHash: identity.configHash, kind: "test-conflict", reason: "exact unbound recovery must fail closed", sourcePath: "test", retainedPath: "test", envelopePath: "test", factHash: H("7"), byteLength: 1, retainedComplete: true }); });
+  const successorSessionFile = join(ownedIdentityRoot, "successor-session.jsonl"); await writeFile(successorSessionFile, `${JSON.stringify({ type: "session", version: 3, id: "owned-identity-successor", timestamp: NOW, cwd: ownedIdentityRoot })}\n`);
+  const successorManager = new WorkerManager(pi, { piCliPath: process.execPath, watchIntervalMs: 60_000, observeUninspectableProcesses: async () => ({ status: "observed", processes: [] }), spawnSupervisor: spawnOwnedSupervisor });
+  const successorCtx = { ...managerCtx, sessionManager: { getSessionId: () => "owned-identity-successor", getSessionFile: () => successorSessionFile, getHeader: () => ({ type: "session", id: "owned-identity-successor", cwd: ownedIdentityRoot }) } };
+  await successorManager.attach(successorCtx);
+  await assert.rejects(() => successorManager.launchOwnedAttempt(launchRequest, successorCtx), /quarantined conflicting artifacts|failed closed/, "unbound cross-store recovery fails closed when the otherwise exact launch has quarantine conflict authority");
+  await originalOwnedStore.mutate((draft) => { draft.quarantinedArtifacts = draft.quarantinedArtifacts.filter(({ quarantineId }) => quarantineId !== "unbound-launch-conflict"); });
+  const recoveredUnbound = await successorManager.launchOwnedAttempt(launchRequest, successorCtx);
+  assert.equal(recoveredUnbound.workerStorageId, identity.workerStorageId, "successor with no direct-parent lineage recovers the original manager storage before a new DAG launch reservation");
+  assert.equal(recoveredUnbound.attemptNonce, identity.attemptNonce); assert.equal(recoveredUnbound.configHash, identity.configHash); assert.equal(recoveredUnbound.supervisorPid, identity.supervisorPid); assert.equal(recoveredUnbound.supervisorStartIdentity, identity.supervisorStartIdentity);
+  assert.equal(ownedSpawnCount, 1, "crash after manager launch return but before DAG bind never duplicates the supervisor spawn");
+  const worktreeEntries = (await execFileAsync("git", ["worktree", "list", "--porcelain"], { cwd: ownedIdentityRoot })).stdout.split(/\r?\n/).filter((line) => line === `worktree ${join(ownedIdentityRoot, ".ai", "worker-roots", launchRequest.worktreeKey)}`);
+  assert.equal(worktreeEntries.length, 1, "unbound launch recovery adopts one original disposable worktree without duplication");
+  const priorSessionInspection = await successorManager.inspectBinding(recoveredUnbound);
+  assert.equal(priorSessionInspection.attempt.attemptNonce, identity.attemptNonce, "successor manager opens and transfers the exact recovered prior-session storage/attempt instead of using its current store");
+  const cancellation = await successorManager.cancelBinding(recoveredUnbound, "test recovered unbound launch cancellation");
+  assert.equal(cancellation.status, "cancelling", "the recovered original worker is binding-addressable and cancellable by its successor manager");
+  assert.equal((await successorManager.summary()).storageId, "owned-identity-successor", "binding-scoped recovery/cancellation restores the successor's current manager store");
+  await successorManager.detach();
+} finally { await rm(ownedIdentityRoot, { recursive: true, force: true }); }
 
 const conductorPi = { tools: [], handlers: new Map(), registerTool(tool) { this.tools.push(tool); }, on(event, handler) { this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]); } };
 registerCanonicalDagRuntime(conductorPi, { async binding() { return null; } });
@@ -1200,4 +2246,4 @@ for (const handler of conductorPi.handlers.get("session_start") ?? []) await han
 const tuiCalls = []; const tuiContext = { hasUI: true, mode: "tui", cwd: "/tmp", sessionManager: { getSessionId: () => "tui-session" }, ui: { setWidget(id, value) { tuiCalls.push({ id, value }); } } }; for (const handler of conductorPi.handlers.get("session_start") ?? []) { await handler({}, tuiContext); await handler({}, tuiContext); } assert.equal(tuiCalls.filter(({ value }) => typeof value === "function").length, 2, "unbound TUI sessions install the passive widget and repeated session starts replace it deterministically"); for (const handler of conductorPi.handlers.get("session_start") ?? []) await handler({}, { hasUI: false, mode: "rpc", cwd: "/tmp", sessionManager: { getSessionId: () => "headless-after-tui" }, ui: {} }); assert.equal(tuiCalls.at(-1).value, undefined, "a subsequent headless session start removes the prior TUI widget before returning"); for (const handler of conductorPi.handlers.get("session_shutdown") ?? []) await handler(); assert.equal(tuiCalls.at(-1).value, undefined, "session shutdown tears down the installed widget after clearing the current timer");
 const failClosedPi = { tools: [], handlers: new Map(), registerTool(tool) { this.tools.push(tool); }, on(event, handler) { this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]); } }; let statusReads = 0; registerCanonicalDagRuntime(failClosedPi, { async binding() { return { runId: executionProjection.runId }; }, async advance() {}, async status() { statusReads += 1; if (statusReads > 1) throw new Error("identity mismatch/corrupt projection"); return { projection: executionProjection, stale: null, state: { completion: { state: "open" }, current: { run: "active" } } }; } }); let widgetFactory = null; const failClosedContext = { hasUI: true, mode: "tui", cwd: "/tmp", sessionManager: { getSessionId: () => "fail-closed" }, ui: { setWidget(_id, value) { if (typeof value === "function") widgetFactory = value; } } }; for (const handler of failClosedPi.handlers.get("session_start") ?? []) await handler({}, failClosedContext); const failClosedComponent = widgetFactory({ terminal: { rows: 24 }, requestRender() {} }); assert(failClosedComponent.render(120).some((line) => line.startsWith("DAG ")), "widget renders a valid exact projection before a read error"); for (const handler of failClosedPi.handlers.get("agent_end") ?? []) await handler(); const failedLines = failClosedComponent.render(120); assert(failedLines.some((line) => line.includes("FAIL-CLOSED")) && !failedLines.some((line) => line.includes(" | lanes ") || line.startsWith("read-only;")), "corruption and identity errors suppress the prior graph instead of mixing it with diagnostics"); for (const handler of failClosedPi.handlers.get("session_shutdown") ?? []) await handler();
 
-console.log("Canonical DAG plan and run-state schema tests OK; scheduler, projection, conductor, tools, and widget tests OK");
+console.log("Canonical DAG plan and run-state schema tests OK; scheduler/store/worker-binding/integration probes and chained conductor ownership receipts pass");

@@ -21,8 +21,26 @@ export interface DagRunStoreDeadOwnerProofV1 {
   observedProcessDisposition: "dead_missing" | "dead_reused";
   observedAt: string;
 }
+export interface DagRunPostCommitEvaluationIdentityV1 {
+  projectIdentityHash: string;
+  runIdentityHash: string;
+  runNonceHash: string;
+  planHash: string;
+  evaluationProfileHash: string;
+  clockPolicyHash: string;
+  creditContextHash: string;
+}
+export interface DagRunCommittedSnapshotIdentityV1 extends DagRunPostCommitEvaluationIdentityV1 {
+  revision: number;
+  snapshotHash: string;
+}
+export interface DagRunPostCommitEvaluationObserverV1 {
+  identity: Readonly<DagRunPostCommitEvaluationIdentityV1>;
+  offerCommittedSnapshot(identity: Readonly<DagRunCommittedSnapshotIdentityV1>): unknown;
+}
 export interface DagRunStoreOptionsV1 {
   failpoint?: (point: "after_snapshot_temp_sync" | "after_snapshot_rename" | "after_archive" | "after_recovery_intent" | "after_stale_lock_quarantine" | "after_replacement_lock" | "after_lock_release_rename" | "after_immutable_link" | "after_snapshot_read") => Promise<void> | void;
+  postCommitEvaluationObserver?: DagRunPostCommitEvaluationObserverV1;
 }
 export interface DagRunStoreMutationV1 {
   input: DagRunInputV1;
@@ -43,6 +61,7 @@ export class DagRunSnapshotStoreV1 {
   readonly rootDirectory: string;
   readonly runId: string;
   readonly options: DagRunStoreOptionsV1;
+  private readonly postCommitEvaluationObserver: DagRunPostCommitEvaluationObserverV1 | null;
   readonly runDirectory: string;
   readonly statePath: string;
   readonly snapshotsDirectory: string;
@@ -59,7 +78,8 @@ export class DagRunSnapshotStoreV1 {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(runId) || runId === "." || runId === "..") throw new Error("Store runId must be one safe path segment");
     this.rootDirectory = resolve(rootDirectory);
     this.runId = runId;
-    this.options = options;
+    this.postCommitEvaluationObserver = normalizePostCommitEvaluationObserver(options.postCommitEvaluationObserver);
+    this.options = { ...options, postCommitEvaluationObserver: this.postCommitEvaluationObserver ?? undefined };
     this.runDirectory = join(this.rootDirectory, runId);
     this.statePath = join(this.runDirectory, "run-state.json");
     this.snapshotsDirectory = join(this.runDirectory, "snapshots");
@@ -74,27 +94,37 @@ export class DagRunSnapshotStoreV1 {
   }
 
   async initialize(state: DagRunStateV1, context: DagRunValidationContextV1, lock: DagRunStoreLockIdentityV1): Promise<void> {
-    await this.ensureDirectories();
-    await this.verifyContextFacts(context);
-    if (await exists(this.statePath)) {
-      const existing = await this.read(context);
-      if (existing.revision !== 0 || existing.snapshotHash !== state.snapshotHash || canonicalStringify(existing) !== canonicalStringify(state)) throw new Error(`Dag run already exists: ${this.runId}`);
-    }
-    await this.prepareInitializationLock();
-    await this.withLock(lock, async () => {
+    let committedState: DagRunStateV1 | null = null;
+    try {
+      this.assertPostCommitEvaluationBinding(state);
+      await this.ensureDirectories();
+      await this.verifyContextFacts(context);
       if (await exists(this.statePath)) {
         const existing = await this.read(context);
-        if (existing.revision === 0 && existing.snapshotHash === state.snapshotHash && canonicalStringify(existing) === canonicalStringify(state)) return;
-        throw new Error(`Dag run already exists with different genesis: ${this.runId}`);
+        this.assertPostCommitEvaluationBinding(existing);
+        if (existing.revision !== 0 || existing.snapshotHash !== state.snapshotHash || canonicalStringify(existing) !== canonicalStringify(state)) throw new Error(`Dag run already exists: ${this.runId}`);
       }
-      const canonical = parseDagRunStateV1(canonicalStringify(state), await this.contextWithReferencedFacts(state, context));
-      if (canonical.runId !== this.runId) throw new Error("Snapshot runId does not match store namespace");
-      if (canonical.revision !== 0 || canonical.previousSnapshotHash !== null) throw new Error("Run initialization requires revision zero with no predecessor");
-      if (canonical.owner.sessionId !== null || canonical.owner.ownerEpoch !== 0) throw new Error("Run initialization requires a detached epoch-zero owner");
-      await this.archiveSnapshot(canonical);
-      await this.options.failpoint?.("after_archive");
-      await this.writeSnapshot(canonical);
-    });
+      await this.prepareInitializationLock();
+      await this.withLock(lock, async () => {
+        if (await exists(this.statePath)) {
+          const existing = await this.read(context);
+          this.assertPostCommitEvaluationBinding(existing);
+          if (existing.revision === 0 && existing.snapshotHash === state.snapshotHash && canonicalStringify(existing) === canonicalStringify(state)) return;
+          throw new Error(`Dag run already exists with different genesis: ${this.runId}`);
+        }
+        const canonical = parseDagRunStateV1(canonicalStringify(state), await this.contextWithReferencedFacts(state, context));
+        if (canonical.runId !== this.runId) throw new Error("Snapshot runId does not match store namespace");
+        if (canonical.revision !== 0 || canonical.previousSnapshotHash !== null) throw new Error("Run initialization requires revision zero with no predecessor");
+        if (canonical.owner.sessionId !== null || canonical.owner.ownerEpoch !== 0) throw new Error("Run initialization requires a detached epoch-zero owner");
+        this.assertPostCommitEvaluationBinding(canonical);
+        await this.archiveSnapshot(canonical);
+        await this.options.failpoint?.("after_archive");
+        await this.writeSnapshot(canonical);
+        committedState = canonical;
+      });
+    } finally {
+      if (committedState) this.queuePostCommitEvaluation(committedState);
+    }
   }
 
   async read(context: DagRunValidationContextV1, stabilityRetry = 0): Promise<DagRunStateV1> {
@@ -124,7 +154,7 @@ export class DagRunSnapshotStoreV1 {
         if (ownerSlots.length > 1) throw new Error("snapshot revision contains conflicting owner mutations");
         if (["attach_owner", "transfer_owner"].includes(ownerSlots[0]?.inputType ?? "")) {
           const ownership = effectiveContext.facts[state.owner.ownershipReceipt!] as any;
-          if (!ownership || ownership.priorSessionId !== previous.owner.sessionId || ownership.priorPid !== previous.owner.pid || ownership.priorProcessStartIdentity !== previous.owner.processStartIdentity || ownership.priorLockIdentity !== previous.owner.lockIdentity || state.owner.ownerEpoch !== previous.owner.ownerEpoch + 1) throw new Error("owner attach does not bind the exact archived predecessor owner and next fencing epoch");
+          if (!ownership || ownership.priorSessionId !== previous.owner.sessionId || ownership.priorPid !== previous.owner.pid || ownership.priorProcessStartIdentity !== previous.owner.processStartIdentity || ownership.priorLockIdentity !== previous.owner.lockIdentity || ownership.priorOwnershipReceiptHash !== previous.owner.ownershipReceipt || ownership.ownerEpoch !== previous.owner.ownerEpoch + 1 || state.owner.ownerEpoch !== ownership.ownerEpoch) throw new Error("owner attach does not bind the exact archived predecessor owner receipt and next fencing epoch");
         } else if (ownerSlots[0]?.inputType === "release_owner") {
           if (previous.owner.sessionId === null || state.owner.sessionId !== null || state.owner.ownerEpoch !== previous.owner.ownerEpoch || state.owner.lastReleaseCommandId !== ownerSlots[0].commandId || state.owner.lastReleasePayloadHash !== ownerSlots[0].payloadHash) throw new Error("owner release does not bind the exact archived predecessor and release command");
         } else if (canonicalHash(state.owner) !== canonicalHash(previous.owner)) throw new Error("owner projection changed without an exact owner reducer slot");
@@ -141,10 +171,14 @@ export class DagRunSnapshotStoreV1 {
   }
 
   async mutate({ input, context, lock }: DagRunStoreMutationV1): Promise<DagRunReducerResultV1> {
-    await this.ensureDirectories();
-    return this.withLock(lock, async () => {
+    let committedState: DagRunStateV1 | null = null;
+    try {
+      await this.ensureDirectories();
+      return await this.withLock(lock, async () => {
       const current = await this.read(context);
+      this.assertPostCommitEvaluationBinding(current);
       let effectiveContext = await this.contextWithReferencedFacts(current, context);
+      if (input.type !== "transfer_owner") effectiveContext = await this.contextWithInputFacts(input, effectiveContext);
       if (input.type === "quarantine_fact") {
         const factRef = (input.payload as any).quarantine.fact;
         const storedFact = await this.readImmutableFact(factRef.hash).catch((error) => { throw new DagRunStoreCorruptError(`Quarantined fact ${factRef.hash} is not durably stored`, error); });
@@ -165,6 +199,7 @@ export class DagRunSnapshotStoreV1 {
         if (current.owner.sessionId !== null && !exactCurrentOwner && payload.priorOwnerDisposition !== "same_manager") {
           return { accepted: false, code: "STALE_OWNER", message: "attached owner takeover requires direct-transfer or proven-dead recovery protocol", currentRevision: current.revision, blockerIds: [] };
         }
+        if (input.type === "transfer_owner") effectiveContext = await this.contextWithInputFacts(input, effectiveContext);
       } else if (current.owner.lockIdentity !== lock.lockIdentity || current.owner.ownerTokenHash !== lock.ownerTokenHash || current.owner.sessionId !== lock.sessionId || current.owner.pid !== lock.pid || current.owner.processStartIdentity !== lock.processStartIdentity) {
         return {
           accepted: false, code: "STALE_OWNER", message: "held lock identity/token does not match current conductor owner",
@@ -173,13 +208,18 @@ export class DagRunSnapshotStoreV1 {
       }
       const reduced = reduceDagRunV1(current, input, effectiveContext);
       if (!reduced.accepted || reduced.duplicate) return reduced;
+      this.assertPostCommitEvaluationBinding(reduced.state);
       await this.archiveSnapshot(current);
       await this.archiveSnapshot(reduced.state);
       await this.options.failpoint?.("after_archive");
       await this.writeSnapshot(reduced.state);
+      committedState = reduced.state;
       await this.pruneSnapshotArchives(reduced.state);
       return reduced;
-    });
+      });
+    } finally {
+      if (committedState) this.queuePostCommitEvaluation(committedState);
+    }
   }
 
   async putImmutableFact(value: unknown): Promise<{ hash: string; path: string; bytes: number }> {
@@ -254,6 +294,7 @@ export class DagRunSnapshotStoreV1 {
     await this.acquireRecoveryLock(newLock);
     let replacementLockHeld = false;
     let recoverySucceeded = false;
+    let committedState: DagRunStateV1 | null = null;
     try {
       let staleLock: unknown = null;
       let independentlyVerified = false;
@@ -316,12 +357,16 @@ export class DagRunSnapshotStoreV1 {
       await fsyncDirectory(quarantinePath);
       if (!replacementLockHeld) { await this.publishLock(newLock, true); replacementLockHeld = true; await this.options.failpoint?.("after_replacement_lock"); }
       const current = await this.read(context);
-      const reduced = reduceDagRunV1(current, input, await this.contextWithReferencedFacts(current, recoveryContext));
+      this.assertPostCommitEvaluationBinding(current);
+      const referencedContext = await this.contextWithReferencedFacts(current, recoveryContext);
+      const reduced = reduceDagRunV1(current, input, await this.contextWithInputFacts(input, referencedContext));
       if (!reduced.accepted) throw new Error(`Replacement owner attach rejected: ${reduced.code}: ${reduced.message}`);
       if (!reduced.duplicate) {
+        this.assertPostCommitEvaluationBinding(reduced.state);
         await this.archiveSnapshot(current);
         await this.archiveSnapshot(reduced.state);
         await this.writeSnapshot(reduced.state);
+        committedState = reduced.state;
         await this.pruneSnapshotArchives(reduced.state);
       }
       recoverySucceeded = true;
@@ -331,6 +376,7 @@ export class DagRunSnapshotStoreV1 {
       if (recoverySucceeded) await rm(this.ownerRecoveryIntentPath, { force: true }).catch(() => undefined);
       await this.releaseDirectoryLock(this.lockRecoveryDirectory, this.lockRecoveryMetadataPath, newLock, "recovery").catch(() => undefined);
       await fsyncDirectory(this.runDirectory).catch(() => undefined);
+      if (committedState) this.queuePostCommitEvaluation(committedState);
     }
   }
 
@@ -374,26 +420,48 @@ export class DagRunSnapshotStoreV1 {
   private async contextWithReferencedFacts(state: DagRunStateV1, context: DagRunValidationContextV1): Promise<DagRunValidationContextV1> {
     const hashes = new Set<string>();
     const semanticHashes = new Set<string>();
-    const addSemantic = (hash: string) => { hashes.add(hash); semanticHashes.add(hash); };
+    const addSemantic = (hash: unknown) => { if (typeof hash === "string") { hashes.add(hash); semanticHashes.add(hash); } };
     hashes.add(state.identity.reviewReceipt.hash);
     for (const receipt of state.identity.authorizationReceipts) hashes.add(receipt.hash);
     hashes.add(state.identity.authorizationSet.hash);
     hashes.add(state.freshness.receipt.hash);
     if (state.owner.ownershipReceipt) addSemantic(state.owner.ownershipReceipt);
-    for (const effect of Object.values(state.effects)) if (effect.observationHash) addSemantic(effect.observationHash);
+    for (const effect of Object.values(state.effects)) { if (effect.executionObservationHash) addSemantic(effect.executionObservationHash); if (effect.observationHash) addSemantic(effect.observationHash); if (effect.boundWorkerResultHash) addSemantic(effect.boundWorkerResultHash); }
+    for (const slot of Object.values(state.idempotencySlots) as any[]) if (slot.landingObservationBinding?.observationHash) addSemantic(slot.landingObservationBinding.observationHash);
     for (const repository of Object.values(state.repositories)) { hashes.add(repository.observationReceipt); if (repository.workspace.observationReceipt) hashes.add(repository.workspace.observationReceipt); }
-    for (const binding of Object.values(state.workerBindings)) { hashes.add(binding.configRef.hash); if (binding.resultHash) addSemantic(binding.resultHash); }
+    for (const binding of Object.values(state.workerBindings)) { addSemantic(binding.configRef.hash); if (binding.resultHash) addSemantic(binding.resultHash); }
     for (const attempt of Object.values(state.stageAttempts)) { addSemantic(attempt.attemptInput.hash); if (attempt.workerResult) addSemantic(attempt.workerResult.hash); if (attempt.evidence) addSemantic(attempt.evidence.hash); }
     for (const item of Object.values(state.workItems)) { if (item.candidate) addSemantic(item.candidate.candidateHash); if (item.integrationReadyReceipt) addSemantic(item.integrationReadyReceipt); if (item.integrationReceipt) addSemantic(item.integrationReceipt); }
-    for (const index of [state.evidenceIndex.stageAttemptInputs, state.evidenceIndex.workerResults, state.evidenceIndex.candidates, state.evidenceIndex.stageEvidence, state.evidenceIndex.checkDispositions, state.evidenceIndex.verifications, state.evidenceIndex.oracleAssertions, state.evidenceIndex.findings, state.evidenceIndex.findingResolutions, state.evidenceIndex.waivers, state.evidenceIndex.invalidations, state.evidenceIndex.adoptions, state.evidenceIndex.effectReconciliations, state.evidenceIndex.integrationReady, state.evidenceIndex.integrationReceipts, state.evidenceIndex.gateReceipts]) for (const reference of Object.values(index)) addSemantic(reference.hash);
+    const evidenceIndexes = state.evidenceIndex as any;
+    for (const index of [evidenceIndexes.stageAttemptInputs, evidenceIndexes.workerResults, evidenceIndexes.candidates, evidenceIndexes.stageEvidence, evidenceIndexes.checkAggregates, evidenceIndexes.checkExecutions, evidenceIndexes.procedureExecutions, evidenceIndexes.findingCorrections, evidenceIndexes.checkApplicabilities, evidenceIndexes.environmentObservations, evidenceIndexes.workspaceMaterializations, evidenceIndexes.checkDispositions, evidenceIndexes.verifications, evidenceIndexes.oracleAssertions, evidenceIndexes.findings, evidenceIndexes.findingResolutions, evidenceIndexes.waivers, evidenceIndexes.invalidations, evidenceIndexes.adoptions, evidenceIndexes.effectReconciliations, evidenceIndexes.integrationReady, evidenceIndexes.integrationReceipts, evidenceIndexes.gateReceipts].filter(Boolean)) for (const reference of Object.values(index) as any[]) addSemantic(reference.hash);
     for (const reference of Object.values(state.evidenceIndex.stalenessReceipts)) hashes.add(reference.hash);
+    for (const attempt of Object.values(state.integrationAttempts) as any[]) {
+      for (const hash of [attempt.sourceCandidateHash, attempt.temporaryWorkspaceReceipt, attempt.repositoryBindingFactHash, ...(attempt.privateRefFactHashes ?? []), attempt.compositionFactHash, attempt.proposalVerificationFactHash, attempt.landingObservationFactHash, attempt.integrationReceipt, ...(attempt.prefixEvidenceHashes ?? []), ...(attempt.finalEvidenceHashes ?? []), ...(attempt.prefixEffectReconciliationHashes ?? []), ...(attempt.finalEffectReconciliationHashes ?? [])]) addSemantic(hash);
+    }
     for (const entry of Object.values(state.quarantine)) { addSemantic(entry.fact.hash); if (entry.adoptionReceipt) addSemantic(entry.adoptionReceipt); }
-    const facts = { ...context.facts };
-    for (const hash of hashes) {
-      const stored = await this.readImmutableFact(hash).catch((error) => { throw new DagRunStoreCorruptError(`Snapshot referenced immutable fact ${hash} is unavailable`, error); });
-      if (!(stored as any)?.hash || (stored as any).hash !== hash) throw new DagRunStoreCorruptError(`Snapshot referenced immutable fact ${hash} does not bind its own hash`);
-      if (facts[hash] && canonicalStringify(facts[hash]) !== canonicalStringify(stored)) throw new DagRunStoreCorruptError(`Snapshot referenced immutable fact ${hash} conflicts with supplied validation context`);
-      if (semanticHashes.has(hash)) facts[hash] = stored as any;
+    const facts: Record<string, DagRunValidationContextV1["facts"][string]> = {};
+    const nestedReferenceKeys = new Set(["priorObservationHash", "priorOwnershipReceiptHash", "attemptInputHash", "candidateHash", "producerResultHash", "checkAggregateHash", "environmentObservationHash", "workspaceMaterializationHash", "executionEvidenceHash", "deltaAttestationExecutionHash", "observationHash", "evidenceHash", "priorEvidenceHash", "fromCandidateHash", "toCandidateHash", "findingHash", "resolutionHash", "supersedingEvidenceHash", "introducedByEvidenceHash", "boundWorkerResultHash", "executionObservationHash", "transactionReceiptFactHash", "landingObservationHash", "temporaryWorkspaceReceipt", "repositoryBindingFactHash", "compositionFactHash", "proposalVerificationFactHash", "landingObservationFactHash", "integrationReceipt"]);
+    const nestedReferenceArrayKeys = new Set(["findingHashes", "effectReconciliationHashes", "evidenceHashes", "applicabilityEvidenceHashes", "prefixEvidenceHashes", "finalEvidenceHashes", "privateRefFactHashes"]);
+    const enqueueNested = (value: unknown): void => {
+      if (!value || typeof value !== "object") return;
+      if (Array.isArray(value)) { for (const child of value) enqueueNested(child); return; }
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (nestedReferenceKeys.has(key)) addSemantic(child);
+        else if (nestedReferenceArrayKeys.has(key) && Array.isArray(child)) for (const hash of child) addSemantic(hash);
+        else if (child && typeof child === "object") enqueueNested(child);
+      }
+    };
+    const loaded = new Set<string>(); let ownershipReceiptCount = 0;
+    while (loaded.size < hashes.size) {
+      const pending = [...hashes].filter((hash) => !loaded.has(hash));
+      for (const hash of pending) {
+        const stored = await this.readImmutableFact(hash).catch((error) => { throw new DagRunStoreCorruptError(`Snapshot referenced immutable fact ${hash} is unavailable`, error); });
+        if (!(stored as any)?.hash || (stored as any).hash !== hash) throw new DagRunStoreCorruptError(`Snapshot referenced immutable fact ${hash} does not bind its own hash`);
+        if ((stored as any).kind === "ownership" && ++ownershipReceiptCount > 64) throw new DagRunStoreCorruptError("Ownership receipt hydration exceeds the bounded 64-epoch lineage limit");
+        if (facts[hash] && canonicalStringify(facts[hash]) !== canonicalStringify(stored)) throw new DagRunStoreCorruptError(`Snapshot referenced immutable fact ${hash} conflicts with supplied validation context`);
+        if (semanticHashes.has(hash)) { facts[hash] = stored as any; enqueueNested(stored); }
+        loaded.add(hash);
+      }
     }
     if (state.owner.ownershipReceipt) {
       const ownership = facts[state.owner.ownershipReceipt] as any;
@@ -419,11 +487,104 @@ export class DagRunSnapshotStoreV1 {
     return { ...context, facts, authorityReceipts };
   }
 
+  private async contextWithInputFacts(input: DagRunInputV1, context: DagRunValidationContextV1): Promise<DagRunValidationContextV1> {
+    const payload: any = input.payload;
+    const references: Array<{ hash: string; kind?: string; bytes?: number }> = [];
+    const addHash = (hash: unknown, kind?: string) => { if (typeof hash === "string") references.push({ hash, kind }); };
+    const addRef = (reference: any) => { if (reference?.hash) references.push({ hash: reference.hash, kind: reference.kind, bytes: reference.bytes }); };
+    switch (input.type) {
+      case "attach_owner": case "transfer_owner": addHash(payload.ownershipReceipt, "ownership"); break;
+      case "record_effect_execution": addHash(payload.executionObservationHash); break;
+      case "record_effect_observation": addHash(payload.observationHash, "effect_reconciliation"); break;
+      case "record_cancellation": for (const result of payload.workerResults) addRef(result.result); for (const observation of payload.effectObservations) addHash(observation.observationHash, "effect_reconciliation"); break;
+      case "adopt_quarantined_fact": addHash(payload.adoptionReceipt, "quarantine_resolution"); break;
+      case "begin_stage_attempt": addRef(payload.attemptInput); break;
+      case "bind_worker_attempt": addRef(payload.binding.configRef); addRef(payload.launchObservation); break;
+      case "record_worker_result": addRef(payload.result); break;
+      case "record_candidate": addRef(payload.candidate); if (payload.f2Transition) addRef(payload.f2Transition); if (payload.procedureExecution) addRef(payload.procedureExecution); break;
+      case "record_finding": addRef(payload.finding); break;
+      case "record_finding_resolution": addRef(payload.resolution); break;
+      case "seal_stage_attempt": addRef(payload.evidence); addRef(payload.checkAggregate); for (const reference of [...payload.oracleAssertions, ...payload.checkDispositions, ...(payload.checkExecutions ?? []), ...(payload.checkAuthorities ?? []), ...(payload.effectReconciliations ?? [])]) addRef(reference); if (payload.environmentObservation) addRef(payload.environmentObservation); if (payload.workspaceMaterialization) addRef(payload.workspaceMaterialization); break;
+      case "seal_f8_integration_ready": addRef(payload.evidence); addRef(payload.checkAggregate); addRef(payload.integrationReady); for (const reference of [...payload.oracleAssertions, ...payload.checkDispositions, ...(payload.checkExecutions ?? []), ...(payload.checkAuthorities ?? []), ...(payload.effectReconciliations ?? [])]) addRef(reference); if (payload.environmentObservation) addRef(payload.environmentObservation); if (payload.workspaceMaterialization) addRef(payload.workspaceMaterialization); break;
+      case "reserve_integration_attempt": addHash(payload.repositoryBindingFactHash, "git_transaction"); break;
+      case "record_git_composition": addHash(payload.compositionFactHash, "git_transaction"); for (const hash of payload.privateRefFactHashes) addHash(hash, "git_transaction"); break;
+      case "record_git_composition_conflict": addHash(payload.compositionFactHash, "git_transaction"); break;
+      case "record_proposal_verification": addHash(payload.proposalVerificationFactHash, "git_transaction"); for (const hash of [...payload.prefixEvidenceHashes, ...payload.finalEvidenceHashes]) addHash(hash, "verification"); for (const hash of [...payload.prefixEffectReconciliationHashes, ...payload.finalEffectReconciliationHashes]) addHash(hash, "effect_reconciliation"); break;
+      case "record_git_landing_reconciliation": addHash(payload.landingObservationFactHash, "git_transaction"); break;
+      case "accept_integration_receipt": addHash(payload.integrationReceiptHash, "integration"); addHash(payload.transactionReceiptFactHash, "git_integration_receipt"); break;
+    }
+    const facts = { ...context.facts };
+    const loaded = new Set<string>(); let ownershipReceiptCount = 0;
+    const pending = references.map(({ hash }) => hash);
+    const nestedKeys = new Set(["priorObservationHash", "priorOwnershipReceiptHash", "attemptInputHash", "candidateHash", "producerResultHash", "checkAggregateHash", "environmentObservationHash", "workspaceMaterializationHash", "executionEvidenceHash", "deltaAttestationExecutionHash", "observationHash", "evidenceHash", "priorEvidenceHash", "fromCandidateHash", "toCandidateHash", "findingHash", "resolutionHash", "supersedingEvidenceHash", "introducedByEvidenceHash", "boundWorkerResultHash", "executionObservationHash", "transactionReceiptFactHash", "landingObservationHash"]);
+    const nestedArrayKeys = new Set(["findingHashes", "effectReconciliationHashes", "evidenceHashes", "applicabilityEvidenceHashes", "prefixEvidenceHashes", "finalEvidenceHashes", "privateRefFactHashes"]);
+    while (pending.length) {
+      const hash = pending.shift()!;
+      if (loaded.has(hash)) continue;
+      const reference = references.find((candidate) => candidate.hash === hash);
+      const stored = await this.readImmutableFact(hash).catch((error) => { throw new DagRunStoreCorruptError(`Input referenced immutable fact ${hash} is unavailable`, error); });
+      if ((stored as any)?.kind === "ownership" && ++ownershipReceiptCount > 64) throw new DagRunStoreCorruptError("Input ownership receipt hydration exceeds the bounded 64-epoch lineage limit");
+      if ((stored as any)?.hash !== hash || (reference?.kind && (stored as any)?.kind !== reference.kind) || (reference?.bytes !== undefined && Buffer.byteLength(canonicalStringify(stored)) !== reference.bytes)) throw new DagRunStoreCorruptError(`Input referenced immutable fact ${hash} has corrupt identity, kind, or byte metadata`);
+      if (facts[hash] && canonicalStringify(facts[hash]) !== canonicalStringify(stored)) throw new DagRunStoreCorruptError(`Input referenced immutable fact ${hash} conflicts with supplied validation context`);
+      facts[hash] = stored as any; loaded.add(hash);
+      const visit = (value: unknown): void => {
+        if (!value || typeof value !== "object") return;
+        if (Array.isArray(value)) { for (const child of value) visit(child); return; }
+        for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+          if (nestedKeys.has(key) && typeof child === "string") pending.push(child);
+          else if (nestedArrayKeys.has(key) && Array.isArray(child)) for (const nestedHash of child) if (typeof nestedHash === "string") pending.push(nestedHash);
+          else if (child && typeof child === "object") visit(child);
+        }
+      };
+      visit(stored);
+    }
+    return { ...context, facts };
+  }
+
   private async verifyContextFacts(context: DagRunValidationContextV1): Promise<void> {
     for (const [hash, expected] of Object.entries({ ...context.facts, ...(context.authorityReceipts ?? {}) })) {
       const stored = await this.readImmutableFact(hash).catch((error) => { throw new DagRunStoreCorruptError(`Validation context fact ${hash} is not durably stored`, error); });
       if (canonicalHash(stored) !== canonicalHash(expected)) throw new DagRunStoreCorruptError(`Validation context fact ${hash} conflicts with immutable store content`);
     }
+  }
+
+  private assertPostCommitEvaluationBinding(state: Pick<DagRunStateV1, "runId" | "runNonce" | "identity">): void {
+    const observer = this.postCommitEvaluationObserver;
+    if (!observer) return;
+    const expectedRunNonceHash = canonicalHash(state.runNonce);
+    const expectedRunIdentityHash = dagRunIdentityHashV1(state);
+    if (observer.identity.planHash !== state.identity.planHash || observer.identity.runNonceHash !== expectedRunNonceHash || observer.identity.runIdentityHash !== expectedRunIdentityHash) {
+      throw new Error("Post-commit evaluation observer does not bind the exact planHash/runNonceHash/runIdentityHash");
+    }
+  }
+
+  private queuePostCommitEvaluation(state: DagRunStateV1): void {
+    const observer = this.postCommitEvaluationObserver;
+    if (!observer) return;
+    try {
+      this.assertPostCommitEvaluationBinding(state);
+      const identity = Object.freeze({
+        projectIdentityHash: observer.identity.projectIdentityHash,
+        runIdentityHash: observer.identity.runIdentityHash,
+        runNonceHash: observer.identity.runNonceHash,
+        planHash: observer.identity.planHash,
+        evaluationProfileHash: observer.identity.evaluationProfileHash,
+        clockPolicyHash: observer.identity.clockPolicyHash,
+        creditContextHash: observer.identity.creditContextHash,
+        revision: state.revision,
+        snapshotHash: state.snapshotHash,
+      });
+      queueMicrotask(() => {
+        try {
+          queueMicrotask(() => {
+            try {
+              const result = observer.offerCommittedSnapshot(identity);
+              if (result && typeof (result as PromiseLike<unknown>).then === "function") void Promise.resolve(result).catch(() => undefined);
+            } catch { /* evaluation is isolated from authoritative execution */ }
+          });
+        } catch { /* evaluation scheduling is isolated from authoritative execution */ }
+      });
+    } catch { /* evaluation identity validation is isolated after durability */ }
   }
 
   private async ensureDirectories(): Promise<void> {
@@ -485,11 +646,16 @@ export class DagRunSnapshotStoreV1 {
     try {
       await durableCreateExclusive(join(tempDirectory, "owner.json"), canonicalStringify(lock));
       await fsyncDirectory(tempDirectory);
-      try { await rename(tempDirectory, directory); }
-      catch (error: any) {
-        if (await exists(directory)) throw new DagRunStoreLockedError(await this.inspectMetadata(join(directory, "owner.json")));
-        throw error;
+      let published = false;
+      for (let attempt = 0; attempt < 4 && !published; attempt += 1) {
+        try { await rename(tempDirectory, directory); published = true; }
+        catch (error: any) {
+          if (await exists(directory)) throw new DagRunStoreLockedError(await this.inspectMetadata(join(directory, "owner.json")));
+          if (!["EEXIST", "ENOTEMPTY"].includes(error?.code)) throw error;
+          if (attempt === 3) throw new DagRunStoreLockedError({ reason: "lock CAS changed repeatedly before publication" });
+        }
       }
+      if (!published) throw new DagRunStoreLockedError({ reason: "lock CAS changed repeatedly before publication" });
       await fsyncDirectory(this.runDirectory);
     } finally { await rm(tempDirectory, { recursive: true, force: true }).catch(() => undefined); }
   }
@@ -515,6 +681,37 @@ export class DagRunSnapshotStoreV1 {
       await fsyncDirectory(this.runDirectory).catch(() => undefined);
     }
   }
+}
+
+export function dagRunIdentityHashV1(state: Pick<DagRunStateV1, "runId" | "runNonce">): string {
+  if (!state || typeof state !== "object" || Array.isArray(state) || typeof state.runId !== "string" || typeof state.runNonce !== "string") throw new Error("DAG run identity derivation requires exact runId and runNonce strings");
+  return canonicalHash({ runId: state.runId, runNonce: state.runNonce });
+}
+
+function normalizePostCommitEvaluationObserver(observer: DagRunPostCommitEvaluationObserverV1 | undefined): DagRunPostCommitEvaluationObserverV1 | null {
+  if (observer === undefined) return null;
+  if (!observer || typeof observer !== "object" || Array.isArray(observer)) throw new Error("Post-commit evaluation observer must be one closed object");
+  const observerKeys = Object.keys(observer as unknown as Record<string, unknown>).sort();
+  if (JSON.stringify(observerKeys) !== JSON.stringify(["identity", "offerCommittedSnapshot"].sort()) || typeof observer.offerCommittedSnapshot !== "function") throw new Error("Post-commit evaluation observer must contain only identity and offerCommittedSnapshot");
+  const identity = observer.identity;
+  if (!identity || typeof identity !== "object" || Array.isArray(identity)) throw new Error("Post-commit evaluation observer identity must be one closed object");
+  const identityKeys = Object.keys(identity as unknown as Record<string, unknown>).sort();
+  const expectedIdentityKeys = ["projectIdentityHash", "runIdentityHash", "runNonceHash", "planHash", "evaluationProfileHash", "clockPolicyHash", "creditContextHash"].sort();
+  if (JSON.stringify(identityKeys) !== JSON.stringify(expectedIdentityKeys)) throw new Error("Post-commit evaluation observer identity must contain the complete immutable bound identity");
+  for (const key of expectedIdentityKeys) if (!/^sha256:[0-9a-f]{64}$/.test((identity as unknown as Record<string, unknown>)[key] as string)) throw new Error(`Post-commit evaluation observer ${key} must be a canonical hash`);
+  const boundIdentity = Object.freeze({
+    projectIdentityHash: identity.projectIdentityHash,
+    runIdentityHash: identity.runIdentityHash,
+    runNonceHash: identity.runNonceHash,
+    planHash: identity.planHash,
+    evaluationProfileHash: identity.evaluationProfileHash,
+    clockPolicyHash: identity.clockPolicyHash,
+    creditContextHash: identity.creditContextHash,
+  });
+  return Object.freeze({
+    identity: boundIdentity,
+    offerCommittedSnapshot: observer.offerCommittedSnapshot.bind(observer),
+  });
 }
 
 function immutableFactHash(value: unknown): string {

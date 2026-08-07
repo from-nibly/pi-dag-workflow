@@ -138,7 +138,9 @@ Every post-start mutation carries the exact run nonce, owner epoch, revision, sn
 
 The deterministic scheduler separates correctness readiness from lane/resource/mutex admission. `maxActiveNodes` lanes remain sticky through phase waits, repairs, blocking, and integration. Generic worker status affects DAG projection only through an exact run-state worker binding.
 
-Real-Git integration uses core-only repository preflight, immutable private refs, explicit-base `merge-tree`, deterministic one-parent `commit-tree`, exact prefix/final verification, and a guarded ordinary fast-forward in the clean session-bound worktree. Target old/new/third reconciliation and immutable receipts make every failpoint recoverable without reset, stash, force update, or conductor conflict edits.
+Real-Git integration uses core-only repository preflight, immutable private refs, explicit-base `merge-tree`, deterministic one-parent `commit-tree`, plan-hashed executable prefix/final verification profiles, and a guarded ordinary fast-forward in the clean session-bound worktree. Target old/new/third reconciliation and immutable receipts make every failpoint recoverable without reset, stash, force update, or conductor conflict edits.
+
+The reducer-driven F0–F8 lifecycle publishes immutable attempt, launch, worker-result, candidate, check, environment, finding, integration, and cleanup facts before they can advance authority. Owner takeover and prior-session worker reconciliation are process-identity fenced. Detached evaluation observes committed snapshot identities asynchronously, retains privacy-safe bounded accumulators and envelopes, and cannot affect execution. The dogfood portfolio runs six counterbalanced serial/parallel pairs (twelve canonical executions) plus separate recovery drills.
 
 These planning and lifecycle-authoring commands remain deferred:
 
@@ -191,6 +193,9 @@ The candidate does not become authoritative until its semantic mappings, omissio
 npm run smoke
 npm run test:model
 npm run test:dag-runtime
+npm run test:dag-evaluation
+npm run test:dag-dogfood
+npm run test:dag-dogfood-portfolio
 npm run test:git-integration
 npm run test:workers
 # Only while project-model/model.json is still a non-authoritative candidate:

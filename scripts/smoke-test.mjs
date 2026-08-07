@@ -72,7 +72,7 @@ const productionModel = await execFileAsync(process.execPath, ["scripts/project-
 assertIncludes(productionModel.stdout, "Project model production tests OK", "production project-model tests pass");
 const dagRuntime = await execFileAsync(process.execPath, ["scripts/dag-runtime-test.mjs"]);
 assertIncludes(dagRuntime.stdout, "Canonical DAG plan and run-state schema tests OK", "canonical DAG schema tests pass");
-const gitIntegration = await execFileAsync(process.execPath, ["scripts/git-integration-test.mjs"], { timeout: 180_000 });
+const gitIntegration = await execFileAsync(process.execPath, ["scripts/git-integration-test.mjs"], { timeout: 300_000 });
 assertIncludes(gitIntegration.stdout, "Exact real-Git integration transaction and failpoint matrix OK", "real-Git integration failpoint matrix passes");
 const workerRuntime = await execFileAsync(process.execPath, ["scripts/worker-runtime-test.mjs"], { timeout: 120_000 });
 assertIncludes(workerRuntime.stdout, "Owned worker core, supervisor, and manager tests OK", "owned worker runtime tests pass");

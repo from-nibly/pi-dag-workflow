@@ -12762,6 +12762,104 @@
       "updatedAt": "2026-08-05T08:33:41.158Z"
     },
     {
+      "body": "Task 113 implements reducer-driven F0–F8 lifecycle reconciliation, exact attempt-bound worker and Git-output authority, immutable check/environment/finding/procedure/integration facts, multi-hop owner recovery, binding-storage-aware prior-session worker operations, plan-hashed executable integration verification, durable worktree cleanup, and a detached privacy-safe evaluation store and observer. Evaluation telemetry is non-authoritative and cannot backpressure or alter execution.",
+      "createdAt": "2026-08-05T22:25:25.051Z",
+      "id": "EV-task113-canonical-lifecycle-evaluation-implementation",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-model-aware-dag-redesign"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/evaluation-store.ts",
+        "extensions/dag-workflow/dag-runtime/evaluation.ts",
+        "extensions/dag-workflow/dag-runtime/integration-driver.ts",
+        "extensions/dag-workflow/dag-runtime/lifecycle-runtime.ts",
+        "extensions/dag-workflow/dag-runtime/reducer.ts",
+        "extensions/dag-workflow/dag-runtime/run-state.ts",
+        "extensions/dag-workflow/dag-runtime/store.ts",
+        "extensions/dag-workflow/worker-runtime/manager.mjs",
+        "scripts/dag-evaluation-test.mjs",
+        "scripts/dag-runtime-test.mjs"
+      ],
+      "state": "current",
+      "title": "Canonical F0–F8 lifecycle and detached evaluation are implemented",
+      "updatedAt": "2026-08-05T22:25:25.051Z"
+    },
+    {
+      "body": "Independent read-only lifecycle-kernel and conductor/runtime closure reviews reported no release blockers on the final implementation. The final sanitized release matrix passed DAG runtime, sixty evaluation tests, worker runtime, exact real-Git integration, project-model tests, smoke, packaging, syntax, diff, whitespace, and specification drift checks. Full dogfood passed, and two final six-pair/twelve-execution portfolio runs produced the exact semantic manifest sha256:057de6716bed1bd822dcfa66edeb3c057de2ad4cd01b743e0d8e99d3abcd797f with evidence hash sha256:837f9b9abc19d72fa49c1ea31b2d2d501f464caa788eb8c498e43fbe7dc749a3.",
+      "createdAt": "2026-08-07T05:11:13.022Z",
+      "id": "EV-task113-final-independent-release-closure",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-model-aware-dag-redesign"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/integration-driver.ts",
+        "extensions/dag-workflow/dag-runtime/lifecycle-runtime.ts",
+        "extensions/dag-workflow/dag-runtime/reducer.ts",
+        "extensions/dag-workflow/dag-runtime/run-state.ts",
+        "extensions/dag-workflow/worker-runtime/manager.mjs",
+        "scripts/dag-dogfood-portfolio.mjs",
+        "scripts/dag-dogfood-test.mjs",
+        "scripts/dag-runtime-test.mjs",
+        "scripts/fixtures/dag-dogfood-portfolio-evidence-v1.json",
+        "sha256:057de6716bed1bd822dcfa66edeb3c057de2ad4cd01b743e0d8e99d3abcd797f",
+        "sha256:837f9b9abc19d72fa49c1ea31b2d2d501f464caa788eb8c498e43fbe7dc749a3"
+      ],
+      "state": "current",
+      "title": "Task 113 independent closure and release matrix passed",
+      "updatedAt": "2026-08-07T05:11:13.022Z"
+    },
+    {
+      "body": "The accepted counterbalanced portfolio completed two independent runs of six serial/parallel pairs, twelve canonical F0–F8 executions per run, strict real-Git landing, strict evaluation envelope publication, paired cohort reporting, and three separate recovery drills per run. Both final runs, including durable procedure and validation effect transitions, produced the same semantic manifest hash sha256:057de6716bed1bd822dcfa66edeb3c057de2ad4cd01b743e0d8e99d3abcd797f. Runtime-bound envelope and recovery hashes remain explicit and uncompensated rather than being folded into the semantic repeatability claim.",
+      "createdAt": "2026-08-05T22:25:25.051Z",
+      "id": "EV-task113-six-pair-dogfood-portfolio",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-model-aware-dag-redesign"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "scripts/dag-dogfood-portfolio.mjs",
+        "scripts/fixtures/dag-dogfood-portfolio-evidence-v1.json",
+        "scripts/fixtures/dag-evaluation-portfolio-v1.json",
+        "sha256:057de6716bed1bd822dcfa66edeb3c057de2ad4cd01b743e0d8e99d3abcd797f",
+        "sha256:837f9b9abc19d72fa49c1ea31b2d2d501f464caa788eb8c498e43fbe7dc749a3"
+      ],
+      "state": "current",
+      "title": "Six-pair twelve-execution canonical DAG portfolio passed twice",
+      "updatedAt": "2026-08-07T04:50:15.671Z"
+    },
+    {
       "body": "An independent review compared Git graph, DVC DAG, systemd dependency/critical-chain views, pstree, Argo Workflows, GitHub CLI run watching, Ninja, Gradle, Bazel, and Pi TUI constraints. The recurring pattern is a narrow topology channel independent from a fixed status cell, an aggregate progress header, and a compact active/exception list. Full boxed DAGs belong in explicit commands. Large views should select attention/active seeds plus one-hop context, mark every cut with deterministic upstream/downstream counts, preserve topological order, avoid status-driven reordering, and use ASCII semantics with width measured in terminal cells. The review recommends comparing a one-node-per-row topology gutter against horizontal and adjacency layouts rather than assuming horizontal is best.",
       "confidence": "high",
       "createdAt": "2026-08-04T02:16:11.113Z",
@@ -12980,24 +13078,20 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "Tasks 111 and 112 are release-closed. The real-Git transaction, reducer integration path, deterministic sticky-lane scheduler, exact execution projection, nine conductor tools, session/worker joins, UI-independent progression loop, and passive bounded fail-closed TUI widget have passed full verification and independent adversarial closure. Task 113 can now begin the full canonical F0–F8 dogfood execution and evaluation. This is current agent understanding, not new human authority.",
-      "generatedAt": "2026-08-05T08:33:41.159Z",
+      "body": "Tasks 111, 112, and 113 are release-closed. Task 113 delivers the reducer-driven canonical F0–F8 lifecycle; durable intent-before-external procedure, validation, worker, cleanup, cancellation, and Git execution; exact restart and owner-transfer recovery; binding-storage-aware owned-worker reconciliation; detached privacy-safe evaluation; and a six-pair/twelve-execution portfolio repeated twice with an exact semantic manifest match. Independent kernel and runtime reviews found no release blockers, and the final release, packaging, model, smoke, syntax, whitespace, and specification checks passed. Commit and push are the remaining authorized publication actions. This is current agent understanding, not new human authority.",
+      "generatedAt": "2026-08-07T05:11:13.023Z",
       "sourceObjects": [
         {
-          "id": "EV-real-git-integration-final-closure",
-          "semanticHash": "sha256:d8f89afcd7e96483d25c80dffeb01a00f44daf4594bdd6de2fbc0cf6bfedf629"
+          "id": "EV-task113-canonical-lifecycle-evaluation-implementation",
+          "semanticHash": "sha256:9865af6353f720c774fcad925d726ef016cfbf075c36c8df69555904a2dba19e"
         },
         {
-          "id": "EV-real-git-integration-transaction-implementation",
-          "semanticHash": "sha256:9c773433c734d74e57a516c0cbc181bab309cf36eab75263cde0843d6daf5735"
+          "id": "EV-task113-six-pair-dogfood-portfolio",
+          "semanticHash": "sha256:6c6797508f60ce7e2a611fec76ba36e8980a8b8ac8e039edcde28e812c30744e"
         },
         {
-          "id": "EV-sticky-scheduler-conductor-widget-implementation",
-          "semanticHash": "sha256:7c63823231504c5fd16f3a81501242b2b4a08bdb4d7e574592c06d0be4b0775d"
-        },
-        {
-          "id": "EV-task112-final-release-closure",
-          "semanticHash": "sha256:49391d77b9b18baf0d8d7b293a89bf59343813aee0cba1d1f154e101d6eabbd3"
+          "id": "EV-task113-final-independent-release-closure",
+          "semanticHash": "sha256:15e85b9776c053866c8d3bbb01b2e884aa118a68c09715ca7fa187c3863d61bf"
         },
         {
           "id": "INT-model-aware-dag-redesign",
@@ -13341,9 +13435,9 @@
         }
       ]
     },
-    "revision": 172,
+    "revision": 180,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-05T08:33:41.159Z"
+    "updatedAt": "2026-08-07T05:11:13.023Z"
   },
   "proposals": [
     {

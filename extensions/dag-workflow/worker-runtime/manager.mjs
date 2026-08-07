@@ -1,9 +1,10 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, open, realpath, rename, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import {
   MAX_COMPLETION_MESSAGE_BYTES,
   MAX_MAILBOX_BYTES,
@@ -11,6 +12,7 @@ import {
   MAX_STATE_BYTES,
   WorkerSessionStore,
   assertAttemptConfig,
+  assertWorkerSession,
   assertTerminalResult,
   attemptPaths,
   createWorkerSession,
@@ -37,6 +39,7 @@ import {
   writeImmutableJson,
 } from "./core.mjs";
 
+const execFileAsync = promisify(execFile);
 const TERMINAL_STATUSES = new Set(["succeeded", "needs_attention", "failed", "cancelled", "lost"]);
 const extensionPath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "index.ts");
 const defaultSupervisorPath = resolve(dirname(fileURLToPath(import.meta.url)), "supervisor.mjs");
@@ -51,6 +54,7 @@ export class WorkerManager {
     this.timerScanPending = false;
     this.scanning = false;
     this.scanQueue = Promise.resolve();
+    this.bindingOperationQueue = Promise.resolve();
     this.attached = false;
     this.processStartIdentity = null;
     this.cancellationTimers = new Map();
@@ -168,6 +172,185 @@ export class WorkerManager {
     return this.#launchAttempt(workerId, ctx, { initialOnly: true, launchKey, idempotentReplay: existing });
   }
 
+  async launchOwnedAttempt(input, ctx = this.context) {
+    this.#assertAttached();
+    const state = await this.store.load();
+    const launchKey = normalizeLaunchKey(input.launchKey);
+    const workerId = normalizeRuntimeId(input.workerId, "workerId");
+    const baseCommit = String(input.baseCommit ?? "");
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(baseCommit)) throw new Error("Owned-worker launch requires one exact Git base commit");
+    if (!/^sha256:[0-9a-f]{64}$/.test(String(input.configRequestHash ?? "")) || !Number.isInteger(Number(input.expectedAttemptNumber)) || Number(input.expectedAttemptNumber) < 1) throw new Error("Owned-worker launch requires exact config-request and attempt identities");
+    const existingRecord = (state.launchRecords ?? []).find((candidate) => candidate.launchKey === launchKey);
+    if (existingRecord) {
+      const existingWorker = state.workers[existingRecord.workerId];
+      if (!existingWorker || existingWorker.id !== workerId || existingWorker.normalizedRequest?.ownedWorktree?.baseCommit !== baseCommit || existingWorker.normalizedRequest?.boundConfigRequestHash !== input.configRequestHash) throw new Error("Owned-worker launch replay conflicts with its exact durable base/request identity");
+      if (existingWorker.currentAttempt > 0) {
+        const replay = await this.attemptIdentityByLaunchKey(launchKey);
+        if (!replay || replay.workerId !== workerId || replay.attemptNumber !== Number(input.expectedAttemptNumber)) throw new Error("Owned-worker launch replay lacks the exact reserved attempt identity");
+        return replay;
+      }
+    } else {
+      const recovered = await recoverUnboundOwnedAttempt(state.repositoryRoot, {
+        launchKey, workerId, expectedAttemptNumber: Number(input.expectedAttemptNumber), configRequestHash: String(input.configRequestHash), baseCommit,
+        worktreeName: normalizeRuntimeId(input.worktreeKey ?? launchKey, "worktreeKey"), label: String(input.label ?? workerId).trim().slice(0, 256) || workerId, task: String(input.task ?? "").trim(),
+      });
+      if (recovered) return recovered;
+    }
+    const worktreeName = normalizeRuntimeId(input.worktreeKey ?? launchKey, "worktreeKey");
+    const worktreeRoot = join(state.repositoryRoot, ".ai", "worker-roots", worktreeName);
+    await mkdir(dirname(worktreeRoot), { recursive: true });
+    let worktreeExists = true;
+    try { await stat(worktreeRoot); } catch (error) { if (error?.code === "ENOENT") worktreeExists = false; else throw error; }
+    if (!worktreeExists) await execFileAsync("git", ["worktree", "add", "--detach", worktreeRoot, baseCommit], { cwd: state.repositoryRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024 });
+    const exactWorktree = await inspectOwnedWorktreeExact(state.repositoryRoot, worktreeRoot, baseCommit);
+    const canonicalRoot = exactWorktree.realPath;
+    const refreshed = await this.store.load();
+    let approval = (refreshed.approvedDisposableRoots ?? []).find((candidate) => !candidate.retiredAt && candidate.realPath === canonicalRoot && candidate.ownerSessionId === refreshed.ownerSessionId && canonicalOwnerIdentity(candidate.approvedByOwner) === canonicalOwnerIdentity(refreshed.owner));
+    let disposableRootToken;
+    if (!approval) {
+      const created = await this.approveDisposableWorkingRoot(worktreeRoot);
+      disposableRootToken = created.disposableRootToken;
+      approval = (await this.store.load()).approvedDisposableRoots.find((candidate) => candidate.approvalId === created.approvalId);
+    }
+    if (!approval || approval.realPath !== canonicalRoot || approval.dev !== exactWorktree.dev || approval.ino !== exactWorktree.ino) throw new Error("Owned-worker worktree approval does not bind the exact path/device/inode");
+    await this.launch({ launchKey, workerId, label: input.label, task: input.task, cwd: worktreeRoot, boundConfigRequestHash: input.configRequestHash, ownedWorktreeBaseCommit: baseCommit, ownedWorktreeCommonDir: exactWorktree.commonDir, ownedWorktreeObjectFormat: exactWorktree.objectFormat, ...(disposableRootToken ? { disposableRootToken } : { disposableApprovalId: approval.approvalId }) }, ctx);
+    const exact = await this.attemptIdentityByLaunchKey(launchKey);
+    if (!exact || exact.workerId !== workerId || exact.attemptNumber !== Number(input.expectedAttemptNumber)) throw new Error("Owned-worker launch did not bind the exact requested worker/attempt identity");
+    return exact;
+  }
+
+  async attemptIdentityByLaunchKey(launchKey) {
+    this.#assertAttached();
+    const state = await this.store.load();
+    const normalized = normalizeLaunchKey(launchKey);
+    const record = (state.launchRecords ?? []).find((candidate) => candidate.launchKey === normalized);
+    if (!record) return null;
+    let worker = state.workers[record.workerId];
+    if (!worker && record.archivedWorkerPath) worker = await readArchivedWorker(state, record);
+    const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === (record.attemptNumber ?? worker.currentAttempt));
+    if (!worker || !attempt) return null;
+    const config = await readJson(resolve(state.repositoryRoot, attempt.configPath));
+    assertAttemptConfig(config);
+    const { configHash, ...configPayload } = config;
+    const configFactCore = { kind: "worker_config", configHash, config: configPayload };
+    return {
+      workerStorageId: state.storageId,
+      launchOwnerSessionId: config.ownerSessionId,
+      workerId: worker.id,
+      attemptNumber: attempt.attemptNumber,
+      attemptNonce: attempt.attemptNonce,
+      configHash,
+      configFact: { ...configFactCore, hash: sha256(configFactCore) },
+      supervisorPid: attempt.supervisorPid ?? 0,
+      supervisorStartIdentity: attempt.supervisorStartIdentity ?? null,
+      childPid: attempt.childPid ?? null,
+      childStartIdentity: attempt.childStartIdentity ?? null,
+      mailboxHash: attempt.mailboxHash ?? null,
+      heartbeatAt: attempt.updatedAt ?? attempt.createdAt,
+    };
+  }
+
+  async cleanupOwnedWorktreeForBinding(binding, input = {}) {
+    return this.#withBindingStore(binding, () => this.#cleanupOwnedWorktreeForCurrentStore(binding, input));
+  }
+
+  async #cleanupOwnedWorktreeForCurrentStore(binding, input = {}) {
+    this.#assertAttached();
+    const effectId = String(input.effectId ?? "");
+    const requestHash = String(input.requestHash ?? "");
+    const launchKey = normalizeLaunchKey(input.launchKey);
+    if (!effectId || !requestHash.startsWith("sha256:")) throw new Error("Owned-worktree cleanup requires an exact durable DAG effect identity");
+    await this.scan();
+    let state = await this.store.load();
+    if (state.storageId !== binding.workerStorageId) throw new Error("Owned-worktree cleanup binding belongs to another manager storage identity");
+    let worker = state.workers[binding.workerId];
+    if (!worker) { const record = (state.launchRecords ?? []).find((candidate) => candidate.workerId === binding.workerId); if (record?.archivedWorkerPath) worker = await readArchivedWorker(state, record); }
+    const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash);
+    if (!worker || worker.launchKey !== launchKey || !attempt || !attempt.ingestedAt || attempt.processDisposition !== "dead" || attempt.retrySafe !== true) return null;
+    await assertRetrySafeProcessFact(state, worker, attempt);
+    const root = worker.normalizedRequest?.workingRoot;
+    if (root?.kind !== "approved_disposable") throw new Error("Owned-worktree cleanup is not bound to an approved disposable root");
+    const repositoryCommonDir = await gitCommonDir(state.repositoryRoot);
+    await this.store.mutate((draft) => {
+      draft.worktreeCleanupIntents ??= [];
+      const existing = draft.worktreeCleanupIntents.find((candidate) => candidate.effectId === effectId);
+      const identity = { effectId, requestHash, launchKey, workerStorageId: binding.workerStorageId, workerId: binding.workerId, attemptNumber: binding.attemptNumber, attemptNonce: binding.attemptNonce, configHash: binding.configHash, path: root.path, realPath: root.realPath, dev: root.dev, ino: root.ino, approvalId: root.approvalId, commonDir: repositoryCommonDir };
+      if (existing) {
+        const existingIdentity = Object.fromEntries(Object.keys(identity).map((key) => [key, existing[key]]));
+        if (sha256(existingIdentity) !== sha256(identity)) throw new Error("Owned-worktree cleanup effect conflicts with its durable manager intent");
+        return;
+      }
+      draft.worktreeCleanupIntents.push({ ...identity, state: "intended", intendedAt: nowIso(), retiredAt: null, removedAt: null });
+    });
+    await this.#hitFailpoint("after_worktree_cleanup_intent", { effectId, workerId: binding.workerId });
+    state = await this.store.load();
+    const cleanup = state.worktreeCleanupIntents.find((candidate) => candidate.effectId === effectId);
+    if (!cleanup || cleanup.requestHash !== requestHash) throw new Error("Durable owned-worktree cleanup intent is missing or conflicting");
+    if (!cleanup.retiredAt) {
+      await this.store.mutate((draft) => {
+        const current = draft.worktreeCleanupIntents.find((candidate) => candidate.effectId === effectId);
+        const approval = (draft.approvedDisposableRoots ?? []).find((candidate) => candidate.approvalId === cleanup.approvalId);
+        if (!current || !approval || approval.realPath !== cleanup.realPath || approval.dev !== cleanup.dev || approval.ino !== cleanup.ino) throw new Error("Owned-worktree cleanup approval identity changed");
+        if (!approval.retiredAt) approval.retiredAt = nowIso();
+        current.retiredAt = approval.retiredAt; current.state = "retired";
+      });
+      await this.#hitFailpoint("after_worktree_cleanup_retirement", { effectId, workerId: binding.workerId });
+    }
+    let exists = true;
+    try { const info = await stat(cleanup.realPath); if (!info.isDirectory() || String(info.dev) !== cleanup.dev || String(info.ino) !== cleanup.ino) throw new Error("Owned-worktree identity changed before removal"); }
+    catch (error) { if (error?.code === "ENOENT") exists = false; else throw error; }
+    if (exists) {
+      const exact = await inspectOwnedWorktreeExact(state.repositoryRoot, cleanup.realPath, null, { allowDirty: true });
+      if (exact.commonDir !== cleanup.commonDir) throw new Error("Owned-worktree common-dir identity changed before cleanup");
+      await execFileAsync("git", ["worktree", "remove", "--force", cleanup.realPath], { cwd: state.repositoryRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024 });
+      await this.#hitFailpoint("after_worktree_cleanup_remove", { effectId, workerId: binding.workerId });
+    } else if (await worktreeListed(state.repositoryRoot, cleanup.realPath)) throw new Error("Missing owned-worktree path remains registered; cleanup is ambiguous");
+    await this.store.mutate((draft) => {
+      const current = draft.worktreeCleanupIntents.find((candidate) => candidate.effectId === effectId);
+      if (!current || current.requestHash !== requestHash) throw new Error("Owned-worktree cleanup authority changed before result commit");
+      current.state = "removed"; current.removedAt ??= nowIso();
+    });
+    return "applied_exact";
+  }
+
+  async terminalResultForBinding(binding) {
+    return this.#withBindingStore(binding, async () => {
+      this.#assertAttached();
+      await this.scan();
+      const repositoryRoot = resolve(this.context.cwd);
+      const store = new WorkerSessionStore(repositoryRoot, binding.workerStorageId);
+      const state = await store.load();
+    if (state.storageId !== binding.workerStorageId) return null;
+    let worker = state.workers[binding.workerId];
+    if (!worker) { const record = (state.launchRecords ?? []).find((candidate) => candidate.workerId === binding.workerId); if (record?.archivedWorkerPath) worker = await readArchivedWorker(state, record); }
+    const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash);
+    if (!attempt?.ingestedAt || !attempt.resultPath) return null;
+    const result = await readJson(resolve(repositoryRoot, attempt.resultPath), { maxBytes: MAX_RESULT_BYTES });
+    assertTerminalResult(result, { recovery: resolve(repositoryRoot, attempt.resultPath) === attemptPaths(repositoryRoot, state.storageId, worker.id, attempt.attemptNumber).recoveryResult });
+    if (result.storageId !== binding.workerStorageId || result.ownerSessionId !== binding.launchOwnerSessionId || result.workerId !== binding.workerId || result.attemptNumber !== binding.attemptNumber || result.attemptNonce !== binding.attemptNonce || result.configHash !== binding.configHash) throw new Error("Terminal worker result conflicts with exact DAG binding");
+      if (attempt.retrySafe === true) await assertRetrySafeProcessFact(state, worker, attempt);
+      return { completionId: result.completionId, terminalStatus: result.terminalStatus, processDisposition: attempt.processDisposition ?? "ambiguous", retrySafe: attempt.retrySafe === true };
+    });
+  }
+
+  async inspectBinding(binding) {
+    return this.#withBindingStore(binding, async () => {
+      await this.scan();
+      const exact = await this.inspect(binding.workerId);
+      if (exact?.attempt?.attemptNumber !== binding.attemptNumber || exact.attempt.attemptNonce !== binding.attemptNonce || exact.attempt.configHash !== binding.configHash) throw new Error("Worker inspection did not resolve the exact DAG-bound prior attempt");
+      return exact;
+    });
+  }
+
+  async cancelBinding(binding, reason) {
+    return this.#withBindingStore(binding, async () => {
+      await this.scan();
+      const exact = await this.inspect(binding.workerId);
+      if (exact?.worker?.currentAttempt !== binding.attemptNumber || exact.attempt?.attemptNumber !== binding.attemptNumber || exact.attempt.attemptNonce !== binding.attemptNonce || exact.attempt.configHash !== binding.configHash) throw new Error("Worker cancellation refused to target a different current attempt identity");
+      return this.cancel(binding.workerId, reason);
+    });
+  }
+
   async approveDisposableWorkingRoot(cwd) {
     this.#assertAttached();
     const state = await this.store.load();
@@ -274,7 +457,7 @@ export class WorkerManager {
       storageId: before.storageId,
       ownerSessionId: before.ownerSessionId,
       launchKey: workerBefore.launchKey,
-      requestHash: workerBefore.requestHash,
+      requestHash: request.boundConfigRequestHash ?? workerBefore.requestHash,
       launchOwner: this.#owner(before.ownerSessionId),
       uninspectableProcessBaseline: uninspectableBaseline.processes,
       workerId,
@@ -402,7 +585,25 @@ export class WorkerManager {
     if (supervisorStartIdentity) {
       const launchReceiptPayload = { schemaVersion: 1, kind: "worker_supervisor_launch", storageId: state.storageId, ownerSessionId: attempt.launchSessionId, workerId, attemptNumber, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash, supervisorPid: processHandle.pid, supervisorStartIdentity, observedAt: attempt.createdAt };
       launchReceipt = { ...launchReceiptPayload, receiptHash: sha256(launchReceiptPayload) };
-      await writeImmutableJson(paths.launchReceipt, launchReceipt, { maxBytes: 64 * 1024 });
+      try { await writeImmutableJson(paths.launchReceipt, launchReceipt, { maxBytes: 64 * 1024 }); }
+      catch (error) {
+        await this.#quarantineAttemptArtifact(workerId, attemptNumber, paths.launchReceipt, "conflicting-or-corrupt-launch-receipt", `Published launch receipt conflicts with the exact spawned supervisor: ${error.message}`);
+        await this.store.mutate((draft) => {
+          const currentWorker = draft.workers[workerId];
+          const currentAttempt = currentWorker?.attempts.find((candidate) => candidate.attemptNumber === attemptNumber);
+          if (!currentAttempt || currentAttempt.attemptNonce !== attempt.attemptNonce || currentAttempt.configHash !== attempt.configHash) return;
+          delete currentAttempt.supervisorPid;
+          delete currentAttempt.supervisorStartIdentity;
+          delete currentAttempt.launchReceiptPath;
+          delete currentAttempt.launchReceiptHash;
+          currentAttempt.status = "launch_ambiguous";
+          currentAttempt.processDisposition = "ambiguous";
+          currentAttempt.retrySafe = false;
+          if (currentWorker.currentAttempt === attemptNumber) { currentWorker.status = "needs_attention"; currentWorker.updatedAt = nowIso(); }
+        });
+        throw new Error(`Supervisor launch receipt publication conflicted: ${error.message}`);
+      }
+      await this.#hitFailpoint("after_launch_receipt_publication", { workerId, attemptNumber, supervisorPid: processHandle.pid, supervisorStartIdentity, launchReceiptHash: launchReceipt.receiptHash });
     }
     let launchStatus;
     await this.store.mutate((draft) => {
@@ -440,9 +641,9 @@ export class WorkerManager {
     const canonicalCwd = await realpath(cwd);
     if (canonicalCwd !== canonicalRepositoryRoot && !isStrictDescendant(canonicalRepositoryRoot, canonicalCwd)) throw new Error("Worker cwd resolves outside the repository root");
     let workingRoot = { kind: "repository", path: cwd, realPath: canonicalCwd };
-    if (input.disposableRootToken !== undefined) {
-      const tokenHash = sha256(String(input.disposableRootToken));
-      const approval = (state.approvedDisposableRoots ?? []).find((candidate) => candidate.tokenHash === tokenHash && !candidate.retiredAt);
+    if (input.disposableRootToken !== undefined || input.disposableApprovalId !== undefined) {
+      const tokenHash = input.disposableRootToken === undefined ? null : sha256(String(input.disposableRootToken));
+      const approval = (state.approvedDisposableRoots ?? []).find((candidate) => (tokenHash ? candidate.tokenHash === tokenHash : candidate.approvalId === input.disposableApprovalId) && !candidate.retiredAt);
       if (!approval || approval.ownerSessionId !== state.ownerSessionId || canonicalOwnerIdentity(approval.approvedByOwner) !== canonicalOwnerIdentity(state.owner) || approval.path !== cwd) throw new Error("Disposable working-root approval is missing, stale, or bound to another owner/path");
       const canonicalRoot = await realpath(cwd);
       const info = await stat(canonicalRoot);
@@ -456,6 +657,8 @@ export class WorkerManager {
       workingRoot,
       requestedLabel: input.label === undefined ? null : String(input.label).trim().slice(0, 256),
       requestedWorkerId: input.workerId === undefined ? null : normalizeRuntimeId(input.workerId, "workerId"),
+      boundConfigRequestHash: input.boundConfigRequestHash === undefined ? null : String(input.boundConfigRequestHash),
+      ownedWorktree: input.ownedWorktreeBaseCommit === undefined ? null : { baseCommit: String(input.ownedWorktreeBaseCommit), commonDir: String(input.ownedWorktreeCommonDir), objectFormat: String(input.ownedWorktreeObjectFormat) },
       activeTools: [...new Set((this.pi.getActiveTools?.() ?? []).map(String))].sort(),
       reportRepairAttempts: normalizeRepairAttempts(input.reportRepairAttempts),
       piCliPath: await resolvePiCliPath(this.options.piCliPath),
@@ -480,6 +683,10 @@ export class WorkerManager {
     if (root.kind === "approved_disposable") {
       const approval = (state.approvedDisposableRoots ?? []).find((candidate) => candidate.approvalId === root.approvalId && !candidate.retiredAt);
       if (!approval || approval.path !== request.cwd || approval.realPath !== canonicalRoot || approval.dev !== String(info.dev) || approval.ino !== String(info.ino) || root.dev !== approval.dev || root.ino !== approval.ino) throw new Error("Disposable working-root approval is retired, stale, or inode-conflicting");
+      if (request.ownedWorktree) {
+        const exact = await inspectOwnedWorktreeExact(state.repositoryRoot, request.cwd, request.ownedWorktree.baseCommit);
+        if (exact.commonDir !== request.ownedWorktree.commonDir || exact.objectFormat !== request.ownedWorktree.objectFormat) throw new Error("Owned-worker worktree Git identity changed after reservation");
+      }
     } else if (root.kind === "repository") {
       const repositoryRoot = await realpath(state.repositoryRoot);
       if (canonicalRoot !== repositoryRoot && !isStrictDescendant(repositoryRoot, canonicalRoot)) throw new Error("Repository working root escaped its canonical repository");
@@ -566,26 +773,56 @@ export class WorkerManager {
 
   async #bindLaunchReceipt(state, worker, attempt, paths) {
     const receipt = await readJson(paths.launchReceipt, { maxBytes: 64 * 1024 });
-    if (!attempt.supervisorPid || !attempt.supervisorStartIdentity) return null;
     const { receiptHash, ...payload } = receipt ?? {};
-    const valid = receiptHash === sha256(payload) && receipt.kind === "worker_supervisor_launch" && receipt.storageId === state.storageId && receipt.ownerSessionId === attempt.launchSessionId && receipt.workerId === worker.id && receipt.attemptNumber === attempt.attemptNumber && receipt.attemptNonce === attempt.attemptNonce && receipt.configHash === attempt.configHash && Number.isInteger(receipt.supervisorPid) && typeof receipt.supervisorStartIdentity === "string";
-    const conflict = attempt.supervisorPid && (attempt.supervisorPid !== receipt.supervisorPid || attempt.supervisorStartIdentity !== receipt.supervisorStartIdentity);
-    if (!valid || conflict) {
-      await this.#quarantineAttemptArtifact(worker.id, attempt.attemptNumber, paths.launchReceipt, "conflicting-or-corrupt-launch-receipt", valid ? "Launch receipt conflicts with spawn-bound supervisor identity" : "Launch receipt identity or hash is invalid");
+    const canonical = receiptHash === sha256(payload)
+      && receipt?.schemaVersion === 1
+      && receipt?.kind === "worker_supervisor_launch"
+      && Number.isInteger(receipt?.supervisorPid) && receipt.supervisorPid > 0
+      && typeof receipt?.supervisorStartIdentity === "string" && receipt.supervisorStartIdentity.length > 0;
+    if (!canonical) {
+      await this.#quarantineAttemptArtifact(worker.id, attempt.attemptNumber, paths.launchReceipt, "conflicting-or-corrupt-launch-receipt", "Launch receipt canonical identity or hash is invalid");
       throw new Error("Supervisor launch receipt is invalid or conflicting");
     }
-    if (attempt.launchReceiptHash === receipt.receiptHash && attempt.supervisorPid === receipt.supervisorPid && attempt.supervisorStartIdentity === receipt.supervisorStartIdentity) return receipt;
-    await this.store.mutate((draft) => {
-      const current = draft.workers[worker.id]?.attempts.find((candidate) => candidate.attemptNumber === attempt.attemptNumber);
-      if (!current || current.attemptNonce !== attempt.attemptNonce) return;
-      if (current.supervisorPid && (current.supervisorPid !== receipt.supervisorPid || current.supervisorStartIdentity !== receipt.supervisorStartIdentity)) throw new Error("Supervisor launch receipt conflicts after CAS recheck");
-      current.supervisorPid ??= receipt.supervisorPid;
-      current.supervisorStartIdentity ??= receipt.supervisorStartIdentity;
-      current.launchReceiptPath = relative(state.repositoryRoot, paths.launchReceipt);
+    const receiptPath = relative(state.repositoryRoot, paths.launchReceipt);
+    const capturedIdentityExact = receipt.storageId === state.storageId && receipt.ownerSessionId === attempt.launchSessionId && receipt.workerId === worker.id && receipt.attemptNumber === attempt.attemptNumber && receipt.attemptNonce === attempt.attemptNonce && receipt.configHash === attempt.configHash;
+    if (capturedIdentityExact && attempt.supervisorPid === receipt.supervisorPid && attempt.supervisorStartIdentity === receipt.supervisorStartIdentity && attempt.launchReceiptHash === receipt.receiptHash && attempt.launchReceiptPath === receiptPath) return receipt;
+    const hydrated = await this.store.mutate((draft) => {
+      const currentWorker = draft.workers[worker.id];
+      const current = currentWorker?.attempts.find((candidate) => candidate.attemptNumber === attempt.attemptNumber);
+      const identityExact = draft.storageId === receipt.storageId
+        && currentWorker?.id === receipt.workerId
+        && current?.attemptNumber === receipt.attemptNumber
+        && current?.launchSessionId === receipt.ownerSessionId
+        && current?.attemptNonce === receipt.attemptNonce
+        && current?.configHash === receipt.configHash
+        && current?.attemptNonce === attempt.attemptNonce
+        && current?.configHash === attempt.configHash;
+      if (!identityExact) return { disposition: "conflict", reason: "Launch receipt conflicts with the fresh store worker/config/attempt identity" };
+      const processConflict = (current.supervisorPid !== undefined && current.supervisorPid !== receipt.supervisorPid)
+        || (current.supervisorStartIdentity !== undefined && current.supervisorStartIdentity !== receipt.supervisorStartIdentity);
+      const receiptConflict = (current.launchReceiptHash !== undefined && current.launchReceiptHash !== receipt.receiptHash)
+        || (current.launchReceiptPath !== undefined && current.launchReceiptPath !== receiptPath);
+      if (processConflict || receiptConflict) return { disposition: "conflict", reason: "Launch receipt conflicts with fresh spawn-bound supervisor authority" };
+      if (current.supervisorPid === receipt.supervisorPid && current.supervisorStartIdentity === receipt.supervisorStartIdentity && current.launchReceiptHash === receipt.receiptHash && current.launchReceiptPath === receiptPath) return { disposition: "replay" };
+      current.supervisorPid = receipt.supervisorPid;
+      current.supervisorStartIdentity = receipt.supervisorStartIdentity;
+      current.launchReceiptPath = receiptPath;
       current.launchReceiptHash = receipt.receiptHash;
+      if (!current.ingestedAt && current.status === "dispatching") {
+        current.status = "running";
+        current.processDisposition = "live";
+        if (currentWorker.currentAttempt === current.attemptNumber && currentWorker.status !== "cancelling") { currentWorker.status = "running"; currentWorker.updatedAt = nowIso(); }
+      }
+      return { disposition: "hydrated" };
     });
-    attempt.supervisorPid ??= receipt.supervisorPid;
-    attempt.supervisorStartIdentity ??= receipt.supervisorStartIdentity;
+    if (hydrated.result.disposition === "conflict") {
+      await this.#quarantineAttemptArtifact(worker.id, attempt.attemptNumber, paths.launchReceipt, "conflicting-or-corrupt-launch-receipt", hydrated.result.reason);
+      throw new Error("Supervisor launch receipt is invalid or conflicting");
+    }
+    attempt.supervisorPid = receipt.supervisorPid;
+    attempt.supervisorStartIdentity = receipt.supervisorStartIdentity;
+    attempt.launchReceiptPath = receiptPath;
+    attempt.launchReceiptHash = receipt.receiptHash;
     return receipt;
   }
 
@@ -986,10 +1223,14 @@ export class WorkerManager {
   async readBoundAttempts(bindings) {
     this.#assertAttached(); const repositoryRoot = resolve(this.context.cwd); const outputs = [];
     for (const binding of [...bindings].sort((a, b) => a.workerStorageId.localeCompare(b.workerStorageId) || a.workerId.localeCompare(b.workerId) || a.attemptNumber - b.attemptNumber)) {
-      const store = new WorkerSessionStore(repositoryRoot, binding.workerStorageId); const state = await store.load(); if (state.storageId !== binding.workerStorageId || state.ownerSessionId !== binding.launchOwnerSessionId) continue;
-      let worker = state.workers[binding.workerId]; if (!worker) { const record = (state.launchRecords ?? []).find(({ workerId }) => workerId === binding.workerId); if (record?.archivedWorkerPath) worker = await readArchivedWorker(state, record); }
-      const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash); if (!attempt) continue; const config = await readJson(resolve(repositoryRoot, attempt.configPath)); if (config.ownerSessionId !== binding.launchOwnerSessionId) continue;
-      outputs.push({ storageId: state.storageId, launchOwnerSessionId: config.ownerSessionId, workerId: worker.id, attemptNumber: attempt.attemptNumber, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash, terminalStatus: attempt.ingestedAt ? attempt.status : null, processDisposition: attempt.processDisposition ?? "ambiguous", retrySafe: Boolean(attempt.retrySafe), resultHash: attempt.resultHash ?? null });
+      const output = await this.#withBindingStore(binding, async () => {
+        await this.scan();
+        const state = await this.store.load(); if (state.storageId !== binding.workerStorageId) return null;
+        let worker = state.workers[binding.workerId]; if (!worker) { const record = (state.launchRecords ?? []).find(({ workerId }) => workerId === binding.workerId); if (record?.archivedWorkerPath) worker = await readArchivedWorker(state, record); }
+        const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash); if (!attempt) return null; const config = await readJson(resolve(repositoryRoot, attempt.configPath)); if (config.ownerSessionId !== binding.launchOwnerSessionId) return null;
+        return { storageId: state.storageId, launchOwnerSessionId: config.ownerSessionId, workerId: worker.id, attemptNumber: attempt.attemptNumber, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash, terminalStatus: attempt.ingestedAt ? attempt.status : null, processDisposition: attempt.processDisposition ?? "ambiguous", retrySafe: Boolean(attempt.retrySafe), resultHash: attempt.resultHash ?? null };
+      });
+      if (output) outputs.push(output);
     }
     return outputs;
   }
@@ -1049,6 +1290,67 @@ export class WorkerManager {
     if (!this.store) return { attached: false };
     const state = await this.store.load();
     return { attached: true, storageId: state.storageId, ownerSessionId: state.ownerSessionId, workerCount: Object.keys(state.workers).length, queuedCompletions: state.completionQueue.length, inFlightCompletionId: state.inFlightCompletionId };
+  }
+
+  async #withBindingStore(binding, operation) {
+    this.#assertAttached();
+    const run = this.bindingOperationQueue.then(async () => {
+      await this.scanQueue;
+      const repositoryRoot = resolve(this.context.cwd);
+      const canonicalRepositoryRoot = await realpath(repositoryRoot); const repositoryInfo = await lstat(repositoryRoot);
+      if (canonicalRepositoryRoot !== repositoryRoot || !repositoryInfo.isDirectory() || repositoryInfo.isSymbolicLink()) throw new Error("DAG worker binding repository root is not canonical trusted storage authority");
+      const sessionsRoot = workerSessionsRoot(repositoryRoot); const sessionsInfo = await assertTrustedDirectory(sessionsRoot, sessionsRoot, repositoryInfo.dev, "worker storage root");
+      const boundStorageRoot = join(sessionsRoot, normalizeRuntimeId(binding.workerStorageId, "workerStorageId")); await assertTrustedDirectory(boundStorageRoot, boundStorageRoot, sessionsInfo.dev, "bound worker storage root");
+      const originalStore = this.store;
+      const originalState = await originalStore.load();
+      const exactStore = originalState.storageId === binding.workerStorageId ? originalStore : new WorkerSessionStore(repositoryRoot, binding.workerStorageId);
+      let exactState = await exactStore.load();
+      if (exactState.storageId !== binding.workerStorageId || resolve(exactState.repositoryRoot) !== repositoryRoot) throw new Error("DAG worker binding storage identity does not resolve in the attached repository");
+      let worker = exactState.workers[binding.workerId];
+      if (!worker) { const record = (exactState.launchRecords ?? []).find((candidate) => candidate.workerId === binding.workerId); if (record?.archivedWorkerPath) worker = await readArchivedWorker(exactState, record); }
+      const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash);
+      if (!worker || !attempt) throw new Error("DAG worker binding does not resolve the exact immutable prior attempt");
+      const paths = attemptPaths(repositoryRoot, binding.workerStorageId, binding.workerId, binding.attemptNumber);
+      if (attempt.configPath !== relative(repositoryRoot, paths.config)) throw new Error("DAG worker binding config path is not the canonical attempt storage path");
+      await assertTrustedDirectory(paths.root, paths.root, sessionsInfo.dev, "bound worker attempt root");
+      const config = await readTrustedJson(paths.config, paths.root, sessionsInfo.dev, 256 * 1024, "bound worker config");
+      assertAttemptConfig(config);
+      if (config.storageId !== binding.workerStorageId || config.ownerSessionId !== binding.launchOwnerSessionId || config.workerId !== binding.workerId || config.attemptNumber !== binding.attemptNumber || config.attemptNonce !== binding.attemptNonce || config.configHash !== binding.configHash) throw new Error("DAG worker binding conflicts with its immutable attempt config");
+      let lineageSessionId = binding.launchOwnerSessionId;
+      for (const transfer of exactState.lineage ?? []) {
+        if (transfer.fromSessionId !== lineageSessionId) throw new Error("Bound worker storage contains a discontinuous immutable session lineage");
+        lineageSessionId = transfer.toSessionId;
+      }
+      if (lineageSessionId !== exactState.ownerSessionId) throw new Error("Bound worker storage owner is not the immutable successor of the exact launch owner");
+      if (exactStore !== originalStore) {
+        const successorSessionId = originalState.ownerSessionId;
+        const successorOwner = this.#owner(successorSessionId);
+        const observedOwner = structuredClone(exactState.owner);
+        const status = observedOwner?.pid === process.pid && observedOwner?.processStartIdentity === this.processStartIdentity ? "same_manager" : await processIdentityStatus(observedOwner?.pid, observedOwner?.processStartIdentity);
+        if (status !== "same_manager" && !processIdentityIsGone(status)) throw new Error(`Bound worker storage has a non-dead owner identity (${status}); refusing a second manager identity`);
+        await exactStore.mutate(async (draft) => {
+          if (canonicalOwnerIdentity(draft.owner) !== canonicalOwnerIdentity(observedOwner) || draft.ownerSessionId !== exactState.ownerSessionId) throw new Error("Bound worker storage owner changed during proven-dead transfer");
+          if (status !== "same_manager") {
+            const rechecked = await processIdentityStatus(draft.owner.pid, draft.owner.processStartIdentity);
+            if (!processIdentityIsGone(rechecked)) throw new Error(`Bound worker storage owner revived or is ambiguous (${rechecked})`);
+          }
+          draft.lineage ??= [];
+          draft.lineage.push({
+            fromSessionId: draft.ownerSessionId, toSessionId: successorSessionId, transferredAt: nowIso(), transferId: `binding-transfer-${newNonce(8)}`,
+            disposition: status === "same_manager" ? "same_manager" : "proven_dead", priorOwner: structuredClone(draft.owner), successorOwner: structuredClone(successorOwner),
+            immutableBindingHash: sha256({ workerStorageId: binding.workerStorageId, launchOwnerSessionId: binding.launchOwnerSessionId, workerId: binding.workerId, attemptNumber: binding.attemptNumber, attemptNonce: binding.attemptNonce, configHash: binding.configHash }),
+          });
+          draft.ownerSessionId = successorSessionId; draft.sessionFile = originalState.sessionFile; draft.owner = successorOwner;
+          if (draft.inFlightCompletionId) { if (!draft.completionQueue.includes(draft.inFlightCompletionId)) draft.completionQueue.unshift(draft.inFlightCompletionId); draft.inFlightCompletionId = null; }
+        });
+        exactState = await exactStore.load();
+      }
+      this.store = exactStore;
+      try { return await operation(exactState); }
+      finally { this.store = originalStore; }
+    });
+    this.bindingOperationQueue = run.then(() => undefined, () => undefined);
+    return run;
   }
 
   async #migrateLegacyLaunchBindings(ctx) {
@@ -1134,6 +1436,114 @@ export class WorkerManager {
   async #hitFailpoint(name, context) { if (this.options.failpoint) await this.options.failpoint(name, context); }
   #owner(sessionId) { return { sessionId, pid: process.pid, processStartIdentity: this.processStartIdentity, attachedAt: nowIso() }; }
   #assertAttached() { if (!this.attached || !this.store) throw new Error("Worker manager is not attached to a top-level Pi session"); }
+}
+
+async function recoverUnboundOwnedAttempt(repositoryRootValue, expected) {
+  const repositoryRoot = resolve(repositoryRootValue);
+  const canonicalRepositoryRoot = await realpath(repositoryRoot);
+  if (canonicalRepositoryRoot !== repositoryRoot) throw new Error("Unbound launch recovery requires a canonical repository root without symlink indirection");
+  const repositoryInfo = await lstat(repositoryRoot);
+  if (!repositoryInfo.isDirectory() || repositoryInfo.isSymbolicLink()) throw new Error("Unbound launch recovery repository root is not a trusted directory");
+  const sessionsRoot = workerSessionsRoot(repositoryRoot);
+  let rootInfo;
+  try { rootInfo = await assertTrustedDirectory(sessionsRoot, sessionsRoot, repositoryInfo.dev, "worker storage root"); }
+  catch (error) { if (error?.code === "ENOENT") return null; throw error; }
+  const entries = await readdir(sessionsRoot, { withFileTypes: true });
+  const matches = []; const conflicts = [];
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isDirectory() || entry.isSymbolicLink() || normalizeRuntimeId(entry.name, "storageId") !== entry.name) throw new Error(`Unbound launch recovery found an untrusted worker storage entry: ${entry.name}`);
+    const storageRoot = join(sessionsRoot, entry.name);
+    await assertTrustedDirectory(storageRoot, storageRoot, rootInfo.dev, `worker storage ${entry.name}`);
+    const sessionPath = workerSessionPath(repositoryRoot, entry.name);
+    const state = await readTrustedJson(sessionPath, storageRoot, rootInfo.dev, MAX_STATE_BYTES, `worker session ${entry.name}`);
+    assertWorkerSession(state);
+    if (state.storageId !== entry.name || resolve(state.repositoryRoot) !== repositoryRoot) throw new Error(`Unbound launch recovery worker session ${entry.name} has conflicting repository/storage identity`);
+    const records = (state.launchRecords ?? []).filter((record) => record.launchKey === expected.launchKey);
+    const workerById = state.workers[expected.workerId];
+    if (!records.length && !workerById) continue;
+    try {
+      const storeOwnerStatus = state.owner?.pid === process.pid && state.owner?.processStartIdentity === await processStartIdentity() ? "same_manager" : await processIdentityStatus(state.owner?.pid, state.owner?.processStartIdentity);
+      if (storeOwnerStatus !== "same_manager" && !processIdentityIsGone(storeOwnerStatus)) throw new Error(`worker session has a non-dead owner identity (${storeOwnerStatus})`);
+      if (records.length !== 1 || records[0].workerId !== expected.workerId || !workerById || records[0].archivedWorkerPath) throw new Error("launch key/worker slot is not one exact active record");
+      const record = records[0]; const worker = workerById;
+      if (worker.launchKey !== expected.launchKey || worker.id !== expected.workerId || worker.currentAttempt !== expected.expectedAttemptNumber || record.attemptNumber !== expected.expectedAttemptNumber) throw new Error("launch record and worker attempt slot differ");
+      if (!worker.normalizedRequest || worker.requestHash !== sha256(worker.normalizedRequest) || record.requestHash !== worker.requestHash) throw new Error("launch record does not bind the immutable normalized request hash");
+      const request = worker.normalizedRequest;
+      const expectedWorktree = join(repositoryRoot, ".ai", "worker-roots", expected.worktreeName);
+      const exactRequest = request.schemaVersion === 1 && request.task === expected.task && worker.task === expected.task && worker.label === expected.label
+        && request.requestedWorkerId === expected.workerId && request.requestedLabel === expected.label && request.boundConfigRequestHash === expected.configRequestHash
+        && request.cwd === expectedWorktree && worker.cwd === expectedWorktree && request.ownedWorktree?.baseCommit === expected.baseCommit
+        && request.workingRoot?.kind === "approved_disposable" && request.workingRoot.path === expectedWorktree && request.workingRoot.realPath === expectedWorktree;
+      if (!exactRequest) throw new Error("normalized owned-worker request differs from the exact DAG launch request");
+      const approval = (state.approvedDisposableRoots ?? []).find((candidate) => candidate.approvalId === request.workingRoot.approvalId);
+      const worktreeInfo = await assertTrustedDirectory(expectedWorktree, expectedWorktree, null, "owned worker worktree");
+      if (!approval || approval.retiredAt || approval.path !== expectedWorktree || approval.realPath !== expectedWorktree || approval.dev !== String(worktreeInfo.dev) || approval.ino !== String(worktreeInfo.ino) || request.workingRoot.dev !== approval.dev || request.workingRoot.ino !== approval.ino) throw new Error("owned worktree approval does not bind the exact path/device/inode");
+      if (!isStrictDescendant(join(repositoryRoot, ".ai", "worker-roots"), expectedWorktree) || !await worktreeListed(repositoryRoot, expectedWorktree) || await gitCommonDir(expectedWorktree) !== await gitCommonDir(repositoryRoot) || await gitObjectFormat(expectedWorktree) !== request.ownedWorktree.objectFormat || request.ownedWorktree.commonDir !== await gitCommonDir(repositoryRoot)) throw new Error("owned worktree escaped or changed its exact Git common-dir/object identity");
+      const attempt = worker.attempts.find((candidate) => candidate.attemptNumber === expected.expectedAttemptNumber);
+      if (!attempt || attempt.attemptNonce.length < 16 || attempt.launchKey !== expected.launchKey || attempt.requestHash !== worker.requestHash || attempt.launchSessionId === undefined || approval.ownerSessionId !== attempt.launchSessionId || canonicalOwnerIdentity(approval.approvedByOwner) !== canonicalOwnerIdentity(attempt.launchOwner) || canonicalOwnerIdentity(attempt.dispatchOwner) !== canonicalOwnerIdentity(attempt.launchOwner)) throw new Error("worker attempt does not bind the exact immutable launch/approval/dispatch generation");
+      if ((state.quarantinedArtifacts ?? []).some((artifact) => artifact.workerId === worker.id && artifact.attemptNumber === attempt.attemptNumber)) throw new Error("matching attempt has quarantined conflicting artifacts");
+      const paths = attemptPaths(repositoryRoot, state.storageId, worker.id, attempt.attemptNumber);
+      await assertTrustedDirectory(paths.root, paths.root, rootInfo.dev, "worker attempt root");
+      let quarantineEntries = [];
+      try { await assertTrustedDirectory(paths.quarantine, paths.quarantine, rootInfo.dev, "worker attempt quarantine"); quarantineEntries = await readdir(paths.quarantine); }
+      catch (error) { if (error?.code !== "ENOENT") throw error; }
+      if (quarantineEntries.length) throw new Error("matching attempt has an unindexed quarantine conflict");
+      if (attempt.configPath !== relative(repositoryRoot, paths.config) || attempt.launchReceiptPath !== relative(repositoryRoot, paths.launchReceipt)) throw new Error("attempt artifact paths are not the canonical storage paths");
+      const config = await readTrustedJson(paths.config, paths.root, rootInfo.dev, 256 * 1024, "worker attempt config");
+      assertAttemptConfig(config);
+      const configExact = config.storageId === state.storageId && config.ownerSessionId === attempt.launchSessionId && config.workerId === worker.id && config.attemptNumber === attempt.attemptNumber && config.attemptNonce === attempt.attemptNonce && config.configHash === attempt.configHash
+        && config.launchKey === expected.launchKey && config.requestHash === expected.configRequestHash && config.repositoryRoot === repositoryRoot && config.cwd === expectedWorktree && config.task === expected.task
+        && canonicalOwnerIdentity(config.launchOwner) === canonicalOwnerIdentity(attempt.launchOwner);
+      if (!configExact) throw new Error("immutable worker config differs from the exact session/launch/request identity");
+      const receipt = await readTrustedJson(paths.launchReceipt, paths.root, rootInfo.dev, 64 * 1024, "worker launch receipt");
+      const { receiptHash, ...receiptPayload } = receipt ?? {};
+      const receiptExact = receiptHash === sha256(receiptPayload) && receipt.schemaVersion === 1 && receipt.kind === "worker_supervisor_launch" && receipt.storageId === state.storageId && receipt.ownerSessionId === config.ownerSessionId
+        && receipt.workerId === worker.id && receipt.attemptNumber === attempt.attemptNumber && receipt.attemptNonce === attempt.attemptNonce && receipt.configHash === attempt.configHash && receipt.observedAt === attempt.createdAt
+        && Number.isInteger(receipt.supervisorPid) && receipt.supervisorPid > 0 && typeof receipt.supervisorStartIdentity === "string" && receipt.supervisorStartIdentity.length > 0
+        && attempt.supervisorPid === receipt.supervisorPid && attempt.supervisorStartIdentity === receipt.supervisorStartIdentity && attempt.launchReceiptHash === receipt.receiptHash;
+      if (!receiptExact) throw new Error("immutable launch receipt differs from the exact config/attempt/process identity");
+      const processStatus = await processIdentityStatus(receipt.supervisorPid, receipt.supervisorStartIdentity);
+      if (processStatus !== "live") await assertRecoveredTerminalProcessIdentity(state, worker, attempt, paths, receipt, rootInfo.dev, processStatus);
+      let lineageSessionId = config.ownerSessionId;
+      for (const transfer of state.lineage ?? []) { if (transfer.fromSessionId !== lineageSessionId || typeof transfer.toSessionId !== "string" || !transfer.toSessionId) throw new Error("worker session lineage is discontinuous"); lineageSessionId = transfer.toSessionId; }
+      if (lineageSessionId !== state.ownerSessionId) throw new Error("worker session owner is not the exact launch-owner lineage successor");
+      const { configHash, ...configPayload } = config; const configFactCore = { kind: "worker_config", configHash, config: configPayload };
+      matches.push({ workerStorageId: state.storageId, launchOwnerSessionId: config.ownerSessionId, workerId: worker.id, attemptNumber: attempt.attemptNumber, attemptNonce: attempt.attemptNonce, configHash, configFact: { ...configFactCore, hash: sha256(configFactCore) }, supervisorPid: receipt.supervisorPid, supervisorStartIdentity: receipt.supervisorStartIdentity, childPid: attempt.childPid ?? null, childStartIdentity: attempt.childStartIdentity ?? null, mailboxHash: attempt.mailboxHash ?? null, heartbeatAt: attempt.updatedAt ?? attempt.createdAt });
+    } catch (error) { conflicts.push(`${entry.name}: ${error.message}`); }
+  }
+  if (conflicts.length) throw new Error(`Unbound owned-worker launch recovery failed closed: ${conflicts.join("; ")}`);
+  if (matches.length > 1) throw new Error("Unbound owned-worker launch recovery found multiple exact manager-store matches");
+  return matches[0] ?? null;
+}
+
+async function assertRecoveredTerminalProcessIdentity(state, worker, attempt, paths, receipt, device, processStatus) {
+  if (processStatus !== "dead") throw new Error(`launch receipt process identity is ${processStatus}`);
+  const existing = [];
+  for (const [path, recovery] of [[paths.result, false], [paths.recoveryResult, true]]) {
+    try { existing.push({ path, recovery, result: await readTrustedJson(path, paths.root, device, MAX_RESULT_BYTES, recovery ? "worker recovery result" : "worker primary result") }); }
+    catch (error) { if (error?.code !== "ENOENT") throw error; }
+  }
+  if (existing.length !== 1) throw new Error("dead recovered supervisor lacks one unique exact terminal result");
+  const terminal = existing[0]; assertTerminalResult(terminal.result, { recovery: terminal.recovery });
+  const exact = terminal.result.storageId === state.storageId && terminal.result.ownerSessionId === attempt.launchSessionId && terminal.result.workerId === worker.id && terminal.result.attemptNumber === attempt.attemptNumber && terminal.result.attemptNonce === attempt.attemptNonce && terminal.result.configHash === attempt.configHash;
+  const processExact = terminal.recovery || (terminal.result.process?.supervisorPid === receipt.supervisorPid && terminal.result.process?.supervisorStartIdentity === receipt.supervisorStartIdentity);
+  if (!exact || !processExact) throw new Error("terminal result conflicts with recovered supervisor/config identity");
+}
+
+async function assertTrustedDirectory(path, expectedRealPath, device, label) {
+  const info = await lstat(path);
+  if (!info.isDirectory() || info.isSymbolicLink() || (device !== null && info.dev !== device) || await realpath(path) !== expectedRealPath) throw new Error(`${label} is a symlink, device escape, or noncanonical path`);
+  return info;
+}
+
+async function readTrustedJson(path, trustedRoot, device, maxBytes, label) {
+  if (!isStrictDescendant(trustedRoot, path)) throw new Error(`${label} escapes its trusted storage root`);
+  const before = await lstat(path);
+  if (!before.isFile() || before.isSymbolicLink() || before.dev !== device || before.nlink !== 1 || before.size > maxBytes || await realpath(path) !== path) throw new Error(`${label} is a symlink, device escape, hard-link alias, oversized artifact, or noncanonical path`);
+  const bytes = await readFile(path);
+  const after = await lstat(path);
+  if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || !after.isFile() || after.isSymbolicLink()) throw new Error(`${label} changed during stable read`);
+  return JSON.parse(bytes.toString("utf8"));
 }
 
 async function findOwnedStores(repositoryRoot, sessionId) {
@@ -1260,6 +1670,48 @@ function normalizeLaunchKey(value) {
   const launchKey = String(value ?? "");
   if (!launchKey || launchKey.length > 512 || Buffer.byteLength(launchKey) > 2048 || /[\u0000-\u001f\u007f]/.test(launchKey)) throw new Error("launchKey must be a non-empty opaque string without control characters");
   return launchKey;
+}
+
+async function gitCommonDir(cwd) {
+  const raw = (await execFileAsync("git", ["rev-parse", "--git-common-dir"], { cwd, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024 })).stdout.trim();
+  return realpath(resolve(cwd, raw));
+}
+
+async function gitObjectFormat(cwd) {
+  const result = await execFileAsync("git", ["rev-parse", "--show-object-format"], { cwd, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024 });
+  const format = result.stdout.trim();
+  if (!["sha1", "sha256"].includes(format)) throw new Error(`Unsupported Git object format: ${format}`);
+  return format;
+}
+
+async function inspectOwnedWorktreeExact(repositoryRoot, worktreeRoot, expectedBaseCommit, options = {}) {
+  const canonicalRoot = await realpath(worktreeRoot);
+  const info = await stat(canonicalRoot);
+  if (!info.isDirectory()) throw new Error("Owned-worker disposable worktree is not a directory");
+  const top = (await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd: canonicalRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024 })).stdout.trim();
+  if (await realpath(top) !== canonicalRoot) throw new Error("Owned-worker disposable worktree identity is not exact");
+  const commonDir = await gitCommonDir(canonicalRoot);
+  const repositoryCommonDir = await gitCommonDir(repositoryRoot);
+  if (commonDir !== repositoryCommonDir) throw new Error("Owned-worker worktree does not share the exact repository Git common-dir");
+  const objectFormat = await gitObjectFormat(canonicalRoot);
+  if (objectFormat !== await gitObjectFormat(repositoryRoot)) throw new Error("Owned-worker worktree object format conflicts with the repository");
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: canonicalRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024 })).stdout.trim();
+  if (expectedBaseCommit && head !== expectedBaseCommit) throw new Error(`Existing owned-worker worktree HEAD ${head} does not match exact base ${expectedBaseCommit}`);
+  const symbolic = await execFileAsync("git", ["symbolic-ref", "-q", "HEAD"], { cwd: canonicalRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024 }).then(() => true, (error) => { if (error?.code === 1) return false; throw error; });
+  if (symbolic) throw new Error("Owned-worker disposable worktree must remain detached");
+  const status = (await execFileAsync("git", ["status", "--porcelain=v2", "--untracked-files=all"], { cwd: canonicalRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024 })).stdout;
+  if (!options.allowDirty && status.trim()) throw new Error("Owned-worker disposable worktree must be clean before launch or cleanup");
+  return { realPath: canonicalRoot, dev: String(info.dev), ino: String(info.ino), commonDir, objectFormat, head };
+}
+
+async function worktreeListed(repositoryRoot, path) {
+  const output = (await execFileAsync("git", ["worktree", "list", "--porcelain"], { cwd: repositoryRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024 })).stdout;
+  const target = resolve(path);
+  return output.split(/\r?\n/).some((line) => line.startsWith("worktree ") && resolve(line.slice("worktree ".length)) === target);
+}
+
+function gitWorktreeEnvironment() {
+  return { ...process.env, LC_ALL: "C", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0" };
 }
 
 function normalizeRepairAttempts(value) {

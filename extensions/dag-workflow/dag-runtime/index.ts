@@ -31,6 +31,9 @@ export {
   QuarantineProjectionV1Schema,
   assertDagRunStateV1,
   dagRunSnapshotHash,
+  integrationValidationEffectRequestV1,
+  lifecycleProcedureEffectRequestV1,
+  ownershipChainHashV1,
   parseDagRunStateV1,
   sealDagRunStateV1,
   validateDagRunStateShapeV1,
@@ -50,6 +53,7 @@ export {
   type GitIntegrationReceiptFactBindingV1,
   type IntegrationFactBindingV1,
   type IntegrationReadyFactBindingV1,
+  type IntegrationValidationProfileMappingV1,
   type OracleAssertionFactBindingV1,
   type OwnershipFactBindingV1,
   type QuarantineAuthorityBindingV1,
@@ -59,6 +63,8 @@ export {
   type StageAttemptInputFactBindingV1,
   type StageEvidenceFactBindingV1,
   type VerificationFactBindingV1,
+  type WorkerConfigFactBindingV1,
+  type WorkerLaunchObservationFactBindingV1,
   type WorkerResultFactBindingV1,
 } from "./run-state.ts";
 export {
@@ -98,6 +104,25 @@ export {
   type DagSessionRunBindingV1,
 } from "./conductor.ts";
 export {
+  DagLifecycleRuntimeV1,
+  type DagCandidateSealingAdapterV1,
+  type DagCandidateSealingResultV1,
+  type DagIntegrationReconciliationAdapterV1,
+  type DagLifecycleReconcileResultV1,
+  type DagLifecycleRuntimeOptionsV1,
+  type DagOwnedWorkerAdapterV1,
+  type DagOwnedWorkerLaunchObservationV1,
+  type DagOwnedWorkerLaunchRequestV1,
+  type DagOwnedWorkerTerminalObservationV1,
+  type DagProcedureExecutionAdapterV1,
+  type DagProcedureExecutionResultV1,
+} from "./lifecycle-runtime.ts";
+export {
+  DagReducerGitIntegrationDriverV1,
+  type DagGitIntegrationDriverFailpointV1,
+  type DagReducerGitIntegrationDriverOptionsV1,
+} from "./integration-driver.ts";
+export {
   registerCanonicalDagRuntime,
 } from "./integration.ts";
 export {
@@ -126,14 +151,20 @@ export {
   type GitVerificationResultV1,
   type RepositoryBindingV1,
 } from "./git-integration.ts";
+export * from "./evaluation.ts";
+export * from "./evaluation-store.ts";
 export {
   DagRunSnapshotStoreV1,
   DagRunStoreCorruptError,
   DagRunStoreLockedError,
   createDagRunStoreDeadOwnerProofV1,
+  dagRunIdentityHashV1,
   dagRunStoreLockIdentityFromOwner,
   dagRunStoreProcessObservationFact,
   dagRunStoreProcessObservationHash,
+  type DagRunCommittedSnapshotIdentityV1,
+  type DagRunPostCommitEvaluationIdentityV1,
+  type DagRunPostCommitEvaluationObserverV1,
   type DagRunStoreDeadOwnerProofV1,
   type DagRunStoreLockIdentityV1,
   type DagRunStoreMutationV1,

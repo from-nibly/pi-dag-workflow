@@ -1,12 +1,15 @@
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { findLatestRun, loadRun, readDag, runDir, summarizeRun, validateDag } from "./dag.ts";
 import { renderDagDiagram } from "./diagram.ts";
 import { registerCanonicalDagRuntime } from "./dag-runtime/integration.ts";
 import { DagConductorServiceV1 } from "./dag-runtime/conductor.ts";
-import { canonicalHash } from "./dag-runtime/common.ts";
-import { requireSchedulerDispatchIntentV1 } from "./dag-runtime/scheduler.ts";
+import { canonicalHash, parseStrictJson } from "./dag-runtime/common.ts";
 import { registerProjectModelIntegration } from "./project-model/integration.ts";
 import { isWorkerChildRole, registerWorkerChild } from "./worker-runtime/child-report.ts";
 import { registerWorkerRuntime } from "./worker-runtime/integration.ts";
@@ -14,6 +17,24 @@ import { listWorkerRecords, readLogTail } from "./sessions.ts";
 import { DEFAULT_DAG_PATH } from "./types.ts";
 
 type CommandContext = any;
+const execFileAsync = promisify(execFile);
+
+export function privateCandidateRefV1(runNonce: string, stageAttemptId: string): string {
+  const nonceSegment = canonicalHash({ kind: "dag_private_candidate_run", runNonce }).slice("sha256:".length);
+  const attemptSegment = canonicalHash({ kind: "dag_private_candidate_attempt", stageAttemptId }).slice("sha256:".length);
+  return `refs/pi-dag/candidates/${nonceSegment}/${attemptSegment}`;
+}
+
+export async function sealPrivateCandidateRefV1(cwd: string, runNonce: string, stageAttemptId: string, commit: string): Promise<string> {
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new Error("Private candidate ref requires one exact Git object ID");
+  const privateRef = privateCandidateRefV1(runNonce, stageAttemptId);
+  const env = { ...process.env, LC_ALL: "C", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0" };
+  await execFileAsync("git", ["check-ref-format", privateRef], { cwd, env, maxBuffer: 1024 * 1024 });
+  const existingRef = await execFileAsync("git", ["rev-parse", "--verify", privateRef], { cwd, env, maxBuffer: 1024 * 1024 }).then(({ stdout }) => stdout.trim(), (error) => { if (error?.code === 128) return null; throw error; });
+  if (existingRef && existingRef !== commit) throw new Error("Private candidate ref exists with conflicting immutable candidate identity");
+  if (!existingRef) await execFileAsync("git", ["update-ref", privateRef, commit, "0".repeat(commit.length)], { cwd, env, maxBuffer: 1024 * 1024 });
+  return privateRef;
+}
 
 function splitArgs(input: string): string[] {
   const values: string[] = [];
@@ -43,6 +64,58 @@ function ok(content: string, details: Record<string, unknown> = {}) {
   return { content: [{ type: "text" as const, text: content }], details };
 }
 
+function catalogProcedureAdapter(workerManager: any) {
+  const exactEnvironment = {
+    LC_ALL: "C",
+    LANG: "C",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_OPTIONAL_LOCKS: "0",
+  };
+  return {
+    adapterKind: "immutable-catalog-command-v1" as const,
+    allowsProcedure(procedure: any) {
+      const executable = procedure?.executable;
+      return Boolean(executable && executable.argv?.length > 0 && executable.argv[0].startsWith("/") && executable.environmentHash === canonicalHash(exactEnvironment) && executable.environmentProfileHash === procedure.environmentProfileHash && executable.readOnly === procedure.readOnly && executable.noEdit === procedure.readOnly && executable.timeoutMs > 0);
+    },
+    async executeExact({ state, attempt, procedure }: any) {
+      const executable = procedure.executable;
+      if (!this.allowsProcedure(procedure)) throw new Error(`Immutable command mapping is absent or invalid for ${procedure.procedureId}/${procedure.hash}`);
+      const artifactPath = await realpath(executable.argv[0]);
+      const artifactHash = `sha256:${createHash("sha256").update(await readFile(artifactPath)).digest("hex")}`;
+      if (artifactHash !== executable.executableArtifactHash) throw new Error(`Executable artifact identity mismatch for ${procedure.procedureId}/${procedure.hash}`);
+      let cwd: string;
+      if (executable.cwdMode === "repository_root") {
+        if (!workerManager.context?.cwd) throw new Error("Catalog procedure requires an attached repository root");
+        cwd = await realpath(workerManager.context.cwd);
+      } else if (executable.cwdMode === "attempt_worktree") {
+        const binding = state.workerBindings[attempt.stageAttemptId];
+        if (!binding) throw new Error(`Catalog procedure ${procedure.procedureId} requires an exact bound worker attempt`);
+        const exact = await workerManager.inspectBinding(binding);
+        if (exact?.attempt?.attemptNumber !== binding.attemptNumber || exact?.attempt?.attemptNonce !== binding.attemptNonce || exact?.attempt?.configHash !== binding.configHash) throw new Error(`Catalog procedure ${procedure.procedureId} worktree does not bind the exact worker attempt`);
+        cwd = await realpath(exact.worker.cwd);
+      } else throw new Error("Catalog procedure run_root mapping is unavailable to the production extension and is blocked");
+      const before = executable.noEdit ? await gitNoEditIdentity(cwd, exactEnvironment) : null;
+      const { stdout } = await execFileAsync(artifactPath, executable.argv.slice(1), { cwd, env: exactEnvironment, timeout: executable.timeoutMs, maxBuffer: 4 * 1024 * 1024, encoding: "utf8" });
+      if (before) {
+        const after = await gitNoEditIdentity(cwd, exactEnvironment);
+        if (canonicalHash(after) !== canonicalHash(before)) throw new Error(`Catalog procedure ${procedure.procedureId} violated its exact no-edit boundary`);
+      }
+      const parsed = parseStrictJson(stdout);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Catalog procedure ${procedure.procedureId} did not emit one strict JSON evidence object`);
+      return parsed as any;
+    },
+  };
+}
+
+async function gitNoEditIdentity(cwd: string, env: Record<string, string>) {
+  const status = (await execFileAsync("/usr/bin/git", ["status", "--porcelain=v2", "--untracked-files=all"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout;
+  const head = (await execFileAsync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout.trim();
+  const tree = (await execFileAsync("/usr/bin/git", ["rev-parse", "HEAD^{tree}"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout.trim();
+  return { status, head, tree };
+}
+
 async function latestOrProvidedRun(cwd: string, runId?: string): Promise<string> {
   const id = runId ?? await findLatestRun(cwd);
   if (!id) throw new Error("No runId provided and no latest legacy run found");
@@ -63,22 +136,85 @@ export default function dagWorkflow(pi: ExtensionAPI) {
       const workers = await workerManager.readBoundAttempts(bindings);
       return { projectionHash: canonicalHash({ bindings, workers }), workers };
     },
-    async dispatchEffect(request, runState) {
-      if (request.kind.startsWith("scheduler_")) {
-        const reservation = requireSchedulerDispatchIntentV1(runState, request);
-        if (["conductor", "integration"].includes(reservation.operationKind)) return;
-        const item = runState.workItems[reservation.workItemId]; await workerManager.launch({ launchKey: `dag:${runState.runId}:${reservation.reservationId}`, label: `${reservation.workItemId}/${reservation.stage}`, task: `Execute canonical DAG ${runState.runId} work item ${reservation.workItemId} stage ${reservation.stage} as the fixed ${reservation.operationKind} role. Work from the repository state provided by the owning session. Return bounded evidence and diagnostics only; generic worker completion is not DAG stage authority. Do not infer readiness, advance lifecycle state, integrate, or land Git changes.`, cwd: workerManager.store ? (await workerManager.store.load()).repositoryRoot : undefined }); return;
-      }
-      if (request.kind !== "cancel_worker" || !workerManager.store) throw new Error(`Unsupported canonical DAG effect adapter: ${request.kind}`);
-      const workerState = await workerManager.store.load();
-      const matches = Object.values(runState.stageAttempts).filter((attempt: any) => {
-        const binding = runState.workerBindings[attempt.stageAttemptId]; if (!binding || binding.workerStorageId !== workerState.storageId) return false;
-        const expected = canonicalHash({ kind: "cancel_worker", runId: runState.runId, runNonce: runState.runNonce, workItemId: attempt.workItemId, stageAttemptId: attempt.stageAttemptId, workerStorageId: binding.workerStorageId, launchOwnerSessionId: binding.launchOwnerSessionId, workerId: binding.workerId, attemptNumber: binding.attemptNumber, attemptNonce: binding.attemptNonce, configHash: binding.configHash, fencedGeneration: runState.workItems[attempt.workItemId].candidateGeneration });
-        return expected === request.requestHash;
-      });
-      if (matches.length !== 1) throw new Error("DAG cancellation effect does not bind exactly one current owned-worker attempt");
-      const binding = runState.workerBindings[(matches[0] as any).stageAttemptId];
-      await workerManager.cancel(binding.workerId, `canonical DAG cancellation ${request.effectId}`);
+    lifecycle: {
+      worker: {
+        async launchExact(request) {
+          return workerManager.launchOwnedAttempt(request);
+        },
+        async readTerminalExact(binding, state) {
+          const terminal = await workerManager.terminalResultForBinding(binding);
+          const attempt = state.stageAttempts[binding.stageAttemptId];
+          if (!terminal || !attempt) return terminal;
+          const exact = await workerManager.inspectBinding(binding); const cwd = exact.worker.cwd;
+          if (exact?.attempt?.attemptNumber !== binding.attemptNumber || exact?.attempt?.attemptNonce !== binding.attemptNonce || exact?.attempt?.configHash !== binding.configHash) throw new Error("Terminal worktree observation does not bind the exact worker attempt");
+          const env = { ...process.env, LC_ALL: "C", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0" };
+          const status = (await execFileAsync("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout;
+          const commit = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout.trim();
+          const tree = (await execFileAsync("git", ["rev-parse", "HEAD^{tree}"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout.trim();
+          if (terminal.terminalStatus === "succeeded" && ["F2", "F5"].includes(attempt.stage)) {
+            const expected = state.workItems[attempt.workItemId].candidate?.git.commit;
+            if (status.trim() || !expected || commit !== expected) throw new Error(`${attempt.stage} fresh independent role violated its exact read-only candidate boundary`);
+          }
+          const item = state.workItems[attempt.workItemId]; const repository = state.repositories[item.writeRepositoryId];
+          const sourceBase = attempt.stage === "F1" ? repository.baseline : item.candidate?.git ?? repository.baseline;
+          const cwdCommonRaw = (await execFileAsync("git", ["rev-parse", "--git-common-dir"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout.trim();
+          const cwdCommon = await realpath(resolve(cwd, cwdCommonRaw)); const objectFormat = (await execFileAsync("git", ["rev-parse", "--show-object-format"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout.trim(); const cwdIdentity = await stat(cwd);
+          return { ...terminal, workerOutput: { outputRepositoryId: item.writeRepositoryId, outputCommonDirIdentityHash: canonicalHash({ realPath: cwdCommon, objectFormat }), outputWorktreeIdentityHash: canonicalHash({ realPath: await realpath(cwd), dev: String(cwdIdentity.dev), ino: String(cwdIdentity.ino) }), outputSourceBase: sourceBase, outputCommit: commit, outputTree: tree, outputObjectFormat: objectFormat, candidateObservedAt: state.updatedAt } };
+        },
+        async cancelExact(binding, input) {
+          const result = await workerManager.cancelBinding(binding, `canonical DAG cancellation ${input.effectId}`);
+          return result.alreadyTerminal ? "proven_absent" : "applied_exact";
+        },
+        async cleanupExact(binding, input) {
+          return workerManager.cleanupOwnedWorktreeForBinding(binding, input);
+        },
+      },
+      candidate: {
+        async inspectAndSealCandidate({ plan, state, attempt, binding, repositoryId }) {
+          const exact = await workerManager.inspectBinding(binding);
+          if (!exact?.worker || exact.attempt?.attemptNumber !== binding.attemptNumber || exact.attempt?.attemptNonce !== binding.attemptNonce || exact.attempt?.configHash !== binding.configHash) throw new Error("Candidate inspection does not bind the exact owned-worker attempt");
+          const cwd = exact.worker.cwd;
+          const env = { ...process.env, LC_ALL: "C", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0" };
+          const status = (await execFileAsync("git", ["status", "--porcelain=v2", "--untracked-files=all"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout;
+          if (status.trim()) throw new Error(`${attempt.stage} candidate worktree must be clean and committed before candidate sealing`);
+          const detached = await execFileAsync("git", ["symbolic-ref", "-q", "HEAD"], { cwd, env, maxBuffer: 1024 * 1024 }).then(() => false, (error) => { if (error?.code === 1) return true; throw error; });
+          if (!detached) throw new Error("Candidate worktree must remain detached");
+          const commit = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout.trim();
+          const tree = (await execFileAsync("git", ["rev-parse", "HEAD^{tree}"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout.trim();
+          const item = state.workItems[attempt.workItemId];
+          const base = attempt.stage === "F1" ? plan.repositories.find((repository) => repository.repositoryId === repositoryId)?.baseline : item.candidate?.git;
+          if (!base) throw new Error(`${attempt.stage} candidate base is unavailable from the exact plan/run authority`);
+          await execFileAsync("git", ["merge-base", "--is-ancestor", base.commit, commit], { cwd, env, maxBuffer: 1024 * 1024 });
+          const cwdCommonRaw = (await execFileAsync("git", ["rev-parse", "--git-common-dir"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout.trim();
+          const cwdCommon = await realpath(resolve(cwd, cwdCommonRaw));
+          const repositoryRoot = workerManager.context?.cwd;
+          if (!repositoryRoot) throw new Error("Candidate sealing requires the attached exact repository root");
+          const rootCommonRaw = (await execFileAsync("git", ["rev-parse", "--git-common-dir"], { cwd: repositoryRoot, env, maxBuffer: 1024 * 1024 })).stdout.trim();
+          const rootCommon = await realpath(resolve(repositoryRoot, rootCommonRaw));
+          if (cwdCommon !== rootCommon) throw new Error("Candidate worktree does not share the exact plan repository common-dir");
+          const objectFormat = (await execFileAsync("git", ["rev-parse", "--show-object-format"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout.trim();
+          const rootObjectFormat = (await execFileAsync("git", ["rev-parse", "--show-object-format"], { cwd: repositoryRoot, env, maxBuffer: 1024 * 1024 })).stdout.trim();
+          if (objectFormat !== rootObjectFormat) throw new Error("Candidate worktree object format conflicts with the plan repository");
+          await sealPrivateCandidateRefV1(cwd, state.runNonce, attempt.stageAttemptId, commit);
+          const git = { repositoryId, commit, tree };
+          const core = { kind: "candidate", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: item.workItemId, generation: item.candidate === null && item.candidateGeneration > 0 ? item.candidateGeneration : item.candidateGeneration + 1, candidateId: `candidate-${attempt.stageAttemptId}`, base, git, patchIdentityHash: canonicalHash({ base, git }), producedByStageAttemptId: attempt.stageAttemptId, lineageHash: item.implementationLineageHash };
+          const cwdIdentity = await stat(cwd);
+          return {
+            candidate: { ...core, hash: canonicalHash(core) },
+            workerOutput: {
+              outputRepositoryId: repositoryId,
+              outputCommonDirIdentityHash: canonicalHash({ realPath: cwdCommon, objectFormat }),
+              outputWorktreeIdentityHash: canonicalHash({ realPath: await realpath(cwd), dev: String(cwdIdentity.dev), ino: String(cwdIdentity.ino) }),
+              outputSourceBase: base,
+              outputCommit: commit,
+              outputTree: tree,
+              outputObjectFormat: objectFormat,
+              candidateObservedAt: state.updatedAt,
+            },
+          };
+        },
+      },
+      procedure: catalogProcedureAdapter(workerManager),
     },
   });
   registerCanonicalDagRuntime(pi, conductor);
