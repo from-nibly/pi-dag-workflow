@@ -49,7 +49,7 @@ function handle(command) {
     grandchild.unref();
   }
   if (mode === "detached-uninspectable") {
-    const code = "import ctypes,time\nlibc=ctypes.CDLL(None)\nlibc.prctl(4,0,0,0,0)\nend=time.time()+2\nwhile time.time()<end:\n open('uninspectable-descendant-writes.txt','a').write('x')\n time.sleep(.05)";
+    const code = "import ctypes,time\nlibc=ctypes.CDLL(None)\nlibc.prctl(4,0,0,0,0)\nend=time.time()+5\nwhile time.time()<end:\n open('uninspectable-descendant-writes.txt','a').write('x')\n time.sleep(.05)";
     const grandchild = spawn("python3", ["-c", code], { cwd: process.cwd(), detached: true, stdio: "ignore" });
     grandchild.unref();
   }

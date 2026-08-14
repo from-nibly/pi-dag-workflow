@@ -6474,14 +6474,14 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-07-30T03:31:28.441Z",
+        "acceptedAt": "2026-08-14T21:47:43.755Z",
         "actor": "user",
-        "batchRef": "sha256:e8965b512ac2dd6f0e9a1ffa7d9832cef24f399ca039f612ec72660d596e484c",
-        "contentHash": "sha256:62c25ff7940ad52eb675156989765f36c3e1ddc68cc68d58dac2db2209a6c56b",
-        "interactionRef": "pi-input:019fb107-0569-73d2-9f1f-4e30387f6ed0:1785382127230",
-        "mode": "accepted_existing"
+        "batchRef": "sha256:18f980aa90881a4f941b990372cdc39570a4ed273c171d2cad23ecece3000f15",
+        "contentHash": "sha256:c0204769061c9cb41adab3a0966a13f4895df5168020d663c089d65d9cbc0f03",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1786743933615",
+        "mode": "direct_direction"
       },
-      "body": "Each terminal subagent completion is durably enqueued. When no completion follow-up is in flight, the runtime delivers exactly one completion message to the top-level agent. After the agent finishes reacting to that completion and settles, the runtime delivers the next queued completion, continuing one by one until the queue is drained. Stable completion IDs prevent duplicate enqueue or delivery across reload.",
+      "body": "Each terminal subagent completion is durably enqueued. When no completion follow-up is in flight, the runtime delivers exactly one completion message to the top-level agent. After the agent finishes reacting to that completion and settles, the runtime delivers the next queued completion, continuing one by one until the queue is drained. Stable completion IDs prevent duplicate enqueue or delivery across reload. Every asynchronous subagent launch response explicitly reminds the parent agent that completion will be delivered automatically through this queue; it should not poll status or sleep while waiting, and should instead continue independent work or end its turn to await the update.",
       "createdAt": "2026-07-30T03:31:28.441Z",
       "id": "DEC-serial-worker-completion-queue",
       "introducedBy": "user",
@@ -6510,7 +6510,7 @@
       ],
       "state": "accepted",
       "title": "Drain worker completions through a serial follow-up queue",
-      "updatedAt": "2026-07-30T03:31:28.441Z"
+      "updatedAt": "2026-08-14T21:47:43.754Z"
     },
     {
       "acceptance": {
@@ -13944,9 +13944,9 @@
         }
       ]
     },
-    "revision": 203,
+    "revision": 204,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-14T07:20:15.552Z"
+    "updatedAt": "2026-08-14T21:47:43.755Z"
   },
   "proposals": [
     {

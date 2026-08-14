@@ -4,6 +4,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { WorkerManager } from "./manager.mjs";
 
+export const ASYNC_COMPLETION_GUIDANCE = [
+  "completion: delivered automatically through the serial completion queue",
+  "next: continue independent work, or end your turn and await the completion update",
+  "avoid: do not poll subagent_status or sleep while waiting",
+].join("\n");
+
 export function registerWorkerRuntime(pi: ExtensionAPI) {
   const manager = new WorkerManager(pi);
   let attachError: string | null = null;
@@ -11,7 +17,7 @@ export function registerWorkerRuntime(pi: ExtensionAPI) {
   pi.registerTool({
     name: "subagent",
     label: "Launch Async Subagent",
-    description: "Launch an always-asynchronous process-isolated Pi worker. Returns immediately; completion is delivered later through the serial completion queue.",
+    description: "Launch an always-asynchronous process-isolated Pi worker. Returns immediately; completion is delivered later through the serial completion queue. Do not poll status or sleep while waiting.",
     parameters: Type.Object({
       task: Type.String({ minLength: 1, maxLength: 65536 }),
       launchKey: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
@@ -26,7 +32,7 @@ export function registerWorkerRuntime(pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       assertAttached(attachError);
       const result = await manager.launch(params, ctx);
-      return toolResult(`${result.idempotentReplay ? "Reused" : "Started"} asynchronous worker ${result.workerId} (attempt ${result.attemptNumber}).`, result);
+      return toolResult(`${result.idempotentReplay ? "Reused" : "Started"} asynchronous worker ${result.workerId} (attempt ${result.attemptNumber}).\n${ASYNC_COMPLETION_GUIDANCE}`, result);
     },
   });
 
@@ -139,7 +145,7 @@ export function registerWorkerRuntime(pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       assertAttached(attachError);
       const result = await manager.retry(params.workerId, ctx);
-      return toolResult(`Started retry attempt ${result.attemptNumber} for ${params.workerId}.`, result);
+      return toolResult(`Started retry attempt ${result.attemptNumber} for ${params.workerId}.\n${ASYNC_COMPLETION_GUIDANCE}`, result);
     },
   });
 

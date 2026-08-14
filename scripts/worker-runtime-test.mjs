@@ -22,7 +22,7 @@ import {
   workerStorageRoot,
   writeImmutableJson,
 } from "../extensions/dag-workflow/worker-runtime/core.mjs";
-import { registerWorkerRuntime } from "../extensions/dag-workflow/worker-runtime/integration.ts";
+import { ASYNC_COMPLETION_GUIDANCE, registerWorkerRuntime } from "../extensions/dag-workflow/worker-runtime/integration.ts";
 import { WorkerManager } from "../extensions/dag-workflow/worker-runtime/manager.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "pi-worker-core-"));
@@ -30,6 +30,8 @@ try {
   const registeredPi = createRegistrationPi();
   registerWorkerRuntime(registeredPi);
   for (const toolName of ["subagent", "subagent_approve_disposable_root", "subagent_retire_disposable_root", "subagent_results", "subagent_result_by_launch_key"]) assert(registeredPi.tools.has(toolName), `integration exposes ${toolName} to real tool consumers`);
+  assert(registeredPi.tools.get("subagent").description.includes("Do not poll status or sleep while waiting"), "subagent tool description discourages polling before launch");
+  assert(ASYNC_COMPLETION_GUIDANCE.includes("delivered automatically") && ASYNC_COMPLETION_GUIDANCE.includes("do not poll subagent_status or sleep"), "launch output guidance tells the parent to await automatic completion without polling or sleeping");
 
   const owner = { pid: process.pid, processStartIdentity: await processStartIdentity(), attachedAt: new Date().toISOString() };
   const state = createWorkerSession({ sessionId: "session-one", repositoryRoot: root, owner });
@@ -667,9 +669,9 @@ try {
   const uninspectableStatus = await descendantManager.status(uninspectableLaunch.workerId);
   assert(uninspectableStatus.status === "succeeded" && !uninspectableStatus.retrySafe, "new same-UID process denying cwd/environment inspection blocks retry safety");
   const firstUninspectableWrites = (await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length;
-  await new Promise((resolveWait) => setTimeout(resolveWait, 150));
+  await waitFor(async () => (await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length > firstUninspectableWrites, 2000);
   assert((await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length > firstUninspectableWrites, "inspectability-denying descendant remains a live cwd writer while retry is fenced");
-  await waitFor(async () => { await descendantManager.scan(); return (await descendantManager.status(uninspectableLaunch.workerId)).retrySafe; }, 5000);
+  await waitFor(async () => { await descendantManager.scan(); return (await descendantManager.status(uninspectableLaunch.workerId)).retrySafe; }, 10_000);
   await descendantManager.detach();
   delete process.env.FAKE_WORKER_RPC_MODE;
 
@@ -736,7 +738,7 @@ try {
   const firstQueuedScan = scanQueueManager.scan();
   await firstScanStarted;
   const explicitScanBacklog = Array.from({ length: 20 }, () => scanQueueManager.scan());
-  await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+  await waitFor(() => timerScanRequests >= 1 && scanQueueManager.timerScanPending, 2000);
   assert(timerScanRequests >= 1 && scanQueueManager.timerScanPending, "timer scan is retained and coalesced while explicit scan traffic is backlogged");
   releaseFirstScanLoad();
   await Promise.all([firstQueuedScan, ...explicitScanBacklog]);

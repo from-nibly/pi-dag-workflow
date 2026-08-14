@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-owned-worker-runtime; contract: 1; input: sha256:7c53dbb936e1a318df8f355969b484e5a72b8104b6ec043796843217b20c8ec7 -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-owned-worker-runtime; contract: 1; input: sha256:8a787eef56a642e0bcc26f468b6281f242e0883066297e102caf33139abba06a -->
 
 # Owned asynchronous DAG worker runtime
 
@@ -34,7 +34,7 @@ Asynchronous workers must continue running when the owning Pi extension reloads 
 
 ### Drain worker completions through a serial follow-up queue
 
-Each terminal subagent completion is durably enqueued. When no completion follow-up is in flight, the runtime delivers exactly one completion message to the top-level agent. After the agent finishes reacting to that completion and settles, the runtime delivers the next queued completion, continuing one by one until the queue is drained. Stable completion IDs prevent duplicate enqueue or delivery across reload.
+Each terminal subagent completion is durably enqueued. When no completion follow-up is in flight, the runtime delivers exactly one completion message to the top-level agent. After the agent finishes reacting to that completion and settles, the runtime delivers the next queued completion, continuing one by one until the queue is drained. Stable completion IDs prevent duplicate enqueue or delivery across reload. Every asynchronous subagent launch response explicitly reminds the parent agent that completion will be delivered automatically through this queue; it should not poll status or sleep while waiting, and should instead continue independent work or end its turn to await the update.
 
 **Rationale.** Serial delivery lets the top-level agent fully process each worker outcome without simultaneous completion turns, while preserving every completion independently rather than collapsing a burst into one summary.
 

@@ -27,7 +27,7 @@ Tracked Markdown under `spec/` is a deterministic readable projection of accepte
 ## Install
 
 ```nu
-pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.1.0
+pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.1.1
 ```
 
 ## Model brainstorming commands
@@ -119,7 +119,7 @@ There is no generated-file ownership manifest, editable generated region, revers
 
 ## Asynchronous workers
 
-The extension owns a generic worker runtime; it does not depend on `pi-subagents`. Every launch returns immediately while a detached supervisor runs the exact installed Pi CLI in RPC mode. Workers survive top-level Pi reload or exit, report through a terminating `subagent_report` tool, and deliver bounded completions serially when the owning session reconnects.
+The extension owns a generic worker runtime; it does not depend on `pi-subagents`. Every launch returns immediately while a detached supervisor runs the exact installed Pi CLI in RPC mode. Launch output explicitly tells the parent agent not to poll status or sleep: it should continue independent work or end its turn because completion arrives automatically through the serial queue. Workers survive top-level Pi reload or exit, report through a terminating `subagent_report` tool, and deliver bounded completions serially when the owning session reconnects.
 
 Top-level agent tools:
 
