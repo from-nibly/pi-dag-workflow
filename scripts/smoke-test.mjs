@@ -20,6 +20,7 @@ const files = [
   "extensions/dag-workflow/project-model/model.ts",
   "extensions/dag-workflow/project-model/store.ts",
   "extensions/dag-workflow/project-model/sessions.ts",
+  "extensions/dag-workflow/project-model/persistence.ts",
   "extensions/dag-workflow/project-model/projector.ts",
   "extensions/dag-workflow/project-model/domain.ts",
   "extensions/dag-workflow/project-model/integration.ts",
@@ -39,12 +40,26 @@ const files = [
   "extensions/dag-workflow/dag-runtime/integration.ts",
   "extensions/dag-workflow/dag-runtime/widget.ts",
   "extensions/dag-workflow/dag-runtime/index.ts",
+  "extensions/dag-workflow/planning/types.ts",
+  "extensions/dag-workflow/planning/artifact.ts",
+  "extensions/dag-workflow/planning/store.ts",
+  "extensions/dag-workflow/planning/selectors.ts",
+  "extensions/dag-workflow/planning/projections.ts",
+  "extensions/dag-workflow/planning/runtime-adapter.ts",
+  "extensions/dag-workflow/planning/integration.ts",
+  "extensions/dag-workflow/planning/integration-validation-pass.mjs",
+  "extensions/dag-workflow/command-prompts/plan.md",
   "extensions/dag-workflow/worker-runtime/core.mjs",
   "extensions/dag-workflow/worker-runtime/child-report.ts",
   "extensions/dag-workflow/worker-runtime/supervisor.mjs",
   "extensions/dag-workflow/worker-runtime/manager.mjs",
   "extensions/dag-workflow/worker-runtime/integration.ts",
   "scripts/project-model-test.mjs",
+  "scripts/dag-planning-test.mjs",
+  "scripts/dag-planning-runtime-test.mjs",
+  "scripts/dag-planning-command-test.mjs",
+  "scripts/dag-prepared-start-test.mjs",
+  "scripts/release-readiness.mjs",
   "scripts/dag-runtime-test.mjs",
   "scripts/git-integration-test.mjs",
   "scripts/worker-runtime-test.mjs",
@@ -70,6 +85,14 @@ for (const file of files) await access(file);
 const execFileAsync = promisify(execFile);
 const productionModel = await execFileAsync(process.execPath, ["scripts/project-model-test.mjs"]);
 assertIncludes(productionModel.stdout, "Project model production tests OK", "production project-model tests pass");
+const planning = await execFileAsync(process.execPath, ["scripts/dag-planning-test.mjs"]);
+assertIncludes(planning.stdout, "planning tests passed", "strict planning store/projection tests pass");
+const planningRuntime = await execFileAsync(process.execPath, ["scripts/dag-planning-runtime-test.mjs"]);
+assertIncludes(planningRuntime.stdout, "DAG planning runtime adapter tests passed", "thin-plan runtime compatibility tests pass");
+const planningCommands = await execFileAsync(process.execPath, ["scripts/dag-planning-command-test.mjs"]);
+assertIncludes(planningCommands.stdout, "DAG planning command integration tests passed", "product plan/show/run tests pass");
+const preparedStart = await execFileAsync(process.execPath, ["scripts/dag-prepared-start-test.mjs"]);
+assertIncludes(preparedStart.stdout, "dag prepared start tests passed", "prepared-start crash recovery tests pass");
 const dagRuntime = await execFileAsync(process.execPath, ["scripts/dag-runtime-test.mjs"]);
 assertIncludes(dagRuntime.stdout, "Canonical DAG plan and run-state schema tests OK", "canonical DAG schema tests pass");
 const gitIntegration = await execFileAsync(process.execPath, ["scripts/git-integration-test.mjs"], { timeout: 300_000 });
@@ -133,13 +156,29 @@ const readme = await readFile("README.md", "utf8");
 assertIncludes(readme, "project-model/model.json", "README documents the shared model authority");
 assertIncludes(readme, "/dag brainstorm", "README documents model brainstorming");
 assertIncludes(readme, "dag_model_record_direction", "README documents the direct-authority boundary");
-assertIncludes(readme, "Model-aware DAG planning and execution remain deferred", "README documents disabled downstream workflows");
+assertIncludes(readme, "/dag plan [--new", "README documents architecture-first planning");
+assertIncludes(readme, "/dag show --run", "README documents exact live inspection");
+assertIncludes(readme, "/dag run [--plan", "README documents explicit product execution");
+assert(!readme.includes("Model-aware DAG planning and execution remain deferred"), "README no longer advertises the shipped product workflow as deferred");
 assertIncludes(readme, "subagent_report", "README documents the owned worker report boundary");
 assertIncludes(readme, ".ai/worker-sessions/", "README documents durable worker state");
 const packageJson = JSON.parse(await readFile("package.json", "utf8"));
 assert(!packageJson.dependencies?.["pi-subagents"], "pi-subagents dependency is removed");
+for (const script of ["test:dag-planning", "test:dag-planning-runtime", "test:dag-planning-command", "test:dag-prepared-start", "release:ready"]) assert(packageJson.scripts?.[script], `package exposes ${script}`);
+const packed = JSON.parse((await execFileAsync("npm", ["pack", "--dry-run", "--json"], { maxBuffer: 8 * 1024 * 1024 })).stdout)[0];
+const packedPaths = new Set(packed.files.map(({ path }) => path));
+for (const path of [
+  "extensions/dag-workflow/planning/integration.ts",
+  "extensions/dag-workflow/planning/runtime-adapter.ts",
+  "extensions/dag-workflow/command-prompts/plan.md",
+  "project-model/model.json",
+  "project-model/migrations/brainstorm-v2-overrides.json",
+  "spec/model-aware-dag-runtime/spec.md",
+  "spec/prototypes/brainstorm-pi-adapter/scenario.mjs",
+  "spec/prototypes/lavish-turn-renderer/scenario.mjs",
+]) assert(packedPaths.has(path), `package includes ${path}`);
 
-console.log(`Smoke OK: ${files.length} required files exist; project-model, canonical DAG schema, owned-worker, and legacy read-only checks passed`);
+console.log(`Smoke OK: ${files.length} required files exist; model, planning, canonical runtime, worker, package, and legacy read-only checks passed`);
 
 function testConfigMergeAndDagBase() {
   const userConfig = {

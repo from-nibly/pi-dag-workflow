@@ -514,8 +514,7 @@ async function executeValidationProfile(
 ): Promise<any> {
   if (profile.cwdMode !== "detached_proposal_worktree" || profile.readOnly !== true || profile.noEdit !== true || profile.environmentHash !== canonicalHash(profile.environment) || profile.environmentProfileHash !== canonicalHash({ profileId: profile.environmentProfileId, environment: profile.environment }) || !profile.argv.length || !profile.argv[0].startsWith("/")) throw new GitIntegrationBlockedError("VALIDATION_PROFILE_INVALID", "Validation profile is not an exact closed read-only argv mapping");
   const executable = await realpath(profile.argv[0]);
-  const executableArtifactHash = `${HASH_PREFIX}${createHash("sha256").update(await readFile(executable)).digest("hex")}`;
-  if (executableArtifactHash !== profile.executableArtifactHash) throw new GitIntegrationBlockedError("VALIDATION_EXECUTABLE_MISMATCH", "Validation executable bytes differ from the plan-bound mapping");
+  if (!await validationExecutableIdentityMatchesV1(profile)) throw new GitIntegrationBlockedError("VALIDATION_EXECUTABLE_MISMATCH", "Validation executable or absolute argv artifact bytes differ from the plan-bound mapping");
   const worktreeRoot = join(controlRoot, "proposal-worktrees", digest({ integrationAttemptId, phase: phase.phase, profileHash: phase.profileHash }));
   await mkdir(join(controlRoot, "proposal-worktrees"), { recursive: true });
   let materialized = false;
@@ -561,7 +560,7 @@ async function executeValidationProfile(
       authorizationSetHash: effect.boundAuthorizationSetHash, ownerEpoch: effect.boundOwnerEpoch, freshnessReceiptHash: effect.boundFreshnessReceiptHash,
       effectId: effect.effectId, requestHash: effect.requestHash, requestIdentityHash: effect.requestHash, repositoryId, trainId, integrationAttemptId,
       phase: phase.phase, profileId: phase.profileId, profileHash: phase.profileHash,
-      executableArtifactHash, argvHash: canonicalHash(profile.argv), cwdMode: profile.cwdMode,
+      executableArtifactHash: profile.executableArtifactHash, argvHash: canonicalHash(profile.argv), cwdMode: profile.cwdMode,
       environmentProfileId: profile.environmentProfileId, environmentProfileHash: profile.environmentProfileHash,
       environmentHash: profile.environmentHash, timeoutMs: profile.timeoutMs, readOnly: true as const, noEdit: true as const,
       tree, commonDirIdentityHash: binding.commonDirIdentityHash,
@@ -594,4 +593,24 @@ function privateRole(ref: string): string { if (ref.endsWith("/baseline")) retur
 function operationGuard(effectId: string, ownerEpoch: number, kind: string, payload: unknown): { effectId: string; requestHash: string; ownerEpoch: number } { return { effectId, ownerEpoch, requestHash: canonicalHash({ kind, payload }) }; }
 function sameTree(left: any, right: any): boolean { return left?.commit === right?.commit && left?.tree === right?.tree; }
 async function observeTarget(repositoryRoot: string, targetRef: string): Promise<{ commit: string; tree: string | null }> { const commit = await git(repositoryRoot, ["show-ref", "--verify", "--hash", targetRef], [0, 1, 2, 128]); return commit ? { commit, tree: await git(repositoryRoot, ["rev-parse", `${commit}^{tree}`]) } : { commit: "missing", tree: null }; }
+export async function validationExecutableIdentityMatchesV1(profile: IntegrationValidationProfileMappingV1): Promise<boolean> {
+  let executableArtifactHash: string;
+  try {
+    const executable = await realpath(profile.argv[0]);
+    executableArtifactHash = `${HASH_PREFIX}${createHash("sha256").update(await readFile(executable)).digest("hex")}`;
+  } catch { return false; }
+  if (executableArtifactHash === profile.executableArtifactHash) return true;
+  const argvArtifacts: Array<{ index: number; hash: string }> = [];
+  for (let index = 1; index < profile.argv.length; index += 1) {
+    if (!profile.argv[index].startsWith("/")) continue;
+    try {
+      const artifact = await realpath(profile.argv[index]);
+      argvArtifacts.push({ index, hash: `${HASH_PREFIX}${createHash("sha256").update(await readFile(artifact)).digest("hex")}` });
+    } catch {
+      // A non-file absolute argument remains ordinary argv and contributes through the profile hash.
+    }
+  }
+  return argvArtifacts.length > 0 && canonicalHash({ executableHash: executableArtifactHash, argvArtifacts }) === profile.executableArtifactHash;
+}
+
 async function git(cwd: string, args: string[], allowExit: number[] = [0]): Promise<string> { try { const result = await run("git", args, { cwd, encoding: "utf8", maxBuffer: 4 * 1024 * 1024, env: { ...process.env, LC_ALL: "C", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" } }); return result.stdout.trim(); } catch (error: any) { if (allowExit.includes(error?.code)) return String(error?.stdout ?? "").trim(); throw error; } }

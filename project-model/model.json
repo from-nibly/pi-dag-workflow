@@ -1250,21 +1250,21 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-07-29T00:02:20.716Z",
+        "acceptedAt": "2026-08-13T14:05:12.077Z",
         "actor": "user",
-        "batchRef": "sha256:81aacadf72cbb0bc418ae7f885076fb5662e8b3defe4e6412ca4d88051ae1f00",
-        "contentHash": "sha256:61672a42aa822ee558adc84303a2a6fbd0d58653a4efc29d575c6c0b78465ff3",
-        "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
-        "mode": "migration_cutover"
+        "batchRef": "sha256:96565f26af94085795ea6d31fd5131ae0c72ce973c82c9018e8f5a580e0f5bca",
+        "contentHash": "sha256:217d4f078a7aa9fa2046460d15143128aa0f5aa2af12c45d18b7d71a67bfbded",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1786629882330",
+        "mode": "direct_direction"
       },
-      "body": "Each Decisions-needed point concisely explains its trigger, relevant evidence/current understanding, remaining uncertainty, consequences, and why the answer materially changes the model, without duplicating generated specs. Presentation mechanics and rich context formats remain deferred.",
+      "body": "Every Decisions-needed point must give enough background for an informed choice. Before presenting options, explain the current mechanism in concrete terms, the observed insufficiency or trigger, a realistic failure or consequence it protects against, why the issue must be decided now, what remains uncertain, and how each materially different answer changes implementation or authority. Define specialized terms in plain language and distinguish correctness protection from optional hardening. Do not rely on terse summaries or assume the user remembers earlier research.",
       "createdAt": "2026-07-28T18:37:09.014Z",
       "id": "COM-question-context",
       "introducedBy": "migration",
       "legacyIds": [
         "D-question-context"
       ],
-      "rationale": "Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.",
+      "rationale": "The user needs visibility into what each decision protects against and what choosing an option would commit, especially for dense authority, compiler, recovery, and release contracts.",
       "relationships": [],
       "scope": {
         "kind": "workstreams",
@@ -1277,8 +1277,8 @@
         "legacy-brainstorm:D-question-context"
       ],
       "state": "accepted",
-      "title": "Keep context freeform while codifying all rendering boilerplate",
-      "updatedAt": "2026-07-29T00:02:20.716Z"
+      "title": "Explain the decision background before asking for a choice",
+      "updatedAt": "2026-08-13T14:05:12.077Z"
     },
     {
       "acceptance": {
@@ -2677,18 +2677,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-02T15:02:30.369Z",
+        "acceptedAt": "2026-08-13T13:39:20.455Z",
         "actor": "user",
-        "batchRef": "sha256:30253a054e78238ffeffd1ce84c9b0daa101a4c22ce72c02af436c6c748586be",
-        "contentHash": "sha256:863344b244c60a6109be3cb5ad18293f7f5c3a2cf7cc1a19dae207a1bb3305e4",
-        "interactionRef": "lavish-feedback:review-canonical-plan-schema-gates-artifacts-authorization-projections:sha256:49cf127e59440ff0bd68b715a7bfb03a37b5bbab6f92700e484898adb119d3ce",
+        "batchRef": "sha256:0d03cd2655f1391854e7f24631ea4e197c72ea6317574630ee18896f70fd7d1c",
+        "contentHash": "sha256:1971019d5424a01878fcabb9088a825508965a7795b7e373b482c82f1b2dd74a",
+        "interactionRef": "lavish-feedback:review-planning-transaction-and-inspection-foundation:sha256:a19158b2b404595bc19fc7f9ffa75e1cab3d015199e13cdecbfd0df4e245fc86",
         "mode": "accepted_existing"
       },
-      "body": "The default detached authorization receipt binds exact plan and reviewed-projection hashes and authorizes all work items plus dependency/integration closure in every declared repository; all F0–F8 local/isolated activity; unrestricted architecture-preserving edits anywhere in each work item's repository; worktree and commit operations; per-repository rebase, exact-prefix verification, and fast-forward landing into declared targets; and reviewed reversible non-production external evaluation scopes, within bound budgets and retry policy. It imposes no path, directory, symbol, module, or internal-design limits and requires no repeated confirmation for normal retries or typed back-edges. Fresh authorization is required only for materially new semantic work, an undeclared repository or target, production deployment, irreversible/destructive external effects, credentials/effect scope beyond the plan, or budget escalation. Optional partial authorization must be mechanically dependency/effect/integration closed, leaves everything else visibly blocked, and can only narrow the plan's maximum envelope. This is coordination under the trusted-agent threat model, not a security sandbox.",
+      "body": "The default detached authorization receipt binds exact plan, review receipt, and reviewed-projection hashes and authorizes all dependency/effect/integration-closed work within the plan maximum, including F0–F8 activity, architecture-preserving repository edits, worktree/commit operations, exact verification and landing, and reviewed reversible non-production evaluation scopes within budgets and retry policy. The final `/dag plan` Lavish turn may offer exact plan approval and run authorization together, but they remain independent decisions with separate content-bound receipts; the user may approve without authorizing. Authorization binds exact scope, effects, repositories, targets, retry ceilings, validity, and max concurrency. Neither approval nor authorization starts execution; explicit `/dag run` does. Fresh authorization remains required for materially new semantics, undeclared repositories/targets, production deployment, irreversible effects, new credentials/effect scope, or budget escalation. Optional partial authorization must be mechanically closed and can only narrow the plan maximum.",
       "createdAt": "2026-08-01T20:53:10.452Z",
       "id": "DEC-broad-coordination-plan-authorization-v1",
       "introducedBy": "agent",
-      "rationale": "A reviewed plan should run autonomously enough to preserve architecture and throughput, while human attention remains concentrated on genuinely new meaning, targets, irreversible effects, and budget.",
+      "rationale": "One review minimizes ceremony while preserving the distinction between accepting architecture and authorizing external effects.",
       "relationships": [
         {
           "kind": "addresses",
@@ -2718,8 +2718,8 @@
         "PROP-broad-coordination-plan-authorization-v1"
       ],
       "state": "accepted",
-      "title": "Default to broad whole-plan coordination authorization",
-      "updatedAt": "2026-08-02T15:02:30.369Z"
+      "title": "Default to broad whole-plan coordination authorization with independent approval",
+      "updatedAt": "2026-08-13T13:39:20.455Z"
     },
     {
       "acceptance": {
@@ -2938,18 +2938,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-01T20:51:35.918Z",
+        "acceptedAt": "2026-08-14T00:36:49.951Z",
         "actor": "user",
-        "batchRef": "sha256:47da2dbed9f68bf8280d394cfa03903d19adfa8cd13d460bfe7dacd757d5ce43",
-        "contentHash": "sha256:fe3f6ae521d6a04eacb76a705e8afcd24dba85f0ccea0d7195d45fd5cf02b838",
-        "interactionRef": "lavish-feedback:review-canonical-plan-schema-identity-and-node-contracts:sha256:6a1f93be5fb4bbdf1c9cef31bb092d7d0e1cc060e67634e0e8908c0f558fc2b8",
+        "batchRef": "sha256:3c6050153d725d1c9267847f2b6e3ef4246f78acfa036139e2ac614788c72f0a",
+        "contentHash": "sha256:d99fb548bd4dd0de1f038ba5847e7e0f1d72bed1a3d1cd4b6c8e3c95e2900980",
+        "interactionRef": "lavish-feedback:review-simplified-plan-show-run-release-scope:sha256:3abdefbb7b69b6299dceb954dbeee4f472dd18a73c7586c7f5f6ea651f650dcd",
         "mode": "accepted_existing"
       },
-      "body": "`CanonicalDagPlanV1` is a strict JSON object with exactly `schemaVersion`, `kind`, `canonicalization`, `planId`, `revision`, optional `supersedesPlanHash`, `createdAt`, `generator`, `modelBinding`, `repositories`, `architecture`, `semanticSubjects`, `acceptanceOracles`, `workItems`, `gates`, `constraints`, `lifecycleBinding`, `artifactPolicy`, `projectionContract`, and `planHash`. `planHash` is SHA-256 over canonical JSON of every field except itself. Object keys sort recursively; schema-declared sets sort/deduplicate by stable key; semantically ordered arrays preserve order; duplicate keys, unknown fields, non-finite numbers, absolute paths, and malformed hashes fail validation. Contracts, oracles, work items, gates, and constraints each carry a content hash. `planId` remains stable across successor revisions, `revision` increases, and every revision after 1 names `supersedesPlanHash`. Entity IDs never establish equivalence; reuse of old evidence after re-decomposition requires a detached adoption receipt binding old/new plan, entity, oracle, model/context input, repository tree, and content hashes. No mutable run, approval, worker, evidence-body, or capacity fields are valid in the envelope.",
+      "body": "Historical `CanonicalDagPlanV1` artifacts remain readable and immutable. New planning records use stable IDs and monotonic revisions for lineage and occurrence identity, plus one canonical whole-plan hash when exact portable plan bytes must be reviewed, cached, or joined across stores. Do not require blanket nested entity hashes, schema hashes, self-hashed receipts, or hash chains unless an entity is independently stored, compared, cached, or reused and a concrete content-equality failure requires it. Use process-shared locks with expected integer revisions for mutable CAS; generations for stale result fencing; durable temp-write/fsync/rename/fsync for snapshots; semantic hashes for project-model objects and selected governing closure; digests for independently hydrated artifacts and stored projection bundles; native Git OIDs without wrapper hashes; and stable natural operation IDs with persisted request comparison for external-effect idempotency. Hashes provide checksums, content addressing, fingerprints, and privacy-safe equality—not authentication or proof of human intent. Introduce versioned simplified writers only where needed and never reinterpret active V1 artifacts.",
       "createdAt": "2026-08-01T14:55:54.722Z",
       "id": "DEC-closed-content-hashed-plan-envelope-v1",
       "introducedBy": "agent",
-      "rationale": "A closed exact identity prevents legacy split authority and unknown execution fields, while per-entity hashes and explicit adoption allow safe reuse without copying status by name.",
+      "rationale": "Every retained identity mechanism must prevent a concrete local reliability failure; redundant hash layers add migration and validation risk without creating a security boundary.",
       "relationships": [
         {
           "kind": "addresses",
@@ -2979,8 +2979,8 @@
         "PROP-closed-content-hashed-plan-envelope-v1"
       ],
       "state": "accepted",
-      "title": "Use a closed content-hashed canonical plan envelope",
-      "updatedAt": "2026-08-01T20:51:35.918Z"
+      "title": "Use one canonical plan hash and practical identities elsewhere",
+      "updatedAt": "2026-08-14T00:36:49.951Z"
     },
     {
       "body": "Each integration attempt binds exact Git version/object format, isolated configuration, common-dir identity, local filesystem/fsync profile, attributes, filters, submodules, LFS, generators, object completeness, and hydration procedures. Custom or union merge drivers are prohibited in v1. Declared filters and external object procedures must be content/version bound and reconciled; undeclared, missing, nondeterministic, prompted, shallow/partial/alternate/replace-ref, or durability-unsupported states block unless an accepted materialization profile proves a closed local state. Required capability failure is never `NOT_APPLICABLE`.",
@@ -3051,21 +3051,21 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-07-29T00:02:20.712Z",
+        "acceptedAt": "2026-08-13T02:33:24.295Z",
         "actor": "user",
-        "batchRef": "sha256:81aacadf72cbb0bc418ae7f885076fb5662e8b3defe4e6412ca4d88051ae1f00",
-        "contentHash": "sha256:526a91c8a9e416fd1d27e409f637664e9274cea127038822aa0fe0ee5395d204",
-        "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
-        "mode": "migration_cutover"
+        "batchRef": "sha256:e89eea7320a895afc1fc5827097c8c4bdc4c9432d26682ae9e4a95657a16dd5f",
+        "contentHash": "sha256:83ae427faeb5858863ae086c69c5535f4d93b732b5df8240982ad193a8f7f243",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1786588393038",
+        "mode": "direct_direction"
       },
-      "body": "Input channel does not change semantic authority rules, and no command argument is auto-accepted merely because it started brainstorming.",
+      "body": "Arguments supplied to brainstorming commands guide exploration but cannot directly create durable intent, decisions, or commitments. Important constraints from a seed must be confirmed through an eligible direct interaction or exact review before becoming semantic authority.",
       "createdAt": "2026-07-28T18:37:09.024Z",
       "id": "DEC-command-seed-classified-user-input",
       "introducedBy": "migration",
       "legacyIds": [
         "D-command-seed-classified-user-input"
       ],
-      "rationale": "This preserves direct-user commitment without turning `/dag brainstorm auth` into an accidental governing requirement.",
+      "rationale": "This preserves a safe distinction between starting a brainstorm and authorizing governing project direction; the minor confirmation step is acceptable.",
       "relationships": [],
       "resolvesQuestionIds": [],
       "scope": {
@@ -3076,8 +3076,8 @@
         "legacy-brainstorm:D-command-seed-classified-user-input"
       ],
       "state": "accepted",
-      "title": "Seed is authority-eligible only when semantically explicit",
-      "updatedAt": "2026-07-29T00:02:20.712Z"
+      "title": "Treat command seeds as non-authoritative guidance",
+      "updatedAt": "2026-08-13T02:33:24.295Z"
     },
     {
       "acceptance": {
@@ -3172,18 +3172,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-02T15:02:30.368Z",
+        "acceptedAt": "2026-08-13T13:39:20.456Z",
         "actor": "user",
-        "batchRef": "sha256:30253a054e78238ffeffd1ce84c9b0daa101a4c22ce72c02af436c6c748586be",
-        "contentHash": "sha256:a7545349b1cc0230b354cd0b4838bf5ce23a39481e9dcb1cf24bc69468a7fb02",
-        "interactionRef": "lavish-feedback:review-canonical-plan-schema-gates-artifacts-authorization-projections:sha256:49cf127e59440ff0bd68b715a7bfb03a37b5bbab6f92700e484898adb119d3ce",
+        "batchRef": "sha256:0d03cd2655f1391854e7f24631ea4e197c72ea6317574630ee18896f70fd7d1c",
+        "contentHash": "sha256:8ac0c3c8251b557246efbca91d5608f6ae7a744f316890d0dde52e9e118c40c7",
+        "interactionRef": "lavish-feedback:review-planning-transaction-and-inspection-foundation:sha256:a19158b2b404595bc19fc7f9ffa75e1cab3d015199e13cdecbfd0df4e245fc86",
         "mode": "accepted_existing"
       },
-      "body": "Every plan context/evidence reference uses `ArtifactRefV1` with SHA-256 digest, byte size, media type, optional schema ID, sensitivity public/internal/restricted, retention ephemeral/run/project, and optional validated root-relative locator; locator is never identity. Hydration verifies digest, size, and type before launch; missing or mismatched content blocks. Restricted content and sensitive locators are omitted from general projections/completions and never automatically read or injected. Plans, receipts, run snapshots, widgets, reports, diagnostics, and durable artifacts contain no secret values. Symbolic credential requirements declare provider, scope, purpose, phases, environment, and semantic class auth-only/semantic-versioned/non-replayable, with just-in-time delivery outside durable records. A hash-bound artifact-policy profile supplies inline/count/byte limits, accepted roots/types, retention, and redaction. Worktrees, dependency trees, arbitrary directories, and source copies are forbidden durable artifacts; source identity uses immutable repository commits/trees.",
+      "body": "Store mutable planning transaction snapshots under ignored repository-local `.ai/dag-plan-transactions-v1` and immutable canonical plan bytes, phase facts, receipts, projection bundles, and lineage indexes under ignored `.ai/dag-plans-v1`. Publish exact candidate bytes without regeneration. Every context/evidence reference uses `ArtifactRefV1` with SHA-256 digest, byte size, media type, optional schema, sensitivity, retention, and optional validated locator; locator is never identity. Hydration verifies digest, size, and type before launch; missing or restricted required content blocks. Plans and durable artifacts contain no secrets, worktrees, dependency trees, arbitrary directories, or source copies. Human-readable Markdown and diagrams are deterministic on-demand or exportable projections and never editable authority; a later explicit projection policy may track generated plan Markdown, while width-specific layouts remain disposable.",
       "createdAt": "2026-08-01T20:53:10.452Z",
       "id": "DEC-content-addressed-bounded-plan-artifact-policy-v1",
       "introducedBy": "agent",
-      "rationale": "This solves missing ignored context and artifact identity without repeating historical giant archives, secret leakage, mutable path references, or automatic injection of unbounded content.",
+      "rationale": "Repository-local ignored content-addressed storage provides crash recovery, exact publication lineage, bounded hydration, and readable exports without making transient planning state or projections authoritative.",
       "relationships": [
         {
           "kind": "addresses",
@@ -3214,8 +3214,8 @@
         "PROP-content-addressed-bounded-plan-artifact-policy-v1"
       ],
       "state": "accepted",
-      "title": "Use a bounded content-addressed artifact and sensitivity contract",
-      "updatedAt": "2026-08-02T15:02:30.368Z"
+      "title": "Use bounded content-addressed planning and artifact storage",
+      "updatedAt": "2026-08-13T13:39:20.456Z"
     },
     {
       "acceptance": {
@@ -3493,18 +3493,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-02T14:55:45.638Z",
+        "acceptedAt": "2026-08-13T13:39:20.454Z",
         "actor": "user",
-        "batchRef": "sha256:8ebfa7d458caae6e1d19b95b1ce89fbfe612037d764dca822dace1fcc43be071",
-        "contentHash": "sha256:a8eaea425e1a6d3a1185d0a2d6c33b56a0d1e903a420de0fe4438f66de00e625",
-        "interactionRef": "lavish-feedback:review-canonical-plan-schema-gates-artifacts-authorization-projections:sha256:4f7027b60f718759adf282ff0a3c564dbbbad620df1c30ca03f43bce0141dc26",
+        "batchRef": "sha256:0d03cd2655f1391854e7f24631ea4e197c72ea6317574630ee18896f70fd7d1c",
+        "contentHash": "sha256:fb678189ddd9cc5359cde66fe16c8bad729bcab8a01ab8071be3039fdea42eaf",
+        "interactionRef": "lavish-feedback:review-planning-transaction-and-inspection-foundation:sha256:a19158b2b404595bc19fc7f9ffa75e1cab3d015199e13cdecbfd0df4e245fc86",
         "mode": "accepted_existing"
       },
-      "body": "`projectionContract` binds versioned pure projections for architecture/outcome review Markdown, decomposition review, static typed graph, bounded node execution packet, normalized scheduler indexes, optional explicitly non-executable legacy inspection, and `DagExecutionProjectionV1`. Every projection identifies plan hash, projection kind/version, and any joined run/worker input hashes; set ordering and focus tie-breaks are deterministic. Node packets contain only the work item and referenced outcomes, contracts, oracles, context, and policy facts and cannot broaden authority. The execution projection joins immutable plan topology with atomic run status and only worker attempts explicitly mapped by run state; it never infers DAG status from generic workers. Human-readable Markdown remains a first-class generated projection, not authority. Exact terminal glyphs, widths, topology slicing, and controls remain under the separate widget projection/layout review.",
+      "body": "`projectionContract` binds versioned pure projections for architecture/outcome review Markdown, decomposition review, static typed graph, bounded node execution packet, normalized scheduler indexes, optional explicitly non-executable legacy inspection, and `DagExecutionProjectionV1`. Every projection identifies plan hash, projection kind/version, and joined run/worker input hashes; ordering and focus tie-breaks are deterministic. Node packets contain the work item and complete referenced outcomes, contracts, oracles, context, artifacts, and policy facts without broadening authority. Human-readable Markdown remains a first-class generated projection, not authority. Use `/dag show` as the canonical read-only namespace for static plans, exact nodes, and exact session-bound live overlays; automatically preview the human plan and static graph after each valid `/dag plan` revision. Ambiguity produces a bounded selector list rather than choosing latest or mtime. Keep legacy `dag_diagram` explicitly legacy and keep Lavish/exports non-authoritative.",
       "createdAt": "2026-08-01T20:53:10.452Z",
       "id": "DEC-deterministic-plan-projections-v1",
       "introducedBy": "agent",
-      "rationale": "This preserves readable planning and reuses existing graph mechanics without recreating editable projections or a second status store.",
+      "rationale": "One exact inspection namespace preserves readable planning and live execution without creating editable projections, implicit selection, or a second status store.",
       "relationships": [
         {
           "kind": "addresses",
@@ -3538,8 +3538,8 @@
         "PROP-deterministic-plan-projections-v1"
       ],
       "state": "accepted",
-      "title": "Derive all plan and execution views from versioned projection contracts",
-      "updatedAt": "2026-08-02T14:55:45.638Z"
+      "title": "Derive all plan and execution views through `/dag show`",
+      "updatedAt": "2026-08-13T13:39:20.454Z"
     },
     {
       "body": "Use one planning pass whose primary output is the executable node graph, with architecture, validation, and integration rationale embedded in node and graph contracts rather than a distinct architecture-first phase.",
@@ -3578,21 +3578,21 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-07-29T00:02:20.712Z",
+        "acceptedAt": "2026-08-13T19:25:52.063Z",
         "actor": "user",
-        "batchRef": "sha256:81aacadf72cbb0bc418ae7f885076fb5662e8b3defe4e6412ca4d88051ae1f00",
-        "contentHash": "sha256:58b4dc985787f8f79b8a67b84862f92cc8976768230bcb0ee5d449cbcec484c7",
-        "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
-        "mode": "migration_cutover"
+        "batchRef": "sha256:1d911f257f632116e7f6cc37ce6886cf14c6f4980cd56a72397e70c16d566f8b",
+        "contentHash": "sha256:01c1e9a443f1296f75fe4f5039ffc924b7b5f966eee006a98106ba35f6b41477",
+        "interactionRef": "lavish-feedback:review-authoritative-planning-compiler-release-contract:sha256:1a3d410612c5a9c740cc4236091669a89c28c4fb0c02125e7f3951882aa7fc77",
+        "mode": "accepted_existing"
       },
-      "body": "Explicit unambiguous user direction commits once; silence and agent-derived implications never commit; ambiguity or conflict remains unresolved.",
+      "body": "Explicit unambiguous user direction commits once; silence and agent-derived implications never commit; ambiguity or conflict remains unresolved. The agent uses contextual judgment to determine whether the user approved the semantic payload, and content references support traceability and stale-response handling rather than serving as a security or cryptographic consent boundary. Do not require a separate trusted adapter, typed approval ceremony, or byte-exact human-interaction receipt merely to defend against an agent hallucinating approval; the agent is already inside the trust boundary. Preserve clear separation between plan approval, execution authorization, and start intent through ordinary explicit interaction and model review semantics.",
       "createdAt": "2026-07-28T18:37:09.022Z",
       "id": "DEC-direct-user-commit-derived-review",
       "introducedBy": "migration",
       "legacyIds": [
         "D-direct-user-commit-derived-review"
       ],
-      "rationale": "This preserves low ceremony and human authority simultaneously.",
+      "rationale": "This project structures planning and execution for reliability and oversight; it should not add security theater that cannot constrain the trusted agent.",
       "relationships": [],
       "resolvesQuestionIds": [],
       "scope": {
@@ -3603,8 +3603,8 @@
         "legacy-brainstorm:D-direct-user-commit-derived-review"
       ],
       "state": "accepted",
-      "title": "Direct statements commit; derivations require review",
-      "updatedAt": "2026-07-29T00:02:20.712Z"
+      "title": "Use agent judgment for explicit user direction; do not claim a security boundary",
+      "updatedAt": "2026-08-13T19:25:52.063Z"
     },
     {
       "acceptance": {
@@ -4461,18 +4461,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-03T18:10:55.055Z",
+        "acceptedAt": "2026-08-14T00:36:49.952Z",
         "actor": "user",
-        "batchRef": "sha256:9970941f1fde5780db04eb768cafce58d534e8841f0f33322e213c4aba4fb2a9",
-        "contentHash": "sha256:abaa84128435cb9c473541df79714679596c5930d61457011541746bf89815d0",
-        "interactionRef": "lavish-feedback:review-f0-f8-evidence-routes-budgets:sha256:5debcf08134f9c0740af86a9e7642bda34937aa947cfa3a660a3acf947324e75",
+        "batchRef": "sha256:3c6050153d725d1c9267847f2b6e3ef4246f78acfa036139e2ac614788c72f0a",
+        "contentHash": "sha256:71144cb6eb653cda90bff2b63293f6d861fd44967510c460e60f0dea3f736d52",
+        "interactionRef": "lavish-feedback:review-simplified-plan-show-run-release-scope:sha256:3abdefbb7b69b6299dceb954dbeee4f472dd18a73c7586c7f5f6ea651f650dcd",
         "mode": "accepted_existing"
       },
-      "body": "F8 is a deterministic no-edit conductor seal. `integration_ready` requires current plan/review/authorization and entity hashes; exact clean candidate commit/tree and approved lineage; observed semantic effects within plan; one current hash-linked legal F0–F7 evidence chain; valid F2/F5 freshness; F7 exact-final-tree replay; no unresolved blocking or material finding; valid check applicability and waivers; hydrated bounded artifacts; usage within budget; reconciled side effects; released enqueue gates; and complete declared integration obligations. `IntegrationReadyReceiptV1` binds that closure but never means complete. Completion requires separate `IntegrationReceiptV1` proving composition or rebase onto the exact accepted train prefix, source-to-integrated lineage, no unreviewed semantic conflict-resolution edits, successful exact-prefix and required final profiles on the resulting tree, compare-and-swap/fast-forward landing to the expected target, and downstream combined-state invalidation/reruns. Any semantic conflict edit returns to the earliest affected F stage.",
+      "body": "F8 remains a deterministic no-edit integration-readiness seal, and canonical plan completion means changes are locally composed, landed, and verified in required combined state. For this release, add a deterministic release-readiness check covering focused suites, one true plan/show/run end-to-end fixture, reload/resume and duplicate invocation, stale baseline, worker failure/retry, plan-affecting pause, Git target drift, generated-spec drift, package dry-run and contents, documentation/version/changelog expectations, and clean Git status. A passing check means the repository is ready for an explicit human-operated push, tag, or package publication. `/dag run` never publishes remotely. Defer `/dag release`, remote push state, credential schemas, and release receipts until explicitly requested or justified by field failure.",
       "createdAt": "2026-08-02T15:20:59.760Z",
       "id": "DEC-integration-ready-completion-predicate-v1",
       "introducedBy": "agent",
-      "rationale": "Isolated candidate evidence cannot prove the future combined tree. Separate deterministic receipts prevent successful workers, clean rebases, or pre-integration green checks from being mistaken for landed verified completion.",
+      "rationale": "Release readiness is required now; remote release orchestration is a separate product feature with no demonstrated V1 need.",
       "relationships": [
         {
           "kind": "addresses",
@@ -4502,8 +4502,8 @@
         "PROP-integration-ready-completion-predicate-v1"
       ],
       "state": "accepted",
-      "title": "Separate deterministic F8 integration readiness from exact combined-state completion",
-      "updatedAt": "2026-08-03T18:10:55.055Z"
+      "title": "Separate local completion and release readiness from explicit publication",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
     },
     {
       "acceptance": {
@@ -5408,18 +5408,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-07-31T12:48:32.715Z",
+        "acceptedAt": "2026-08-14T00:36:49.950Z",
         "actor": "user",
-        "batchRef": "sha256:b75d7eac94c2a39cb154d85b749f0c5bdcc576f49403e39aaf212d5edbc6e08c",
-        "contentHash": "sha256:325ea71a03ce8f243f64a41daddc7f9707a96f2e9f839a8472f30f9e49421138",
-        "interactionRef": "lavish-feedback:review-dag-redesign-foundation-contracts:sha256:288405a6f535373406608bb18b18356aebb2b1bd4ab1ef36c6b9fdf12d037006",
+        "batchRef": "sha256:3c6050153d725d1c9267847f2b6e3ef4246f78acfa036139e2ac614788c72f0a",
+        "contentHash": "sha256:b56ca4a3303268b5835c9717cd2f1cd5888440fdbce43fa74cf45026b92eadb9",
+        "interactionRef": "lavish-feedback:review-simplified-plan-show-run-release-scope:sha256:3abdefbb7b69b6299dceb954dbeee4f472dd18a73c7586c7f5f6ea651f650dcd",
         "mode": "accepted_existing"
       },
-      "body": "Model-aware DAG planning is one versioned transaction and artifact with an architecture/outcomes phase followed by executable decomposition. The user reviews both views together. `/dag plan` owns the workflow; chunking is an internal phase and projection, while read-only graph/decomposition inspection may remain. The artifact binds exact project-model objects/hashes, accepted architecture gates, node contracts, typed scheduling constraints, and execution authorization.",
+      "body": "`/dag plan` is one seamless focus-linked workflow: it establishes architecture and outcomes, internally decomposes them into executable work items, and saves one revisioned inspectable plan record. The record contains repository baseline, concise governing source references, outcomes, non-goals, architecture notes and risks, work items, checks, dependencies, optional concurrency constraints, and integration profile. `/dag plan` atomically writes the record and automatically previews deterministic human-readable Markdown and a static graph. `/dag show` renders exact plan, node, lineage, and live-run views without mtime-based selection. Explicit `/dag run` resolves the saved plan, validates its whole-plan identity and current baseline, derives low-level genesis/context internally, and creates or resumes one canonical run. Keep the shipped worker, scheduler, lifecycle, and Git runtime as the hidden execution substrate. Build the first vertical slice through ordinary reviewed coding and tests, then dogfood it on remaining release work. Defer mandatory compilation manifests, phase-fact forests, new receipt chains, and bootstrap-authority ceremony until field use demonstrates a concrete need.",
       "createdAt": "2026-07-31T04:59:36.244Z",
       "id": "DEC-one-artifact-two-phase-dag-planning",
       "introducedBy": "agent",
-      "rationale": "Preserve architecture-first thinking without a second stale prose-to-DAG authority handoff.",
+      "rationale": "The missing value is a usable planning and inspection workflow, not more internal authority machinery.",
       "relationships": [
         {
           "kind": "addresses",
@@ -5450,8 +5450,8 @@
         "PROP-single-command-two-phase-plan-decomposition"
       ],
       "state": "accepted",
-      "title": "Use one canonical planning artifact with two internal phases",
-      "updatedAt": "2026-07-31T12:48:32.715Z"
+      "title": "Ship one focus-linked plan/show/run workflow over the existing runtime",
+      "updatedAt": "2026-08-14T00:36:49.950Z"
     },
     {
       "acceptance": {
@@ -6155,18 +6155,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-03T18:56:21.863Z",
+        "acceptedAt": "2026-08-14T00:36:49.952Z",
         "actor": "user",
-        "batchRef": "sha256:487bc1e2f935e79950c3bebec6736390c60f65842613f1df228b97bbf0197b7d",
-        "contentHash": "sha256:62feb57ad25fe6680246a05d7aa5b9c61bfef41402eb745485b985c460d10e86",
-        "interactionRef": "lavish-feedback:review-canonical-dag-run-state-v1:sha256:4a5f04002d229855923e1d5ef2686cbcba9d57d30a7e517948804d8029cf3e7e",
+        "batchRef": "sha256:3c6050153d725d1c9267847f2b6e3ef4246f78acfa036139e2ac614788c72f0a",
+        "contentHash": "sha256:97ff90911b6732dd9fae8e73eabbe12d62d4ca9bbadec7ed0d83fb773de5efab",
+        "interactionRef": "lavish-feedback:review-simplified-plan-show-run-release-scope:sha256:3abdefbb7b69b6299dceb954dbeee4f472dd18a73c7586c7f5f6ea651f650dcd",
         "mode": "accepted_existing"
       },
-      "body": "Pause stops new worker, procedure, effect, and integration dispatch but does not cancel already-running attempts; current-generation attempts may settle and their exact results/evidence may ingest normally. Cancellation, semantic back-edge, replan, and successor-plan operations atomically advance/fence the affected generation, invalidate current pointers and downstream closure, mark leases release-requested, and persist cancellation/reconciliation intents before any external signal or replacement launch. Results arriving for old, cancelled, superseded, or replaced generations are retained in quarantine and cannot advance stages, release current leases, or satisfy retry safety. There is no automatic late-result adoption. A result proven by immutable ordering evidence to have completed before the cancellation CAS may be explicitly adopted only with exact plan/entity/input/candidate/procedure/environment/authorization/effect equivalence and external authority; adoption attaches a worker fact only, and current conductor-sealed stage evidence remains required.",
+      "body": "Ordinary pause stops new worker, procedure, effect, and integration dispatch while already-running current-generation attempts may settle and ingest normally. Cancellation and replacement fence affected generations before external signals; old-generation results remain quarantined and cannot advance or land. When a blocking plan-affecting finding is recorded, the same atomic run update sets the whole run to `needs_replan` and blocks all new dispatch and integration. Running workers may settle and their branches/results are retained. Agent/user review classifies the finding: a confirmed semantic plan change creates a revised plan and distinct run, while a dismissed or misclassified finding may be downgraded and the existing run resumed with an explicit disposition. Defer affected-closure continuation, mandatory successor on dismissal, automatic candidate-adoption receipts, and cross-plan evidence transfer. Prior output may be bounded context and must be revalidated according to actual changed scope.",
       "createdAt": "2026-08-03T18:34:55.189Z",
       "id": "DEC-run-pause-cancel-late-result-v1",
       "introducedBy": "agent",
-      "rationale": "Non-cancelling pause avoids unnecessary replacement retries, while generation-first cancellation makes races deterministic. A narrow explicit pre-cancel adoption path preserves provably completed work without allowing arrival order to override authority.",
+      "rationale": "A simple whole-run pause closes the concrete unsafe-dispatch gap without prematurely building a complex successor protocol.",
       "relationships": [
         {
           "kind": "addresses",
@@ -6196,8 +6196,8 @@
         "PROP-run-pause-cancel-late-result-v1"
       ],
       "state": "accepted",
-      "title": "Pause new dispatch, fence cancellation first, and require explicit late-result adoption",
-      "updatedAt": "2026-08-03T18:56:21.863Z"
+      "title": "Pause plan-invalid runs simply and fence cancellation generations",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
     },
     {
       "acceptance": {
@@ -6324,18 +6324,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-07-29T02:26:16.832Z",
+        "acceptedAt": "2026-08-13T02:39:07.209Z",
         "actor": "user",
-        "batchRef": "sha256:5fe44421583c198a0869f8e1f67a708b44213bcef24b7d9caa72995fb523eb57",
-        "contentHash": "sha256:45d884808c0d18c291c43b4e6831220dbcd09662a89e7657feeadb3d3dbdb77c",
-        "interactionRef": "pi-input:019f857b-d560-782f-a4f8-65f734ac7dbf:1785291927250",
-        "mode": "accepted_existing"
+        "batchRef": "sha256:f62e4a7f1a73bc9b33c3b15c60e849ac777c95faf4d77a05bdd694ffa3e7171b",
+        "contentHash": "sha256:a99b71f0edb5a28a31c4b6c5c88c3d61670912352390eb5ef6c6038555aa22bf",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1786588718060",
+        "mode": "direct_direction"
       },
-      "body": "Add optional `dag_model_present_review` outside the six semantic project-model tools. It presents/resumes/ends the active review through Lavish, marks presentation only from real feedback, and returns bounded feedback to the agent. It never resolves model state or grants authority.",
+      "body": "Keep Lavish presentation separate from semantic authority, and use the Lavish whole-turn review adapter for material reviews in the planning and chunking focus. The adapter presents, resumes, and ends exact active reviews; semantic review receipts remain the only authority mechanism.",
       "createdAt": "2026-07-29T02:26:16.832Z",
       "id": "DEC-separate-lavish-presentation-adapter",
       "introducedBy": "user",
-      "rationale": "Separate presentation transport from semantic authority and allow independent resume/failure handling.",
+      "rationale": "The planning frontier contains visual workflows, DAGs, comparisons, and structured decisions that are better reviewed as whole Lavish turns without making presentation itself authoritative.",
       "relationships": [
         {
           "kind": "derived_from",
@@ -6356,8 +6356,8 @@
         "PROP-separate-lavish-presentation-adapter"
       ],
       "state": "accepted",
-      "title": "Keep Lavish in a separate presentation adapter",
-      "updatedAt": "2026-07-29T02:26:16.832Z"
+      "title": "Use the separate Lavish adapter for planning review turns",
+      "updatedAt": "2026-08-13T02:39:07.209Z"
     },
     {
       "body": "Produce and review a model-bound architecture/implementation plan first, then produce and review a separate model-bound DAG decomposition derived from the accepted plan. Both artifacts have explicit hashes, lifecycle, and staleness rules.",
@@ -7707,7 +7707,7 @@
       "id": "DISC-active-review-was-not-opened-in-lavish",
       "implications": "The extension and restored focus both activate the presentation tool correctly, while the resumed assistant conversation still exposes the pre-renderer callable schema. Reloading or relaunching the same saved conversation is insufficient; a cloned/forked Pi session should force a fresh assistant tool schema while preserving the focus link.",
       "introducedBy": "agent",
-      "proposedFollowup": "Use `/clone` to duplicate the current active branch into a new Pi session, verify `dag_model_present_review` appears there, then present the exact active review. If a clone still omits it, report a Pi dynamic-tool/schema restoration defect with the two contrasting diagnostics.",
+      "proposedFollowup": "Intentionally ignored by direct user request; do not pursue unless explicitly reopened.",
       "relationships": [
         {
           "kind": "challenges",
@@ -7725,9 +7725,9 @@
       "sourceRefs": [
         "active review review-owned-async-worker-runtime"
       ],
-      "state": "investigating",
+      "state": "deferred",
       "title": "The active worker-runtime review was not presented in Lavish",
-      "updatedAt": "2026-07-30T03:17:10.108Z"
+      "updatedAt": "2026-08-13T02:29:31.876Z"
     },
     {
       "body": "After several weeks of real structured-brainstorm use, collect observed prompt failures and successes, then design a separate transcript corpus, rubric, model-variance study, and prompt-regression workflow grounded in that evidence.",
@@ -8065,6 +8065,7 @@
       "createdAt": "2026-07-30T02:47:55.883Z",
       "id": "DISC-command-seed-cannot-bind-direct-authority",
       "introducedBy": "agent",
+      "proposedFollowup": "No change required. Direct user direction confirms command seeds should remain non-authoritative guidance; important constraints are confirmed later through eligible direct interaction or exact review.",
       "relationships": [
         {
           "kind": "challenges",
@@ -8082,9 +8083,9 @@
         "DEC-command-seed-classified-user-input",
         "dag_model_record_direction rejection in focus-let-s-improve-our-subagent-situation-for-one-i-noticed-tha"
       ],
-      "state": "untriaged",
+      "state": "integrated",
       "title": "Explicit command seed is not currently receipt-eligible",
-      "updatedAt": "2026-07-30T02:47:55.883Z"
+      "updatedAt": "2026-08-13T02:33:42.482Z"
     },
     {
       "body": "Run-snapshot mutation, Pi custom-message append, model execution, repository/tool side effects, and acknowledgement are separate transactions. Stable IDs and explicit ack can guarantee idempotent queue state and at-least-once presentation, but cannot guarantee arbitrary top-level agent actions execute exactly once if the process crashes after side effects and before ack. Completion prompts and handlers must inspect current DAG/repository state and make their own actions idempotent.",
@@ -8267,7 +8268,7 @@
       "updatedAt": "2026-08-04T15:22:28.268Z"
     },
     {
-      "body": "Planning, chunking, and execution integration details remain deferred until brainstorming is dogfooded.\n\n- Planning and chunking assign relevant prototypes: Prototypes are optional supporting context at the workflow level. Planning agents decide which plan sections reference prototypes. Chunking decides which referenced prototypes are required reading for particular nodes or flow steps.\n\n- Planning begins with the relevant functional spec: Planning begins with the spec.md for the product scope named by the user. Use spec/spec.md to orient or discover domains when scope is unclear, then follow explicit links as needed.\n\n- Let execution report discoveries while the conductor reconciles the model: Plans and DAG nodes reference accepted commitment/scenario IDs and generated slices. Workers may return structured discoveries, evidence, affected commitments/views, conflicts, and proposed responses, but cannot mutate human-owned intent or accepted decisions. The top-level conductor integrates discoveries as proposed/reopened model objects, produces divergence/consequence views, and requests human judgment when direction changes.",
+      "body": "The previously deferred planning/execution integration now has a shipped thin vertical slice. `/dag plan` starts from the active focus and accepted generated specifications, establishes architecture and outcomes, and internally decomposes one revisioned plan. `/dag show` projects exact static, node, lineage, and current-session live views. `/dag run` source-joins and baseline-checks that record before adapting it to the existing canonical runtime. Workers still cannot mutate human-owned intent or advance lifecycle authority directly; blocking plan-affecting findings place the whole run in `needs_replan`. More elaborate structured discovery-to-successor transfer remains deferred until field use demonstrates the need.",
       "createdAt": "2026-07-28T18:37:09.012Z",
       "id": "DISC-deferred-planning-execution",
       "introducedBy": "migration",
@@ -8290,9 +8291,9 @@
         "legacy-brainstorm:T-model-execution-reconciliation",
         "legacy-brainstorm:T13-planning-handoff"
       ],
-      "state": "investigating",
+      "state": "integrated",
       "title": "Deferred model-aware planning and execution details",
-      "updatedAt": "2026-07-30T02:47:55.883Z"
+      "updatedAt": "2026-08-14T02:39:53.708Z"
     },
     {
       "body": "Renderer architecture, modality, controls, transport, threat model, and validation seams remain deferred; V1 is chat-only.\n\n- Use fixed semantic and factual tangent badges: Tangent cards may use a fixed semantic vocabulary such as Foundation, Risk, Needs clarity, Contradiction, Integration, and Prototype candidate, plus derived factual badges such as open-question count, Deferred, Partially settled, and New.\n\n- Badges are agent-owned and ignorable: The agent may add, revise, or remove tangent badges as quick informational flags. Users do not edit or approve badges and may ignore them. Badges never constrain tangent selection or become canonical specification authority.\n\n- Show every in-scope tangent in a flat frontier: The tangent selection surface lists every Proposed, Tracked, Active, and Deferred tangent in one flat collection with badges. Out-of-scope and Closed tangents are omitted from the default frontier.\n\n- Keep the datastore renderer-neutral and resolve outcomes directly: The brainstorm datastore contains no Lavish concepts and no raw feedback collection. It stores renderer-neutral questions, proposals, review packets, decisions, and lifecycle state. The agent may present a review as ordinary Markdown or send the same packet to an optional renderer. After any response channel, the agent interprets user meaning and calls dag_brainstorm_resolve_review with semantic outcomes only.\n\n- Review next actions may suggest optional Lavish rendering: dag_brainstorm_review may return a non-binding next suggestion to present the packet as ordinary Markdown or send it to an optional Lavish renderer. The renderer and its feedback transport never become datastore concepts.\n\n- Let the agent choose the most useful question-context representation: The complete brainstorm-turn document may still use a consistent optional Lavish renderer whose stable shell owns Current understanding, navigation, question cards, badges, standard choices, comments, and turn-level actions. Within each question/review point, the freeform context section is flexible rather than one mandatory renderer-neutral shape: the agent may use ordinary Markdown, predefined semantic blocks, arbitrary HTML/CSS, scripts, or a linked/generated artifact such as an interactive web UI mockup. The workflow must not force every context section to be expressible in every renderer.\n\n- Treat agent-authored brainstorm context as trusted local content: Do not require fragment sanitization, sandboxing, Shadow DOM, CSS scoping, or a security allowlist for agent-authored brainstorm context. The workflow assumes the user and agent are the local authors/readers. Renderers may still apply ordinary layout containment, diagnostics, or namespacing for usability, but not as a restriction on expressive capability.\n\n- Allow fully interactive agent-authored context: Agent-authored context may include scripts, forms, editable controls, interactive prototypes, custom buttons, visualizations, and direct renderer integrations when they help communicate or test an idea. Renderer-provided review controls remain available for common decisions but are not the exclusive interaction mechanism. Any response delivered through custom context is still interpreted by the agent; verbatim responses and unprocessed submissions are not persisted in brainstorm state.\n\n- Require session-level modality choice, not per-context fallback parity: A context section does not require a decision-complete Markdown fallback and rich rendering may carry modality-specific information. The workflow itself must not require Lavish: when the user or agent chooses a Markdown-only session, the agent provides suitable Markdown, a crude textual mockup, or a link to a separately opened artifact. Behavioral compatibility is chosen for the current interaction rather than imposed on every authored context section.\n\n- Offer a small optional semantic component vocabulary: Provide markdown, callout, code, table, comparison, diagram, and freeform context helpers for common presentation. Renderer-owned review cards, understanding, options, recommendations, comments, navigation, and submission remain convenient defaults. These helpers reduce boilerplate but never limit the agent from authoring arbitrary HTML/CSS/scripts or linked artifacts when a brainstorm needs more expressive context.\n\n- Explore the turn-to-Lavish rendering engine in a separate tangent: Do not settle the detailed renderer test contract inside production validation yet. Create a dedicated tangent for the engine that converts Current understanding, turn shell, review points, standard controls, and freeform question context into a whole-document Lavish artifact and transports submissions back to the agent. Define automated renderer validation after that engine's architecture and seams are understood.",
@@ -9544,6 +9545,43 @@
       "updatedAt": "2026-07-31T16:38:13.457Z"
     },
     {
+      "body": "The new focus seed asks for a user-transparent planning/chunking boundary: `/dag plan` should write the human-readable plan and compile the executable DAG, with a way to show the graph. This does not introduce a conflicting direction; it operationalizes accepted decisions for one canonical two-phase artifact and deterministic human-readable/static graph projections. The unresolved frontier is command lifecycle and inspection UX, not whether chunking is separately user-facing.",
+      "confidence": "high",
+      "createdAt": "2026-08-13T02:37:43.990Z",
+      "id": "DISC-planning-seed-reaffirms-existing-unified-contract",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "DISC-deferred-planning-execution"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-deterministic-plan-projections-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-one-artifact-two-phase-dag-planning"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-deterministic-plan-projections-v1",
+        "DEC-one-artifact-two-phase-dag-planning",
+        "focus-seed:focus-let-s-explore-the-planning-and-chunking-i-think-we-want-th"
+      ],
+      "state": "integrated",
+      "title": "New planning focus aligns with the accepted one-command two-phase contract",
+      "updatedAt": "2026-08-13T02:37:43.990Z"
+    },
+    {
       "body": "`git merge-tree --write-tree <prefix> <candidate>` followed by deterministic `git commit-tree <tree> -p <prefix>` creates an exact one-parent integration candidate without mutating an index, branch, or rebase/cherry-pick sequencer. Private refs can protect inputs and outputs, and repeated fixed-metadata composition should reproduce the commit/tree. This intentionally discards worker commit topology and still requires exact-prefix behavioral verification; conflicts route to a new candidate rather than conductor resolution.",
       "createdAt": "2026-08-03T19:13:11.708Z",
       "id": "DISC-plumbing-composition-removes-sequencer-recovery-state",
@@ -9599,6 +9637,34 @@
       "state": "integrated",
       "title": "Review presentation bypasses the dedicated Lavish browser helper",
       "updatedAt": "2026-08-03T18:14:52.516Z"
+    },
+    {
+      "body": "`ProjectModelStore.mutate()` and focus-session mutation load a revision and later rename a replacement without a process-shared lock or expected-revision comparison. Two ordinary Pi processes can both read revision N and each publish N+1, silently losing one update. Existing before/after model hashes do not prevent this. The practical fix is shared locking or a database transaction plus expected integer revision and durable temp-fsync/rename/parent-fsync.",
+      "confidence": "high",
+      "createdAt": "2026-08-13T19:35:04.551Z",
+      "id": "DISC-project-model-store-has-real-lost-update-window",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DEC-transactional-automatic-spec-sync"
+        },
+        {
+          "kind": "supports",
+          "targetId": "Q-pragmatic-identity-and-hashing-minimum"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "EV-repository-wide-pragmatic-hash-identity-audit",
+        "extensions/dag-workflow/project-model/sessions.ts",
+        "extensions/dag-workflow/project-model/store.ts"
+      ],
+      "state": "integrated",
+      "title": "Project-model and focus stores can lose concurrent updates",
+      "updatedAt": "2026-08-14T00:36:49.953Z"
     },
     {
       "body": "Archived attempts failed deterministically because an explicitly requested Anthropic model lacked credentials, worktrees were stale or missing dependencies, test commands resolved the wrong environment, and negative searches were misclassified as shell failures. These are not implementation defects and should not consume the same retry budget.",
@@ -9723,6 +9789,36 @@
       "updatedAt": "2026-08-04T14:00:59.007Z"
     },
     {
+      "body": "The workflow needs enough stable identity to resume after crashes, reject stale writes, avoid duplicated effects, and explain what plan, run, or result is being discussed. But the trusted agent can fabricate or misuse any in-process receipt, so byte-exact interaction proofs and cryptographic-style chains do not create a meaningful security boundary. Every hash or receipt must be justified by a concrete preventable reliability failure rather than generic tamper-resistance language, and simpler revisions, IDs, CAS, or direct joins should replace hashes where sufficient.",
+      "confidence": "high",
+      "createdAt": "2026-08-13T19:25:52.064Z",
+      "id": "DISC-reliability-identities-versus-security-theater",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "PROP-closed-plan-receipt-publication-start-stack"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-versioned-source-joined-planning-compiler"
+        },
+        {
+          "kind": "supports",
+          "targetId": "Q-pragmatic-identity-and-hashing-minimum"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "review-authoritative-planning-compiler-release-contract"
+      ],
+      "state": "integrated",
+      "title": "Reliability identity must not be presented as a security boundary",
+      "updatedAt": "2026-08-14T00:36:49.953Z"
+    },
+    {
       "body": "During iterative lifecycle review, a candidate decision changed after presentation. `refreshReviewPoint` refreshed reference/option hashes but retained the option's old materialized authority payload, so the revised visible choice could not resolve correctly. The kernel now preserves each existing-target direction's original explicit value patch as private focus-session metadata, rematerializes the public exact direction from the current model target plus that patch on every unresolved-review refresh, strips private metadata from review projections and hashes, and preserves it across partial resolution. Legacy directions without metadata safely rematerialize from the current target. Deterministic tests cover no-patch refresh, explicit-patch refresh, repeated refresh, private/public separation, and successful acceptance of the current payload.",
       "confidence": "high",
       "createdAt": "2026-07-31T13:23:02.229Z",
@@ -9764,6 +9860,7 @@
       "createdAt": "2026-07-29T02:23:11.922Z",
       "id": "DISC-review-tool-output-presentation-gate",
       "introducedBy": "agent",
+      "proposedFollowup": "Intentionally ignored by direct user request; do not pursue unless explicitly reopened.",
       "relationships": [
         {
           "kind": "affects",
@@ -9785,9 +9882,9 @@
       "sourceRefs": [
         "Live focus review-lavish-renderer-architecture failure and recovery"
       ],
-      "state": "untriaged",
+      "state": "deferred",
       "title": "Visible review tool output is not recognized as presentation",
-      "updatedAt": "2026-07-29T02:23:11.922Z"
+      "updatedAt": "2026-08-13T02:29:31.876Z"
     },
     {
       "body": "A global revision change may be unrelated, while a newly added governing object can invalidate a plan without changing any previously referenced object. Useful fail-closed revalidation therefore needs both full snapshot identity and a versioned, reproducible semantic selector/closure hash that includes effective authority and transitive governing relationships; unknown impact blocks.",
@@ -10057,6 +10154,36 @@
       "state": "integrated",
       "title": "`terminate: true` ends the child turn but does not deliver across processes",
       "updatedAt": "2026-07-30T18:30:40.475Z"
+    },
+    {
+      "body": "Field implementation demonstrated that one small focus-linked plan record plus a compatibility adapter is sufficient to expose plan/show/run without replacing the canonical scheduler, lifecycle, worker, Git, and run-state machinery. The necessary extra durability is limited to ordinary plan revisions, process-shared CAS, and one recoverable start intent; mandatory interaction receipt stacks or compilation manifests were not needed.",
+      "createdAt": "2026-08-14T02:39:53.708Z",
+      "id": "DISC-thin-vertical-slice-reuses-canonical-runtime",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "PROP-closed-plan-receipt-publication-start-stack"
+        },
+        {
+          "kind": "supports",
+          "targetId": "PROP-thin-plan-show-run-vertical-slice"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-plan-show-run-vertical-slice-implementation"
+      ],
+      "state": "integrated",
+      "title": "The thin product workflow can reuse the shipped canonical runtime",
+      "updatedAt": "2026-08-14T02:39:53.708Z"
     },
     {
       "body": "Review feedback identified that representing each static failure as a new top-level worker transition would repeatedly serialize child startup, context reconstruction, and completion delivery. The edit/static loop is high-frequency local feedback and should remain inside one implementation worker run.",
@@ -10416,6 +10543,41 @@
       "updatedAt": "2026-07-28T18:37:08.999Z"
     },
     {
+      "body": "Read-only analysis of the legacy diagram, canonical plan projection contract, live execution projection, widget, Pi command/TUI constraints, and authority boundaries recommends `/dag show` as one canonical read-only inspection namespace. Planning should automatically preview architecture and static graph before authorization; exact static plan selectors and session-bound live overlays remain distinct, deterministic, hash-labeled projections. Optional Lavish and exports present the same projection without authority. Legacy `dag_diagram` remains explicitly legacy.",
+      "createdAt": "2026-08-13T02:44:04.992Z",
+      "id": "EV-canonical-dag-inspection-ux-research",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-deterministic-plan-projections-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "Q-static-dag-inspection-surface"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/integration.ts",
+        "extensions/dag-workflow/dag-runtime/plan.ts",
+        "extensions/dag-workflow/dag-runtime/scheduler.ts",
+        "extensions/dag-workflow/dag-runtime/widget.ts",
+        "extensions/dag-workflow/diagram.ts",
+        "worker-msqwruo9-ae853a72d3"
+      ],
+      "state": "current",
+      "title": "Canonical DAG inspection UX research",
+      "updatedAt": "2026-08-13T02:44:04.992Z"
+    },
+    {
       "body": "Stress testing against model/code drift, cross-repository work, ignored context, capabilities, shared decisions, migrations, mutexes, capacity, dynamic discovery, worker retries, re-decomposition, partial authorization, user edits, secrets, large artifacts, and widget projection found five necessary contracts: immutable plan, separate authorization receipt, atomic mutable run snapshot, immutable bounded evidence, and generic worker result. It recommends selector-versioned semantic closure, commit/tree baselines, separate work items and gates, phase-scoped constraints, per-entity hashes, typed artifact references, and fail-closed replan for newly discovered semantic graph changes.",
       "confidence": "high",
       "createdAt": "2026-07-31T13:47:32.909Z",
@@ -10721,6 +10883,40 @@
       "state": "current",
       "title": "Historical runs support incident classes while prospective pairs are required for comparative claims",
       "updatedAt": "2026-08-04T14:14:23.635Z"
+    },
+    {
+      "body": "Read-only design research recommends `/dag plan` as a separate run-grade CAS transaction whose mutable snapshot points to immutable scope, grounding, architecture, decomposition, candidate, validation, projection, review, authorization, publication, and handoff facts. Architecture and decomposition seal into one exact candidate; deterministic views are reviewed together; detached review and authorization receipts remain separate; identical candidate bytes publish immutably through lineage CAS; explicit `/dag run` builds a just-in-time hash-bound start bundle for the shipped runtime. Focus sessions and Markdown remain routing/presentation rather than planning authority.",
+      "createdAt": "2026-08-13T02:46:03.609Z",
+      "id": "EV-dag-plan-transaction-lifecycle-research",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "Q-plan-compiler-authority-and-freshness-closure"
+        },
+        {
+          "kind": "supports",
+          "targetId": "Q-unified-plan-transaction-lifecycle"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/integration.ts",
+        "extensions/dag-workflow/dag-runtime/plan.ts",
+        "extensions/dag-workflow/project-model/sessions.ts",
+        "worker-msqwruob-7abd5ed808"
+      ],
+      "state": "current",
+      "title": "DAG planning transaction lifecycle research",
+      "updatedAt": "2026-08-13T02:46:03.609Z"
     },
     {
       "body": "An independent contract design separates metrics derivable from the plan, terminal/current atomic snapshot, immutable receipts, and exact worker results from metrics that require observation. Terminal outcomes, attempts, retries, findings, conflicts, integration receipts, and usage are mostly derivable. Exact readiness queues, time-weighted useful concurrency, recovery intervals, and actual human response require a separate bounded atomic accumulator containing current open intervals, fixed counters/sums/histograms, source revision/hash, clock coverage, and no transition list. The observer runs post-commit, never backpressures execution, drops/gaps on overload, and produces a strict content-addressed `RunEvaluationEnvelopeV1` with explicit measured/zero-exposure/unsupported/not-observed/partial/censored status and denominators.",
@@ -11809,6 +12005,42 @@
       "updatedAt": "2026-07-31T04:57:50.322Z"
     },
     {
+      "body": "A first-principles read-only audit finds that separate durable planning/run/release authorities are sound, but the proposed receipt/hash stack is overbuilt. Use UUIDs for occurrence identity; integer revisions checked under a real process-shared lock for mutable JSON CAS; file fsync, same-directory atomic rename, and parent fsync for durability; canonical content hashes only for exact immutable plan bytes, independently stored artifacts/facts, targeted model closure, and a reviewed packet when equality matters; native Git OIDs without wrapper hashes; persisted natural operation keys for duplicate-effect prevention; and intent/observe/reconcile only around external effects. Exact human-entry attestation, blanket self-hashed receipts, blanket nested-entity hashes, per-phase immutable fact chains, and a mandatory permanently hashed run-start bundle do not prevent additional ordinary crash/race/retry failures and should be removed or made optional. Concrete retained fixes are process-shared planning/publication CAS, exact reviewed-candidate equality, internally derived `/dag run` inputs, recoverable starting-to-active session binding, atomic plan-affecting whole-run fence, idempotent discovery upsert, private Git refs for candidate retention, and remote push reconciliation using expected-old/desired-new Git OIDs.",
+      "createdAt": "2026-08-13T19:33:43.270Z",
+      "id": "EV-local-workflow-pragmatic-durability-audit",
+      "introducedBy": "agent",
+      "kind": "code_research",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-pragmatic-identity-and-hashing-minimum"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-closed-plan-receipt-publication-start-stack"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DISC-reliability-identities-versus-security-theater"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/git-integration.ts",
+        "extensions/dag-workflow/dag-runtime/reducer.ts",
+        "extensions/dag-workflow/dag-runtime/store.ts",
+        "extensions/dag-workflow/project-model/sessions.ts",
+        "extensions/dag-workflow/project-model/store.ts",
+        "worker-msrwsh77-b9d0e0ccc3"
+      ],
+      "state": "current",
+      "title": "Pragmatic durability audit for a trusted local workflow",
+      "updatedAt": "2026-08-13T19:33:43.270Z"
+    },
+    {
       "body": "No single paper, standard, or mature system prescribes the requested exact phase order. A defensible fixed lifecycle composes: NASA/FDA implementation, static analysis, intended-use validation, defect disposition, regression, review, and delivery evidence; Cucumber discovery/formulation/automation; LLVM regression tests, review, and revert-to-green; architecture fitness functions; changed-code mutation testing and OSS-Fuzz bug corpora; fixed agent/repair pipelines with original-revision witnesses, regression filtering, finite budgets, and explicit non-success outcomes. Test passing is plausibility rather than proof, and exact retry counts or mandatory hardening techniques are local risk policy.",
       "confidence": "high",
       "createdAt": "2026-07-31T04:34:58.526Z",
@@ -12496,6 +12728,207 @@
       "updatedAt": "2026-07-30T04:23:23.445Z"
     },
     {
+      "body": "Read-only inspection confirms a self-attestation gap across the current authority chain. Project-model acceptance validates semantic content but trusts an ambient caller-generated interactionRef rather than an exact durable user entry; Lavish binds bounded parsed prompts rather than raw feedback; review presentation has no immutable presentation receipt; run state validates only nominal receipt HashRefs; and conductor start accepts caller-built plan, genesis, context, concurrency, and time before robust session-binding preflight. The recommended closure introduces strict canonical HumanInteractionReceiptV1 with independent decision slots; PlanReviewReceiptV1 binding exact plan plus architecture/decomposition/static-graph hashes and post-response freshness; PlanAuthorizationReceiptV1 and deterministic AuthorizationSetV1; boundary-specific PlanFreshnessReceiptV1; byte-identical PlanPublicationReceiptV1 plus lineage-head CAS; and compiler-owned DagRunStartBundleV1 with explicit run-request receipt and starting-to-active session-binding CAS. Validation is a dependency DAG from strict bytes and source observations through freshness, projections, interaction, review, authorization/publication, run preflight, bundle, genesis, and binding. Existing run-store hard-link/fsync/locking patterns are reusable. Positive authority cannot come from arbitrary tool args, ambient refs, truncated feedback, or generic prose; approve-only remains valid, same-turn approval/authorization require independent explicit slots, and `/dag run` becomes the sole start intent.",
+      "createdAt": "2026-08-13T13:53:34.030Z",
+      "id": "EV-plan-receipt-publication-start-contract-design",
+      "introducedBy": "agent",
+      "kind": "code_research",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-plan-compiler-authority-and-freshness-closure"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-content-bound-acceptance-receipt"
+        },
+        {
+          "kind": "supports",
+          "targetId": "PROP-versioned-source-joined-planning-compiler"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/plan.ts",
+        "extensions/dag-workflow/dag-runtime/run-state.ts",
+        "extensions/dag-workflow/dag-runtime/store.ts",
+        "extensions/dag-workflow/project-model/integration.ts",
+        "extensions/dag-workflow/project-model/model.ts",
+        "extensions/dag-workflow/project-model/review-turn.ts",
+        "extensions/dag-workflow/project-model/types.ts",
+        "worker-msrkimk1-5b644ed88b"
+      ],
+      "state": "current",
+      "title": "Exact interaction, planning receipt, publication, and run-start contract design",
+      "updatedAt": "2026-08-13T13:53:34.030Z"
+    },
+    {
+      "body": "Implemented the accepted product-facing vertical slice over the shipped canonical runtime. The planning core provides strict typed source joins, static semantic plan hashing, immutable retained revisions, decision CAS, deterministic Markdown/static graph/node/lineage projections, and PID/start-identity lock recovery. `/dag plan` preserves the active focus, performs architecture-first planning through one save tool, and keeps approval, authorization, and explicit run start separate. V1 authorization is exact whole-plan scope and cannot expand a subset. `/dag show` resolves exact static or current-session live views without inferred latest selection. `/dag run` revalidates clean Git model/spec baselines, exact common-dir/object-format identity, and the checked-out target branch; it compiles internally to CanonicalDagPlanV1/genesis/context, persists a recoverable prepared-start intent, blocks cross-plan concurrent starts, and advances only the exact session-bound runtime/source plan. Prefix/final integration validation executes plan-bound shell-free argv in a detached combined-state worktree and binds both Node and helper bytes; failed commands remain FAIL. Owned evaluator completion is treated as trusted external observation, while needs-attention/failure and F6 candidate edits fail closed. Whole-run needs_replan blocks new dispatch/integration while allowing current work to settle. Project-model/focus stores prevent cross-process lost updates, monotonic rollback ABA, and symlink-mediated roots. Focused planning, runtime-adapter, command, prepared-start, model, full canonical runtime, Git integration, package, and smoke tests pass; the command suite includes a real plan→show→prepared canonical run reaching F1. The complete real-Git dogfood matrix passed with manifest sha256:776c7a2107805219083c5c00c9edecb8f28c722f72df1d53f04df335aac59aca. The six-pair/twelve-execution counterbalanced portfolio and three recovery drills passed with unchanged semantic manifest sha256:057de6716bed1bd822dcfa66edeb3c057de2ad4cd01b743e0d8e99d3abcd797f and runtime-bound manifest sha256:ea224045f3babe8a0230ee09d10e30d49c65b0f04928d7438525f275aaad3d4a.",
+      "createdAt": "2026-08-14T02:39:53.708Z",
+      "id": "EV-plan-show-run-vertical-slice-implementation",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-one-artifact-two-phase-dag-planning"
+        },
+        {
+          "kind": "supports",
+          "targetId": "PROP-simple-needs-replan-pause-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "PROP-thin-plan-show-run-vertical-slice"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/reducer.ts",
+        "extensions/dag-workflow/planning/",
+        "scripts/dag-planning-command-test.mjs",
+        "scripts/dag-prepared-start-test.mjs",
+        "scripts/smoke-test.mjs"
+      ],
+      "state": "current",
+      "title": "Plan/show/run vertical slice implementation and verification",
+      "updatedAt": "2026-08-14T07:20:15.551Z"
+    },
+    {
+      "body": "Read-only source inspection recommends three linked but separately authoritative transactions under one active focus: planning publishes immutable lineage-CAS plans; DagRunStateV1 owns execution; a distinct release-closure transaction owns post-run verification and exact remote push. Pre-publication candidate ordinals do not consume plan revisions; publication requires same planId, exact predecessor head, revision +1, identical reviewed bytes, and atomic lineage-head CAS. A plan-affecting finding must atomically fence new dispatch and integration before a deterministic non-authoritative execution discovery is handed to the project model. V1 should use a whole-run barrier and require human reconciliation plus a distinct reviewed successor even when dismissed. Sealed predecessor candidates remain content-addressed and private-ref preserved; only mechanically exact-equivalent candidates may be explicitly authorized for successor adoption, and all F0–F8 evidence/status reruns. `/dag run` resolves exact published plans, compiles fresh start bundles internally, and never accepts caller paths. `/dag show` exposes exact plan/node/run/finding/lineage views. Release requires an explicit durable intent-before-effect transaction and exact remote OID reconciliation. A non-circular rollout uses a human-reviewed bootstrap plan for the minimum self-hosting compiler, then uses the new planner for finding/successor/adoption/release slices and deliberately dogfoods one successor event before release.",
+      "createdAt": "2026-08-13T13:52:09.333Z",
+      "id": "EV-plan-successor-and-release-contract-design",
+      "introducedBy": "agent",
+      "kind": "code_research",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-runtime-discovery-successor-plan-handoff"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-run-authorization-successor-candidate-adoption-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "PROP-focus-linked-run-grade-planning-transaction"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/plan.ts",
+        "extensions/dag-workflow/dag-runtime/reducer.ts",
+        "extensions/dag-workflow/dag-runtime/run-state.ts",
+        "extensions/dag-workflow/dag-runtime/scheduler.ts",
+        "extensions/dag-workflow/project-model/integration.ts",
+        "extensions/dag-workflow/project-model/types.ts",
+        "spec/model-aware-dag-runtime/spec.md",
+        "worker-msrkimk3-3361fd3f59"
+      ],
+      "state": "current",
+      "title": "Successor-plan, execution-discovery, and release-closure contract design",
+      "updatedAt": "2026-08-13T13:52:09.333Z"
+    },
+    {
+      "body": "Read-only source inspection confirms the runtime validates closed internal coherence but has no authoritative source-joined compiler: conductor start trusts caller-authored paths/hashes, plan validation does not recompute model/spec/repository authority, and lifecycle task packets omit the complete transitive referenced plan slice. The recommended compiler is a CAS-backed immutable phase-fact pipeline for scope, grounding, architecture, decomposition, validation/seal, review, authorization, publication, and start. It deterministically recomputes governing selector closure and receipt validity; binds exact model/spec/artifact/repository/profile facts; derives a semantic access matrix and only justified precedence, mutex, resource, migration, gate, and integration-train constraints; emits complete closed node packets and deterministic architecture/decomposition/graph projections; routes diagnostics to the earliest correctable phase; and seals only exact validated candidate bytes. Authority and freshness are revalidated at compile, review, authorization, publication, and start. Required representational additions include acceptance-receipt identity, entity-level grounding/traceability, explicit semantic-read source basis, work-item architecture relevance, strict transaction/receipt/node-packet/start-bundle schemas, and a plan-bound compilation-manifest ref if traceability remains detached.",
+      "createdAt": "2026-08-13T13:51:17.517Z",
+      "id": "EV-planning-compiler-core-contract-design",
+      "introducedBy": "agent",
+      "kind": "code_research",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-plan-compiler-authority-and-freshness-closure"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-deterministic-plan-projections-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "PROP-fail-closed-model-aware-plan-compiler"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/lifecycle-runtime.ts",
+        "extensions/dag-workflow/dag-runtime/plan.ts",
+        "extensions/dag-workflow/dag-runtime/scheduler.ts",
+        "extensions/dag-workflow/project-model/model.ts",
+        "spec/model-aware-dag-runtime/spec.md",
+        "worker-msrkimk4-70494f0abe"
+      ],
+      "state": "current",
+      "title": "Planning compiler core contract and schema-gap analysis",
+      "updatedAt": "2026-08-13T13:51:17.517Z"
+    },
+    {
+      "body": "A holistic read-only audit finds that the accepted product direction is coherent but implementation priorities inverted: roughly 12.4k lines of canonical DAG runtime exist while `/dag plan` and `/dag show` are absent and `/dag run` remains an informational stub requiring caller-built low-level inputs. The shortest useful release path is a thin vertical slice over the shipped worker/Git/run substrate: one revisioned `plan.json` with whole-plan hash, readable Markdown and graph projections, internal architecture then decomposition, direct `/dag show`, internally assembled `/dag run`, a whole-run `needs_replan` pause for blocking plan discoveries, one end-to-end recovery fixture, accurate docs, package audit, and a release-readiness check. Mandatory compilation manifests, receipt chains, automatic cross-plan adoption, remote release transactions, and bootstrap authority ceremony should be deleted or deferred absent field evidence. The five prior review points are mostly implementation details rather than product choices. Release-ready means locally verified, documented, packaged, and clean; remote push/tag/npm publication remains an ordinary explicit user action unless separately requested.",
+      "createdAt": "2026-08-13T19:42:16.872Z",
+      "id": "EV-planning-product-requirements-simplicity-audit",
+      "introducedBy": "agent",
+      "kind": "code_research",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-pragmatic-identity-and-hashing-minimum"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-noncircular-planning-workflow-release-rollout"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-separate-release-closure-transaction-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-one-artifact-two-phase-dag-planning"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "README.md",
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/integration.ts",
+        "extensions/dag-workflow/dag-runtime/reducer.ts",
+        "extensions/dag-workflow/dag-runtime/run-state.ts",
+        "extensions/dag-workflow/index.ts",
+        "worker-msrwsh76-107c5001ce"
+      ],
+      "state": "current",
+      "title": "Planning product requirements and release-path simplicity audit",
+      "updatedAt": "2026-08-13T19:42:16.872Z"
+    },
+    {
       "body": "After successive adversarial findings were repaired, final read-only closure worker `worker-msfq1drj-e08efac880` reported no release blockers. Closure covers exact-common-dir process locks with atomic publication and PID/start/directory identity, core-only tree/config mechanics including raw gitlink rejection, direct immutable refs, explicit-base merge-tree and deterministic one-parent commit-tree, exact clean verification before dispatch, complete durable intent/observation recovery across every named real-process failpoint including cleanup and lock-release side-effect windows, old/new/third landing reconciliation, strict real-Git transaction receipt self-hash/content authority, post-conflict generation fencing and fresh sealed F1 recertification, one-shot integration retry authorization, and canonical owner/repository/environment/evidence joins. The Git, DAG, model, worker, smoke, package, specification, syntax, and diff checks pass.",
       "createdAt": "2026-08-05T06:52:40.829Z",
       "id": "EV-real-git-integration-final-closure",
@@ -12555,6 +12988,45 @@
       "state": "current",
       "title": "Real-Git integration transaction now exercises exact composition and landing recovery",
       "updatedAt": "2026-08-05T06:52:40.829Z"
+    },
+    {
+      "body": "A repository-wide first-principles audit classifies hashes by practical role. Retain hashes for canonical plan equality across stores, independently hydrated artifact/fact bytes, project-model semantic object and selected governing-closure equality, generated-spec/projection checksums when persisted, worker config/result checksums, executable/config/environment fingerprints, large diagnostic/patch/no-progress fingerprints, deterministic evaluation envelopes and privacy-safe cohort keys, plus native Git OIDs. Retain compare-and-swap semantics but implement mutable concurrency with process-shared locks and expected integer revisions, not parallel snapshot hashes. Use stable UUIDs and generations for transactions, reviews, authorizations, runs, attempts, effects, findings, ownership, and release records. Remove or simplify whole-model mutation hashes, review/presentation hashes, batch/interaction hashes, schema hashes, blanket nested plan hashes, self-hashed receipt chains, run nonce/hash chains, repeated attempt/effect tuple hashes, duplicate ownership/Git receipt chains, evaluation closure hashes, and wrappers around Git OIDs or inode identities. The most urgent concrete reliability gap is project-model/focus lost updates: current load-mutate-rename has no process-shared lock or expected-revision check. Persisted V1 artifacts must remain readable; simplifications require versioned writers rather than reinterpretation.",
+      "createdAt": "2026-08-13T19:35:04.550Z",
+      "id": "EV-repository-wide-pragmatic-hash-identity-audit",
+      "introducedBy": "agent",
+      "kind": "code_research",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-pragmatic-identity-and-hashing-minimum"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-closed-content-hashed-plan-envelope-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "PROP-minimal-local-durability-primitives"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/evaluation-store.ts",
+        "extensions/dag-workflow/dag-runtime/evaluation.ts",
+        "extensions/dag-workflow/dag-runtime/git-integration.ts",
+        "extensions/dag-workflow/dag-runtime/plan.ts",
+        "extensions/dag-workflow/dag-runtime/reducer.ts",
+        "extensions/dag-workflow/dag-runtime/store.ts",
+        "extensions/dag-workflow/project-model/model.ts",
+        "extensions/dag-workflow/project-model/store.ts",
+        "extensions/dag-workflow/worker-runtime/core.mjs",
+        "worker-msrwsh75-0808f93d00"
+      ],
+      "state": "current",
+      "title": "Repository-wide pragmatic hash and identity audit",
+      "updatedAt": "2026-08-13T19:35:04.550Z"
     },
     {
       "body": "A diagnostic Pi process loaded a copy of this exact session with the current extension. After `session_start` restored the focus, `pi.getAllTools()` and `pi.getActiveTools()` both included `dag_model_present_review`. Therefore package loading, tool registration, focus-link restoration, and dynamic activation all work. The remaining mismatch is that this resumed assistant conversation's callable schema still omits the tool.",
@@ -12895,6 +13367,39 @@
       "state": "current",
       "title": "Terminal prior art favors topology, status, and current-work as separate channels",
       "updatedAt": "2026-08-04T02:16:11.113Z"
+    },
+    {
+      "body": "Read-only review confirms the one-artifact/two-phase direction but finds that no authoritative compiler is shipped: current run start trusts caller-supplied plan/genesis/context bundles. Release-critical planning requirements include source-joined review and authorization receipts, complete transitive node packets, freshness recomputation from model/spec/repository at each boundary, and a wired successor-plan path for execution discoveries. Additional required invariants cover semantic access conflicts, architecture/oracle traceability, atomic partial-draft handling, prototype grounding, and exact successor lineage.",
+      "createdAt": "2026-08-13T02:45:24.437Z",
+      "id": "EV-unified-planning-compiler-adversarial-review",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DISC-deferred-planning-execution"
+        },
+        {
+          "kind": "supports",
+          "targetId": "Q-unified-plan-transaction-lifecycle"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/integration.ts",
+        "extensions/dag-workflow/dag-runtime/lifecycle-runtime.ts",
+        "extensions/dag-workflow/dag-runtime/plan.ts",
+        "worker-msqwruoc-0ba56bd953"
+      ],
+      "state": "current",
+      "title": "Unified planning compiler adversarial review",
+      "updatedAt": "2026-08-13T02:45:24.437Z"
     }
   ],
   "intents": [
@@ -13078,24 +13583,28 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "Tasks 111, 112, and 113 are release-closed. Task 113 delivers the reducer-driven canonical F0–F8 lifecycle; durable intent-before-external procedure, validation, worker, cleanup, cancellation, and Git execution; exact restart and owner-transfer recovery; binding-storage-aware owned-worker reconciliation; detached privacy-safe evaluation; and a six-pair/twelve-execution portfolio repeated twice with an exact semantic manifest match. Independent kernel and runtime reviews found no release blockers, and the final release, packaging, model, smoke, syntax, whitespace, and specification checks passed. Commit and push are the remaining authorized publication actions. This is current agent understanding, not new human authority.",
-      "generatedAt": "2026-08-07T05:11:13.023Z",
+      "body": "The accepted plan/show/run vertical slice is implemented, adversarially reviewed, hardened, and dogfooded over the existing canonical runtime. Planning authority remains in project-model/model.json; one ignored strict plan record carries source-joined architecture, decomposition, exact whole-plan authorization scope, and plan-bound shell-free integration commands. Deterministic projections expose it, approval/authorization remain separate from explicit start, and run preparation fails closed on source, Git repository identity, branch, or baseline drift. Process-shared CAS closes model/focus/plan lost updates without revision ABA, prepared-start intent closes command crash recovery and blocks cross-plan double starts, and blocking plan-affecting findings produce a scheduler-visible whole-run needs_replan hold. The complete real-Git matrix and six-pair/twelve-execution portfolio pass without changing the prior semantic portfolio identity. Remaining release closure is only the ordinary clean-tree source-checkout gate; no new publication transaction is required.",
+      "generatedAt": "2026-08-14T07:20:15.552Z",
       "sourceObjects": [
         {
-          "id": "EV-task113-canonical-lifecycle-evaluation-implementation",
-          "semanticHash": "sha256:9865af6353f720c774fcad925d726ef016cfbf075c36c8df69555904a2dba19e"
+          "id": "DEC-one-artifact-two-phase-dag-planning",
+          "semanticHash": "sha256:b56ca4a3303268b5835c9717cd2f1cd5888440fdbce43fa74cf45026b92eadb9"
         },
         {
-          "id": "EV-task113-six-pair-dogfood-portfolio",
-          "semanticHash": "sha256:6c6797508f60ce7e2a611fec76ba36e8980a8b8ac8e039edcde28e812c30744e"
+          "id": "PROP-thin-plan-show-run-vertical-slice",
+          "semanticHash": "sha256:b2c45781a54a16d84b8ac143a57e0463fc9382a657ede7021675737058732f48"
         },
         {
-          "id": "EV-task113-final-independent-release-closure",
-          "semanticHash": "sha256:15e85b9776c053866c8d3bbb01b2e884aa118a68c09715ca7fa187c3863d61bf"
+          "id": "PROP-simple-needs-replan-pause-v1",
+          "semanticHash": "sha256:4b3357bd0d845db98f50a9242fe4d09f93bd54881d95f68b8bc7028d8c9204c5"
         },
         {
-          "id": "INT-model-aware-dag-redesign",
-          "semanticHash": "sha256:4c6a681eb2ba6c1866c798fa5e97197865907cee5ff32843d060585549f2c7d8"
+          "id": "EV-plan-show-run-vertical-slice-implementation",
+          "semanticHash": "sha256:eea0d4329e135e61194e20bde7991af9ed2055ea8d051d02b0135f654d8e5ec5"
+        },
+        {
+          "id": "DISC-thin-vertical-slice-reuses-canonical-runtime",
+          "semanticHash": "sha256:d55a559fe15661eec86d2a3522e50885a2dce80d646472cc3fa1f6e0c4528f78"
         }
       ]
     },
@@ -13435,9 +13944,9 @@
         }
       ]
     },
-    "revision": 180,
+    "revision": 203,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-07T05:11:13.023Z"
+    "updatedAt": "2026-08-14T07:20:15.552Z"
   },
   "proposals": [
     {
@@ -14237,6 +14746,41 @@
       "updatedAt": "2026-08-03T19:17:25.331Z"
     },
     {
+      "body": "Define strict canonical schemas and source-join validators for review, authorization, deterministic authorization sets, boundary freshness, publication, lineage heads, explicit run request, and run-start bundles. Review binds exact candidate bytes and jointly recomputed architecture/decomposition/static-graph projections. Publication stores the same reviewed bytes and atomically advances exact lineage-head CAS without requiring authorization. Authorization remains independently composable within plan maximum. `/dag run` recomputes all sources and session preflight, derives scheduler/genesis/context internally, and starts only by immutable bundle hash through a starting-to-active session binding CAS. Remove public caller paths, max concurrency, nonce, timestamps, and self-attested receipt hashes from authoritative start.",
+      "createdAt": "2026-08-13T13:53:34.031Z",
+      "id": "PROP-closed-plan-receipt-publication-start-stack",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-closed-planning-receipt-publication-start-stack"
+        },
+        {
+          "kind": "addresses",
+          "targetId": "Q-plan-compiler-authority-and-freshness-closure"
+        },
+        {
+          "kind": "supports",
+          "targetId": "PROP-versioned-source-joined-planning-compiler"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-plan-receipt-publication-start-contract-design",
+        "EV-planning-compiler-core-contract-design"
+      ],
+      "state": "rejected",
+      "title": "Require a closed source-joined receipt stack from review through run start",
+      "updatedAt": "2026-08-13T19:33:43.271Z"
+    },
+    {
       "body": "On each terminal worker transition, atomically ingest the result and advance the DAG, append a compact non-context session pointer, and schedule a short coalescing window. Deliver one `followUp` custom message with `triggerTurn: true` containing all newly terminal workers, DAG transitions, newly ready work, failures, and decision needs. Deduplicate by worker-attempt completion ID so reloads or duplicate process events cannot wake the main agent twice.",
       "createdAt": "2026-07-30T03:02:08.973Z",
       "id": "PROP-coalesced-worker-completion-wakeup",
@@ -14694,6 +15238,31 @@
       "updatedAt": "2026-08-03T22:10:11.626Z"
     },
     {
+      "body": "Replace ambient caller-supplied interactionRef authority with strict content-addressed HumanInteractionReceiptV1 facts created by trusted adapters from durable Pi entries, exact command custom entries, or raw untruncated Lavish feedback. Bind session header, repository, branch/leaf, full source content, exact presentation, independent typed decision slots, source timestamp, and receipt hash. Arbitrary agent tool arguments, generic prose inference, stale/off-branch entries, preselected controls, truncated feedback, and layout-only feedback cannot mint positive authority. Direct free text may request revisions or supply non-authoritative guidance; positive acceptance requires an exact hash-bearing command or structured control. Preserve independent plan-review and run-authorization slots even in one turn.",
+      "createdAt": "2026-08-13T13:53:34.031Z",
+      "id": "PROP-exact-human-interaction-receipts",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-exact-human-interaction-authority-receipt"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-content-bound-acceptance-receipt"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "EV-plan-receipt-publication-start-contract-design"
+      ],
+      "state": "rejected",
+      "title": "Require exact durable receipts for positive human authority",
+      "updatedAt": "2026-08-13T19:25:52.064Z"
+    },
+    {
       "body": "For every train entry, run its prefix profiles and all repository final profiles on the exact synthetic future commit before landing. Bind speculative evidence to the ordered predecessor/candidate/receipt set and exact environment tuple. Hold the per-common-dir integration lock from authoritative composition through landing reconciliation and receipt acceptance. Any external target movement invalidates current F8 integration readiness and all affected combined-prefix evidence, creates a new train generation, and reruns exact composition and checks.",
       "createdAt": "2026-08-03T19:17:25.331Z",
       "id": "PROP-exact-prefix-every-landing-long-lock-v1",
@@ -14935,6 +15504,74 @@
       "updatedAt": "2026-07-30T03:46:45.194Z"
     },
     {
+      "body": "Make a compiler-owned atomic planning transaction the only producer of executable canonical plans. Join every governing claim to the exact accepted project-model object and acceptance receipt; bind exact architecture/decomposition projection hashes in a detached review receipt and closed plan authorization receipt; rerun selector, generated-spec, artifact, capability, repository source, and target observations at compile, review, authorize, and start. Derive complete content-hashed node packets from the transitive referenced slice. Treat unknown semantic overlap, missing oracle coverage, prototype ambiguity, partial compilation, and plan-affecting execution discoveries as fail-closed gates requiring review or a successor plan.",
+      "createdAt": "2026-08-13T02:45:24.437Z",
+      "id": "PROP-fail-closed-model-aware-plan-compiler",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-plan-compiler-authority-and-freshness-closure"
+        },
+        {
+          "kind": "addresses",
+          "targetId": "Q-unified-plan-transaction-lifecycle"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "EV-unified-planning-compiler-adversarial-review"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "CON-canonical-dag-plan-snapshot",
+        "DEC-one-artifact-two-phase-dag-planning",
+        "EV-unified-planning-compiler-adversarial-review"
+      ],
+      "state": "recommended",
+      "title": "Compile plans through source-joined authority and freshness closure",
+      "updatedAt": "2026-08-13T02:45:24.437Z"
+    },
+    {
+      "body": "Atomically record each plan-affecting finding with a whole-run no-new-dispatch-or-integration fence, candidate-generation fencing, durable cancellation/reconciliation intents, and late-result quarantine. After that CAS, idempotently create one non-authoritative execution discovery keyed by finding hash; only human review may change governing authority. Integrate or dismiss outcomes both require a distinct lineage-CAS successor plan and run; unresolved findings leave the old run fenced. Preserve sealed predecessor candidate facts and private refs. Permit only explicit, independently authorized, mechanically exact-equivalent candidate adoption into the successor, then rerun F0–F8 and all evidence; non-equivalent candidates are bounded F1 seed context only.",
+      "createdAt": "2026-08-13T13:52:09.333Z",
+      "id": "PROP-fenced-successor-plan-and-exact-candidate-adoption-v1",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-plan-affecting-finding-fence-scope-v1"
+        },
+        {
+          "kind": "addresses",
+          "targetId": "Q-runtime-discovery-successor-plan-handoff"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-run-authorization-successor-candidate-adoption-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-plan-successor-and-release-contract-design"
+      ],
+      "state": "rejected",
+      "title": "Fence plan-affecting findings and require reviewed successor plans",
+      "updatedAt": "2026-08-13T19:42:16.873Z"
+    },
+    {
       "body": "Atomically reserve separate product-repair, evidence/review/hardening rework, infrastructure, worker replacement, stage-entry, worker-start, wall-time, artifact, compute, and external-effect ceilings; consumed work remains charged after cancellation/loss. Normalize failure fingerprints and define progress as a relevant candidate delta, closed finding, strictly smaller failing set, or new route-changing evidence. Stop on the same fingerprint after two materially different failed repairs, two consecutive no-progress iterations, any repeated candidate tree, repeated A→B→A oscillation, or exhausted ceiling. Recommend `standard-v1`: three product repairs per fingerprint/class, one infrastructure retry, two worker replacements per stage, 30 stage entries, 12 worker launches, 120 minutes wall time, and 64 MiB retained evidence; metered token/cost ceilings are explicit when enforceable rather than guessed. Budget increases beyond authorization require a fresh receipt.",
       "createdAt": "2026-08-02T15:20:59.759Z",
       "id": "PROP-finite-lifecycle-budget-no-progress-v1",
@@ -15026,6 +15663,37 @@
         "Risk-selected hardening and applicability require global policy while checkpoints remain fixed."
       ],
       "updatedAt": "2026-07-31T13:14:06.749Z"
+    },
+    {
+      "body": "Make the active focus the user-facing routing and review context for `/dag plan`, and link it to one exact run-grade planning transaction. The transaction store owns revision/snapshot CAS, process ownership, idempotency, immutable phase facts, publication, and recovery. The user remains in one focus and can complete planning, implementation, release verification, commit, and push in this workstream without managing a second workflow or waiting for a future release slice.",
+      "createdAt": "2026-08-13T13:39:20.459Z",
+      "id": "PROP-focus-linked-run-grade-planning-transaction",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-focus-linked-versus-focus-owned-planning-state"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "PROP-run-grade-resumable-dag-plan-transaction"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-dag-plan-transaction-lifecycle-research",
+        "review-planning-transaction-and-inspection-foundation:point-transaction-lifecycle"
+      ],
+      "state": "rejected",
+      "title": "Keep `/dag plan` seamless in the focus while storing run-grade state separately",
+      "updatedAt": "2026-08-14T00:36:49.953Z"
     },
     {
       "body": "Expose an always-async `subagent` launch tool plus narrow `subagent_status`, `subagent_inspect`, `subagent_tail`, `subagent_cancel`, and `subagent_retry` tools for the top-level agent. Expose `subagent_report` as the structured child-report tool. Provide equivalent `/workers` user commands for list, inspect, tail, cancel, and retry. Remove the dormant `dag_subagent` adapter and do not reuse `/dag` for generic worker control.",
@@ -15758,6 +16426,35 @@
       "updatedAt": "2026-07-30T18:43:01.474Z"
     },
     {
+      "body": "For V1, limit mutable authority to three inspectable JSON snapshots: planning transaction, existing run state, and release closure. Give transactions, reviews, authorizations, runs, attempts, findings, and releases stable UUIDs; use integer revision plus process-shared lock for mutation; durably replace snapshots with fsync/rename/fsync. Keep hashes only when exact content equality or content-addressed hydration is the practical requirement: canonical plan bytes, independently stored artifacts, targeted model closure, and one reviewed packet digest. Use native Git OIDs directly. Bind stale review responses through transaction revision, candidate plan hash, review ID, and packet digest. Publish exact reviewed plan bytes under a lineage lock and recover lagging transaction state from the head. Derive run inputs internally and use a persisted start ID with recoverable starting-to-active binding; hash the start bundle only if byte-for-byte restart reproduction proves necessary. Persist natural operation keys and request payloads before external effects, then reconcile observations. Remove security-attestation language and redundant self-hash chains.",
+      "createdAt": "2026-08-13T19:33:43.271Z",
+      "id": "PROP-minimal-local-durability-primitives",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-pragmatic-identity-and-hashing-minimum"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-closed-plan-receipt-publication-start-stack"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "DISC-reliability-identities-versus-security-theater"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "EV-local-workflow-pragmatic-durability-audit"
+      ],
+      "state": "selected",
+      "title": "Use minimal local durability primitives instead of receipt chains",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
+    },
+    {
       "body": "Drop `message_update`, retain final message, tool, lifecycle, and control diagnostics, and cap each child diagnostic log at 50 MiB. Do not make atomic conductor behavior, structured results, idempotent recovery, explicit worker profiles, or other lifecycle constraints part of this baseline decision.",
       "createdAt": "2026-07-30T03:37:01.563Z",
       "id": "PROP-minimal-message-update-hotfix-baseline",
@@ -15885,6 +16582,41 @@
       "updatedAt": "2026-08-04T14:15:39.321Z"
     },
     {
+      "body": "Use one explicitly human-reviewed bootstrap plan and authorization under the existing runtime for the minimum self-hosting slice: planning transaction/lineage store, source-joined compiler and receipts, deterministic `/dag show`, focus-linked `/dag plan`, and fresh start-bundle `/dag run`. Record that authority as transitional human-reviewed bytes rather than compiler output. From that committed baseline, use the new planner for finding fences, model discovery handoff, successor candidate adoption, complete run UX, release closure, and end-to-end tests. Deliberately inject one fixture plan-affecting finding, compile a successor, adopt one exact-equivalent candidate, reject one non-equivalent candidate, and finish through the successor before the final release matrix and explicit release closure.",
+      "createdAt": "2026-08-13T13:52:09.333Z",
+      "id": "PROP-noncircular-planning-workflow-release-rollout",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "DISC-deferred-planning-execution"
+        },
+        {
+          "kind": "supports",
+          "targetId": "PROP-separate-release-closure-transaction-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "PROP-versioned-source-joined-planning-compiler"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-plan-successor-and-release-contract-design",
+        "EV-planning-compiler-core-contract-design"
+      ],
+      "state": "rejected",
+      "title": "Bootstrap the compiler once, then self-host successor and release behavior",
+      "updatedAt": "2026-08-13T19:42:16.873Z"
+    },
+    {
       "body": "After exact verification, create an immutable proposal ref. For a normal non-bare repository, stop at `awaiting_user_handoff` and let the user perform a normal Git fast-forward in a selected worktree; observe and accept only the exact proposed OID/tree. Automated expected-old `update-ref` is allowed only for a declared bare or conductor-exclusive target. Any missing or third OID—including a same-tree commit—blocks; no equivalence inference or automatic backward ref movement is allowed. Later defects use a new forward repair/revert work item.",
       "createdAt": "2026-08-03T19:17:25.331Z",
       "id": "PROP-normal-branch-user-handoff-exclusive-cas-v1",
@@ -15995,6 +16727,35 @@
       "state": "recommended",
       "title": "Use an optional pinned Lavish CLI behind a replaceable protocol adapter",
       "updatedAt": "2026-07-28T18:37:09.005Z"
+    },
+    {
+      "body": "Build the initial plan/show/run vertical slice through ordinary reviewed coding, tests, and Git using a compact implementation checklist. Once it works, use it on remaining release work or the next feature. Do not create transitional bootstrap authority bytes, self-hosting lineage, or require the compiler to authorize its own origin. Dogfood realistic resume, duplicate invocation, stale baseline, worker failure, plan-affecting pause, and target-drift cases before release.",
+      "createdAt": "2026-08-13T19:42:16.873Z",
+      "id": "PROP-ordinary-bootstrap-then-dogfood",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-transitional-bootstrap-authority-for-self-hosting"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-noncircular-planning-workflow-release-rollout"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-planning-product-requirements-simplicity-audit"
+      ],
+      "state": "selected",
+      "title": "Implement the first vertical slice normally, then dogfood it",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
     },
     {
       "body": "Workers continue asynchronously while their owning Pi session is alive. On extension reload or `session_shutdown`, stop accepting launches, gracefully abort children, escalate process-group termination after a deadline, persist interrupted terminal state, flush completion receipts, and leave the DAG resumable through explicit retry. Do not introduce a daemon in v1.",
@@ -16337,6 +17098,35 @@
       "updatedAt": "2026-07-28T18:37:09.005Z"
     },
     {
+      "body": "Define a deterministic release-readiness command or script covering focused and end-to-end tests, plan/show/run recovery fixtures, generated-spec drift, package dry run and contents, documentation/version/changelog expectations, and clean Git status. Canonical run completion remains locally landed and verified. Push, tag, and package publication remain explicit ordinary user operations outside V1. Add remote release automation only after a concrete product request or field failure justifies it.",
+      "createdAt": "2026-08-13T19:42:16.873Z",
+      "id": "PROP-release-readiness-check-v1",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-explicit-release-closure-boundary"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-separate-release-closure-transaction-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-planning-product-requirements-simplicity-audit"
+      ],
+      "state": "selected",
+      "title": "Ship a release-readiness check instead of remote release automation",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
+    },
+    {
       "body": "Pass only brainstorm/review IDs and let renderer code query and select whatever it needs.",
       "createdAt": "2026-07-28T18:37:09.005Z",
       "id": "PROP-renderer-full-state-read",
@@ -16582,6 +17372,41 @@
       "updatedAt": "2026-08-03T18:34:55.189Z"
     },
     {
+      "body": "Store a mutable `DagPlanTransactionV1` snapshot under repository-local ignored planning storage, with owner epoch, revision/snapshot CAS, natural idempotency, and pointers to immutable phase facts. Progress through intake, grounding, architecture-ready, decomposition-ready, validated, review-presented, review-approved, published, and handoff-ready; cancellation and supersession are terminal. Seal one exact canonical candidate before review, publish identical bytes through exact plan-lineage CAS, and build an immutable just-in-time run-start bundle only after explicit authorization and freshness revalidation. Do not start execution automatically after approval.",
+      "createdAt": "2026-08-13T02:46:03.609Z",
+      "id": "PROP-run-grade-resumable-dag-plan-transaction",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-plan-compiler-authority-and-freshness-closure"
+        },
+        {
+          "kind": "addresses",
+          "targetId": "Q-unified-plan-transaction-lifecycle"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "EV-dag-plan-transaction-lifecycle-research"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-one-artifact-two-phase-dag-planning",
+        "EV-dag-plan-transaction-lifecycle-research"
+      ],
+      "state": "recommended",
+      "title": "Use a run-grade resumable planning transaction",
+      "updatedAt": "2026-08-13T02:46:03.609Z"
+    },
+    {
       "body": "Pause stops new stage/integration/effect dispatch but lets current attempts settle; their exact results and evidence may ingest normally while their generation remains current. Cancellation, replan, and successor operations atomically fence the affected generation and invalidate pointers before requesting external cancellation. Post-fence old results are immutable quarantine facts and never advance or release current leases. No automatic late-result adoption is allowed. A result proven immutable before the cancellation CAS may be explicitly adopted only through a hash-bound ordering/equivalence/authority receipt and still requires current conductor-sealed evidence.",
       "createdAt": "2026-08-03T18:34:55.189Z",
       "id": "PROP-run-pause-cancel-late-result-v1",
@@ -16758,6 +17583,36 @@
       "updatedAt": "2026-07-31T04:21:19.160Z"
     },
     {
+      "body": "Add explicit `/dag release <runId>` backed by a crash-safe release-closure store. Start only after exact plan completion and bind plan/run/completion receipt, local commit/tree, required tests/evaluation/package/spec-drift evidence, release authorization, remote/ref, and expected-old/desired-new OIDs. Persist exact push intent before dispatch; reconcile remote observation after success or crash as applied, safe retry, or conflict. Never persist credentials or let `/dag run` push. Consider the focus released only after an immutable release receipt or explicit human local-only closure.",
+      "createdAt": "2026-08-13T13:52:09.333Z",
+      "id": "PROP-separate-release-closure-transaction-v1",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-explicit-release-closure-boundary"
+        },
+        {
+          "kind": "supports",
+          "targetId": "INT-model-aware-dag-redesign"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-plan-successor-and-release-contract-design"
+      ],
+      "state": "rejected",
+      "title": "Use an explicit release-closure transaction after plan completion",
+      "updatedAt": "2026-08-13T19:42:16.873Z"
+    },
+    {
       "body": "The immutable plan stores executable F0–F8 work items separately from non-executable architecture, contract, human, environment, external-precondition, and integration gates. It stores one precedence graph only for producer/consumer and feedback causality; separate phase-scoped semantic mutex groups; resource demand classes and semantic safety maxima but not machine capacity or leases; and per-repository integration trains. Gates declare whether satisfaction is immutable plan-bound authority or run-time evidence. Predicted/observed paths stay advisory. Operational overlays may restrict; semantic graph changes require a successor plan.",
       "createdAt": "2026-07-31T13:47:32.911Z",
       "id": "PROP-separate-work-items-gates-and-static-constraints",
@@ -16854,6 +17709,39 @@
       "state": "recommended",
       "title": "Land through the bound session worktree with ordinary fast-forward Git",
       "updatedAt": "2026-08-03T20:31:06.330Z"
+    },
+    {
+      "body": "When a blocking plan-affecting finding is recorded, atomically set the whole run to `needs_replan` before any new dispatch or integration. Let already-running workers settle and retain their branches/results. Present the finding for agent/user judgment. A confirmed semantic change creates a revised plan and new run; a dismissed or misclassified finding may be downgraded and the run resumed with an ordinary disposition note. Defer closure-wide cancellation, mandatory successor on dismissal, adoption receipts, and cross-plan evidence transfer. Prior output may be bounded seed context and is revalidated according to actual changed scope.",
+      "createdAt": "2026-08-13T19:42:16.873Z",
+      "id": "PROP-simple-needs-replan-pause-v1",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-plan-affecting-finding-fence-scope-v1"
+        },
+        {
+          "kind": "addresses",
+          "targetId": "Q-runtime-discovery-successor-plan-handoff"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-fenced-successor-plan-and-exact-candidate-adoption-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-planning-product-requirements-simplicity-audit"
+      ],
+      "state": "selected",
+      "title": "Pause the run simply when a blocking finding requires replanning",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
     },
     {
       "body": "Persist the attached conductor's random epoch, Pi session ID, PID plus process-start identity, attach timestamp, and low-frequency heartbeat in the canonical run snapshot. A replacement Pi process may take ownership only when the prior conductor is proven dead; if it is live, identity cannot be verified, or concurrent mutation is detected, deny mutation and surface needs-decision. Detached workers and results route by repository/run/attempt identity rather than the original Pi session, so a replacement top-level session can resume delivery.",
@@ -16960,6 +17848,41 @@
       "state": "candidate",
       "title": "Use one current.html for the whole brainstorm",
       "updatedAt": "2026-07-28T18:37:09.005Z"
+    },
+    {
+      "body": "Make `/dag show` the single canonical read-only inspection namespace. It resolves only an exact session-bound run, exact active planning transaction, a sole non-superseded plan with an explicit selection label, or a user-supplied full selector; ambiguity produces a bounded choice list rather than choosing latest. Support plan architecture/decomposition/graph/all views, exact node detail, and session-bound run overlays. Automatically show architecture plus static graph after each valid `/dag plan` revision. Keep optional Lavish and exported Markdown/graph as hash-labeled non-authoritative presentations of the same pure projection. Do not repurpose legacy `dag_diagram`.",
+      "createdAt": "2026-08-13T02:44:04.992Z",
+      "id": "PROP-single-dag-show-inspection-namespace",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-static-dag-inspection-surface"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "EV-canonical-dag-inspection-ux-research"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-deterministic-plan-projections-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-deterministic-plan-projections-v1",
+        "EV-canonical-dag-inspection-ux-research"
+      ],
+      "state": "recommended",
+      "title": "Use `/dag show` for static plans and exact live overlays",
+      "updatedAt": "2026-08-13T02:44:04.992Z"
     },
     {
       "body": "Make the attached top-level worker manager the only process allowed to mutate one atomic versioned `worker-session.json` containing top-level session identity, owner process epoch, workers, attempts, ingested result hashes, and the serial completion queue. Detached supervisors never edit it. Each supervisor atomically replaces only its own small mailbox heartbeat/status snapshot and creates one immutable terminal result envelope. Startup and filesystem notifications feed these mailboxes into one serialized worker-session mutation queue.",
@@ -17239,6 +18162,42 @@
       "updatedAt": "2026-07-30T03:39:53.266Z"
     },
     {
+      "body": "Implement one revisioned inspectable plan record with outcomes, non-goals, architecture notes, repository baseline, concise project-model/spec references, work items, checks, dependencies, optional concurrency constraints, and integration profile. `/dag plan` performs architecture then decomposition internally, validates and saves the record, derives readable Markdown and graph, and asks only about unresolved meaning. `/dag show` renders exact candidate/published plan, node, and live-run views without mtime selection. `/dag run` resolves the plan, checks whole-plan identity and baseline, derives existing runtime genesis/context internally, atomically creates or resumes one run, and hides low-level receipt/genesis vocabulary. Keep the shipped runtime as substrate; do not rewrite it before the user-facing vertical slice proves value.",
+      "createdAt": "2026-08-13T19:42:16.873Z",
+      "id": "PROP-thin-plan-show-run-vertical-slice",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "DISC-deferred-planning-execution"
+        },
+        {
+          "kind": "addresses",
+          "targetId": "Q-plan-compiler-authority-and-freshness-closure"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-one-artifact-two-phase-dag-planning"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-local-workflow-pragmatic-durability-audit",
+        "EV-planning-product-requirements-simplicity-audit",
+        "EV-repository-wide-pragmatic-hash-identity-audit"
+      ],
+      "state": "selected",
+      "title": "Ship a thin plan/show/run vertical slice over the existing runtime",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
+    },
+    {
       "body": "Evaluate in three strata: uncompensated conformance/safety invariants; quality-conditioned run outcomes; explanatory diagnostics. Run deterministic property/failpoint/real-Git matrices and a scripted failure scenario suite. For comparative direction, execute six valid fresh pairs (12 executions) from identical immutable baselines with fixed plan/oracle/model/profile/environment and counterbalanced serial `maxActiveNodes=1` versus selected parallel settings: two independent fan-out/fan-in, two hidden-constraint/architecture-pressure, one integration-train, and one recovery-sensitive case. Run provider/worker loss, conductor crash/resume, and target-drift/conflict drills separately from speed comparison. Publish every pair, no significance claim. Stop immediately on integrity/duplicate/stale/effect/architecture escape; otherwise review after six valid pairs and continue until blocking fixes are re-exercised and the last three valid pairs add no new blocking failure class, with a mandatory review by four weeks or twelve pairs.",
       "createdAt": "2026-08-04T14:14:23.635Z",
       "id": "PROP-three-strata-six-pair-dag-dogfood-v1",
@@ -17477,6 +18436,72 @@
       "state": "recommended",
       "title": "Define a reproducible governing selector and closure",
       "updatedAt": "2026-08-01T14:55:54.722Z"
+    },
+    {
+      "body": "Keep historical V1 plan, run, worker, Git, and evaluation artifacts readable and immutable. New writers should use versioned simpler schemas: one canonical plan hash plus governing-closure digest and bounded manifest artifact rather than blanket entity/schema hashes; UUID/revision authorization and review records; globally unique run/attempt/effect IDs plus generation where stale output matters; revision-CAS snapshots with optional external checksums rather than semantic hash chains; one content-address key per immutable fact/artifact without embedded self-hash duplication; direct structured repository/worktree identity plus native Git OIDs; and accumulator/index revisions rather than hash CAS. Do not automatically convert active V1 runs or reinterpret old hashes with new semantics.",
+      "createdAt": "2026-08-13T19:35:04.551Z",
+      "id": "PROP-versioned-simplification-of-runtime-identities",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-pragmatic-identity-and-hashing-minimum"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-closed-content-hashed-plan-envelope-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "PROP-minimal-local-durability-primitives"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "EV-local-workflow-pragmatic-durability-audit",
+        "EV-repository-wide-pragmatic-hash-identity-audit"
+      ],
+      "state": "recommended",
+      "title": "Simplify new schema versions without rewriting historical artifacts",
+      "updatedAt": "2026-08-13T19:35:04.551Z"
+    },
+    {
+      "body": "Make the compiler the only producer of executable plans. Introduce a new immutable canonical plan schema version rather than silently changing persisted V1: embed stable source/receipt bindings and entity traceability needed for execution packet closure, while placing bulky deterministic trace tables, diagnostics, packet manifests, and projection hashes in a strict content-addressed compilation manifest referenced by the plan. Compile from immutable phase facts, recompute governing closure and freshness at every authority boundary, derive constraints from an explicit semantic access matrix, generate complete node packets and deterministic projections, and permit conductor start only from a published fresh start bundle. Preserve V1 parsing for historical runs but do not allow caller-authored V1 plans through the new authoritative planning path.",
+      "createdAt": "2026-08-13T13:51:17.517Z",
+      "id": "PROP-versioned-source-joined-planning-compiler",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-canonical-plan-v2-versus-bound-compilation-manifest"
+        },
+        {
+          "kind": "addresses",
+          "targetId": "Q-plan-compiler-authority-and-freshness-closure"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "PROP-fail-closed-model-aware-plan-compiler"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-dag-plan-transaction-lifecycle-research",
+        "EV-planning-compiler-core-contract-design",
+        "EV-unified-planning-compiler-adversarial-review"
+      ],
+      "state": "rejected",
+      "title": "Introduce a source-joined compiler with a trace-complete canonical plan version",
+      "updatedAt": "2026-08-14T00:36:49.953Z"
     },
     {
       "body": "Define global and per-run concurrency; optional provider/model lanes; FIFO fairness; idle and hard timeouts; turn/token/cost/output limits; process stdout/stderr memory caps; retry classification with bounded exponential backoff; maximum attempts; fail-fast versus continue policy; and circuit breaking after repeated provider/runtime failures. No numeric limit defaults to unlimited in production.",
@@ -17721,6 +18746,43 @@
     },
     {
       "answerObjectIds": [
+        "DEC-closed-content-hashed-plan-envelope-v1"
+      ],
+      "body": "The current closed V1 bytes cannot represent exact acceptance-receipt identity, entity-level source/artifact traceability, semantic-read provenance, complete work-item architecture relevance, or a mandatory compilation manifest. Choose whether to evolve the immutable canonical schema to V2 with traceability embedded, or keep execution topology compact while requiring every published plan to bind a strict compilation manifest that supplies the missing trace closure. Persisted V1 runs must remain readable and immutable either way.",
+      "createdAt": "2026-08-13T13:51:17.517Z",
+      "id": "Q-canonical-plan-v2-versus-bound-compilation-manifest",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-plan-compiler-authority-and-freshness-closure"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-closed-content-hashed-plan-envelope-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-versioned-source-joined-planning-compiler"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-planning-compiler-core-contract-design"
+      ],
+      "state": "answered",
+      "title": "Should compiler traceability be embedded in CanonicalDagPlanV2 or a mandatory bound manifest?",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
+    },
+    {
+      "answerObjectIds": [
         "DEC-multi-repository-plan-immutable-tree-baselines"
       ],
       "body": "Worktrees and recoverable integration need immutable commits, while planning often starts with user changes present. Decide whether run authorization requires a clean commit, supports a conductor-created snapshot commit, or can bind a dirty patch/tree hash without making worktree recovery unsafe.",
@@ -17752,6 +18814,41 @@
       "state": "answered",
       "title": "Must execution authorization bind a clean committed Git baseline?",
       "updatedAt": "2026-07-31T23:03:20.182Z"
+    },
+    {
+      "body": "No. The trusted agent and ordinary explicit user direction are already inside the workflow trust boundary, so publication and run start do not require a complete cryptographic interaction-receipt stack. The shipped vertical slice instead source-joins concrete authoritative model/spec bytes and clean Git baselines, retains ordinary approval and authorization fields as separate decisions, records one recoverable mutable start intent, and preserves the canonical runtime's internal compatibility facts without presenting them as human-consent proofs. Add more trace detail only if field evidence demonstrates a concrete debugging or interoperability need.",
+      "createdAt": "2026-08-13T13:53:34.031Z",
+      "id": "Q-closed-planning-receipt-publication-start-stack",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-plan-compiler-authority-and-freshness-closure"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-process-shared-dag-conductor-ownership-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-separate-canonical-plan-from-operational-records"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-plan-receipt-publication-start-contract-design"
+      ],
+      "state": "answered",
+      "title": "Should publication and run start require the complete closed receipt stack?",
+      "updatedAt": "2026-08-14T02:40:20.798Z"
     },
     {
       "answerObjectIds": [
@@ -18233,6 +19330,73 @@
     },
     {
       "answerObjectIds": [
+        "DEC-direct-user-commit-derived-review"
+      ],
+      "body": "Current project-model and Lavish integrations can attribute authority to ambient or bounded interaction references without proving the exact durable user entry, raw feedback bytes, branch, presentation, and independently selected decision. A strict receipt would close that gap but would require positive approval through a hash-bearing command or structured control; generic free-text can still guide revisions but would not itself mint authority.",
+      "createdAt": "2026-08-13T13:53:34.031Z",
+      "id": "Q-exact-human-interaction-authority-receipt",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-plan-compiler-authority-and-freshness-closure"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-direct-user-commit-derived-review"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-lavish-feedback-human-initiated"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "EV-plan-receipt-publication-start-contract-design"
+      ],
+      "state": "answered",
+      "title": "Should all positive authority require an exact durable human-interaction receipt?",
+      "updatedAt": "2026-08-13T19:25:52.064Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-integration-ready-completion-predicate-v1"
+      ],
+      "body": "The shipped lifecycle defines plan_complete as locally landed and verified; it has no remote-push authority or reconciliation contract. A separate `/dag release` could bind final checks, package evidence, exact remote/ref and expected/desired OIDs, persist push intent before dispatch, and prove release by remote observation without changing run completion semantics.",
+      "createdAt": "2026-08-13T13:52:09.333Z",
+      "id": "Q-explicit-release-closure-boundary",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DEC-integration-ready-completion-predicate-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-preverified-visible-partial-multirepo-landing-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-plan-successor-and-release-contract-design"
+      ],
+      "state": "answered",
+      "title": "Should release be a separate exact transaction after local plan completion?",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
+    },
+    {
+      "answerObjectIds": [
         "DEC-stage-evidence-disposition-finding-contract-v1",
         "DEC-lifecycle-worker-freshness-invalidation-v1"
       ],
@@ -18294,6 +19458,40 @@
       "state": "answered",
       "title": "What are the complete lifecycle evidence, route, and budget contracts?",
       "updatedAt": "2026-08-03T18:11:23.235Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-one-artifact-two-phase-dag-planning"
+      ],
+      "body": "The user selected extending the active focus session to ensure the feature can be released after this planning and implementation run. Clarify whether this means one seamless focus-linked user experience while preserving a separate run-grade planning store, or literally adding owner/CAS/idempotency/publication authority to the focus file itself.",
+      "createdAt": "2026-08-13T13:39:20.458Z",
+      "id": "Q-focus-linked-versus-focus-owned-planning-state",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DEC-whole-turn-lavish-renderer-slice"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-run-grade-resumable-dag-plan-transaction"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "review-planning-transaction-and-inspection-foundation:point-transaction-lifecycle"
+      ],
+      "state": "answered",
+      "title": "Should the active focus route planning or own its durable transaction state?",
+      "updatedAt": "2026-08-13T13:42:16.895Z"
     },
     {
       "answerObjectIds": [
@@ -19108,6 +20306,43 @@
     },
     {
       "answerObjectIds": [
+        "DEC-run-pause-cancel-late-result-v1"
+      ],
+      "body": "The current scheduler does not treat open plan-affecting findings as correctness blockers, so later stages may dispatch until F8 rejects closure. Whole-run fencing is conservative and mechanically clear; scoped continuation could preserve throughput but requires a complete affected closure over descendants, shared semantic writes, migrations, gates, and train dependencies with unknown scope still fencing all.",
+      "createdAt": "2026-08-13T13:52:09.333Z",
+      "id": "Q-plan-affecting-finding-fence-scope-v1",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-runtime-discovery-successor-plan-handoff"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-five-layer-monotone-scheduler-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-run-pause-cancel-late-result-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-plan-successor-and-release-contract-design"
+      ],
+      "state": "answered",
+      "title": "Should a plan-affecting finding fence the whole run in V1?",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
+    },
+    {
+      "answerObjectIds": [
         "DEC-content-addressed-bounded-plan-artifact-policy-v1"
       ],
       "body": "Specify common content-addressed references with digest, size, media/schema type, sensitivity, retention, optional locator, root validation, hydration, and no-auto-read behavior; symbolic credential requirements; secret exclusion; inline/count/byte quotas; ignored `.ai` context handling; and prohibition on worktree/dependency-tree artifacts.",
@@ -19203,6 +20438,76 @@
     },
     {
       "answerObjectIds": [
+        "DEC-one-artifact-two-phase-dag-planning",
+        "DEC-closed-content-hashed-plan-envelope-v1"
+      ],
+      "body": "Define source-joined review and authorization receipts, selector/spec/artifact/repository revalidation at compile-review-authorize-start boundaries, exact predecessor lineage, and complete launch packet derivation. The current runtime validates internally coherent caller-supplied artifacts but does not prove they derive from current accepted model authority.",
+      "createdAt": "2026-08-13T02:45:24.437Z",
+      "id": "Q-plan-compiler-authority-and-freshness-closure",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "EV-unified-planning-compiler-adversarial-review"
+        },
+        {
+          "kind": "supports",
+          "targetId": "Q-unified-plan-transaction-lifecycle"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "CON-canonical-dag-plan-snapshot",
+        "EV-unified-planning-compiler-adversarial-review"
+      ],
+      "state": "answered",
+      "title": "How should the planning compiler prove authority and freshness end to end?",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-content-addressed-bounded-plan-artifact-policy-v1"
+      ],
+      "body": "Choose repository-local storage, tracked versus ignored policy, retention, named locators, and lineage-head publication semantics. Editable Markdown and width-specific diagrams cannot be authority; exact candidate bytes and receipts require content-addressed immutable storage and publication CAS.",
+      "createdAt": "2026-08-13T02:46:03.609Z",
+      "id": "Q-plan-draft-and-publication-storage-policy",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "EV-dag-plan-transaction-lifecycle-research"
+        },
+        {
+          "kind": "supports",
+          "targetId": "Q-unified-plan-transaction-lifecycle"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-deterministic-plan-projections-v1",
+        "EV-dag-plan-transaction-lifecycle-research"
+      ],
+      "state": "answered",
+      "title": "Where should planning drafts, immutable plans, and projections live?",
+      "updatedAt": "2026-08-13T13:51:17.518Z"
+    },
+    {
+      "answerObjectIds": [
         "DEC-separate-work-items-gates-static-constraint-intent"
       ],
       "body": "Executable change nodes use F0–F8; accepted-decision, contract-version, environment, and human-approval gates have no implementation lifecycle. Decide whether one tagged node union or separate `workItems` and `gates` collections yields clearer validation, scheduling, widget projection, and dependency semantics.",
@@ -19236,6 +20541,41 @@
     },
     {
       "answerObjectIds": [
+        "DEC-broad-coordination-plan-authorization-v1"
+      ],
+      "body": "The system must emit separate review and authorization receipts and permit approval without running. Decide whether one final Lavish turn should collect both independently, or whether authorization should be a later `/dag run` interaction after plan publication.",
+      "createdAt": "2026-08-13T02:46:03.609Z",
+      "id": "Q-plan-review-versus-run-authorization-ux",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "PROP-fail-closed-model-aware-plan-compiler"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-run-grade-resumable-dag-plan-transaction"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-dag-plan-transaction-lifecycle-research",
+        "EV-unified-planning-compiler-adversarial-review"
+      ],
+      "state": "answered",
+      "title": "How should plan approval and execution authorization appear to the user?",
+      "updatedAt": "2026-08-13T13:51:17.518Z"
+    },
+    {
+      "answerObjectIds": [
         "DEC-selector-closure-plan-staleness"
       ],
       "body": "Compare strict global model-hash/base-commit equality with referenced semantic hashes and targeted code-impact revalidation. Strict invalidation is simple and safe but creates needless replanning; targeted validity preserves useful plans but needs dependency evidence and explicit revalidation receipts.",
@@ -19266,6 +20606,40 @@
       "state": "answered",
       "title": "Should any model/code revision change stale a plan, or only affected inputs?",
       "updatedAt": "2026-07-31T23:03:20.182Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-closed-content-hashed-plan-envelope-v1"
+      ],
+      "body": "Reassess plan, run, model, review, worker, Git, publication, and recovery hashing from first principles. Separate practical reliability needs—detecting stale writes, joining retries to exact attempts, avoiding duplicate effects, recognizing changed plans, and crash recovery—from security claims that hashes cannot provide against a trusted agent. Determine which identities need content hashes, which need ordinary IDs/revisions/CAS, which can use direct object references, and which current or proposed contracts are excessive.",
+      "createdAt": "2026-08-13T19:25:52.063Z",
+      "id": "Q-pragmatic-identity-and-hashing-minimum",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DEC-closed-content-hashed-plan-envelope-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-content-bound-acceptance-receipt"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-closed-plan-receipt-publication-start-stack"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "review-authoritative-planning-compiler-release-contract:point-human-interaction-authority",
+        "review-authoritative-planning-compiler-release-contract:point-receipt-publication-start"
+      ],
+      "state": "answered",
+      "title": "What is the minimum practical identity and hashing contract this workflow needs?",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
     },
     {
       "answerObjectIds": [
@@ -19600,6 +20974,39 @@
     },
     {
       "answerObjectIds": [
+        "DEC-run-pause-cancel-late-result-v1"
+      ],
+      "body": "Define how immutable runtime findings become non-authoritative project-model discoveries, fence affected execution, request human reconciliation, compile a distinct successor plan/run, and optionally preserve exact partial candidates without widening the old plan or treating partial output as success.",
+      "createdAt": "2026-08-13T02:45:24.437Z",
+      "id": "Q-runtime-discovery-successor-plan-handoff",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "EV-unified-planning-compiler-adversarial-review"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DISC-deferred-planning-execution"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-unified-planning-compiler-adversarial-review"
+      ],
+      "state": "answered",
+      "title": "How should plan-affecting execution discoveries create successor plans?",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
+    },
+    {
+      "answerObjectIds": [
         "DEC-sticky-active-node-concurrency-lanes-v1",
         "DISC-sticky-node-lanes-remove-phase-capacity-reserve"
       ],
@@ -19892,6 +21299,41 @@
     },
     {
       "answerObjectIds": [
+        "DEC-deterministic-plan-projections-v1"
+      ],
+      "body": "Determine the user-facing command and presentation contract for the immutable static plan graph, node details, architecture/decomposition views, and the live execution overlay. Candidate surfaces include `/dag show`, `/dag plan --show`, and context-sensitive `/dag diagram`; terminal, tracked-file, and optional richer projections must not create authority.",
+      "createdAt": "2026-08-13T02:37:43.990Z",
+      "id": "Q-static-dag-inspection-surface",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "SCN-one-command-plan-and-dag-preview"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-deterministic-plan-projections-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-deterministic-plan-projections-v1",
+        "focus-seed:focus-let-s-explore-the-planning-and-chunking-i-think-we-want-th"
+      ],
+      "state": "answered",
+      "title": "How should users inspect a planned DAG before and after execution?",
+      "updatedAt": "2026-08-13T13:51:17.517Z"
+    },
+    {
+      "answerObjectIds": [
         "PROP-atomic-dag-worker-conductor",
         "PROP-explicit-worker-profile-and-context",
         "PROP-structured-worker-result-envelope",
@@ -19966,6 +21408,75 @@
       "state": "answered",
       "title": "What exact structured report, terminal envelope, and completion message should subagents produce?",
       "updatedAt": "2026-07-30T18:43:01.474Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-one-artifact-two-phase-dag-planning"
+      ],
+      "body": "The new compiler cannot non-circularly authorize the code that creates its own authority boundary. A one-time explicitly transitional human-reviewed bootstrap plan can cover only the minimum planning store/compiler/receipt/show/plan/run-start slice. The resulting compiler then plans and executes all remaining successor, discovery, adoption, release, and verification work before release.",
+      "createdAt": "2026-08-13T13:53:34.031Z",
+      "id": "Q-transitional-bootstrap-authority-for-self-hosting",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "DEC-direct-executable-dag-planning"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-noncircular-planning-workflow-release-rollout"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-plan-receipt-publication-start-contract-design",
+        "EV-plan-successor-and-release-contract-design"
+      ],
+      "state": "answered",
+      "title": "Should one human-reviewed bootstrap plan authorize the minimum self-hosting compiler slice?",
+      "updatedAt": "2026-08-14T00:36:49.952Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-one-artifact-two-phase-dag-planning"
+      ],
+      "body": "Define scope intake, model/spec grounding, repository-baseline capture, architecture review, decomposition, validation, revision, approval, artifact publication, and execution handoff for `/dag plan`. Clarify which intermediate states are durable and resumable while keeping chunking internal and preventing partially compiled artifacts from becoming executable authority.",
+      "createdAt": "2026-08-13T02:37:43.990Z",
+      "id": "Q-unified-plan-transaction-lifecycle",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-one-artifact-two-phase-dag-planning"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DISC-deferred-planning-execution"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-one-artifact-two-phase-dag-planning",
+        "DISC-deferred-planning-execution"
+      ],
+      "state": "answered",
+      "title": "What lifecycle should one user-facing planning transaction expose?",
+      "updatedAt": "2026-08-13T13:51:17.518Z"
     },
     {
       "answerObjectIds": [
@@ -20458,6 +21969,40 @@
       "state": "proposed",
       "title": "Worker completes across top-level restart and drains through acknowledgement",
       "updatedAt": "2026-07-30T03:53:49.590Z"
+    },
+    {
+      "action": "Ground the request, develop architecture and acceptance criteria, decompose that same plan into a canonical executable graph, and present the human-readable plan with the static DAG before execution authorization.",
+      "body": "A user invokes `/dag plan` with a desired outcome and expects one coherent planning experience rather than separate planning and chunking commands.",
+      "context": "The workflow has access to current project-model authority, generated specs, repository baseline evidence, and the canonical plan schema.",
+      "createdAt": "2026-08-13T02:37:43.989Z",
+      "expectedOutcome": "The user can review and revise both views without managing a separate chunking artifact; only one exact approved canonical plan can hand off to execution.",
+      "id": "SCN-one-command-plan-and-dag-preview",
+      "introducedBy": "agent",
+      "kind": "ordinary",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-one-artifact-two-phase-dag-planning"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DISC-deferred-planning-execution"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "focus-seed:focus-let-s-explore-the-planning-and-chunking-i-think-we-want-th"
+      ],
+      "state": "proposed",
+      "title": "Plan once and review prose with the executable DAG",
+      "updatedAt": "2026-08-13T02:37:43.989Z"
     },
     {
       "action": "Workers independently choose incompatible designs and only discover the conflict during integration.",

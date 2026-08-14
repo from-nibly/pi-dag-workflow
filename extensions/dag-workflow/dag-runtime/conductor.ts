@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { link, mkdir, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { canonicalHash, canonicalStringify, parseStrictJson } from "./common.ts";
-import { DagLifecycleRuntimeV1, type DagLifecycleRuntimeOptionsV1 } from "./lifecycle-runtime.ts";
+import { DagLifecycleRuntimeV1, type DagIntegrationReconciliationAdapterV1, type DagLifecycleRuntimeOptionsV1 } from "./lifecycle-runtime.ts";
 import { parseCanonicalDagPlanV1, type CanonicalDagPlanV1 } from "./plan.ts";
 import { type DagRunInputV1 } from "./reducer.ts";
 import { ownershipChainHashV1, parseDagRunStateV1, type DagRunStateV1, type DagRunValidationContextV1 } from "./run-state.ts";
@@ -11,6 +11,7 @@ import { DagRunSnapshotStoreV1, createDagRunStoreDeadOwnerProofV1, dagRunStoreLo
 
 const RUN_ROOT = ".ai/dag-runs-v1";
 const BINDING_ROOT = ".ai/dag-session-bindings-v1";
+const START_INTENT_ROOT = ".ai/dag-start-intents-v1";
 const HASH_RE = /^sha256:[0-9a-f]{64}$/;
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
@@ -49,6 +50,39 @@ export interface DagRunStartInputV1 {
   occurredAt: string;
 }
 
+export interface DagPreparedRunStartInputV1 {
+  runId: string;
+  runNonce: string;
+  planHash: string;
+  maxActiveNodes: number;
+  occurredAt: string;
+  plan: CanonicalDagPlanV1;
+  genesis: DagRunStateV1;
+  context: DagRunValidationContextV1;
+  seedFacts: unknown[];
+  sourcePlanningPlanId?: string | null;
+  sourcePlanningPlanHash?: string | null;
+}
+
+export type DagPreparedStartFailpointV1 = "after_start_intent" | "after_run_authority" | "before_genesis_initialize" | "after_genesis_initialize" | "before_owner_attach" | "after_owner_attach" | "before_final_binding" | "after_final_binding" | "after_start_active" | "before_response";
+
+interface DagRunStartIntentV1 {
+  schemaVersion: 1;
+  kind: "DagRunStartIntentV1";
+  startId: string;
+  state: "starting" | "active";
+  revision: number;
+  sessionId: string;
+  runId: string;
+  runNonce: string;
+  planHash: string;
+  preparedHash: string;
+  sourcePlanningPlanId: string | null;
+  sourcePlanningPlanHash: string | null;
+  startedAt: string;
+  bindingHash: string | null;
+}
+
 export interface DagMutationGuardV1 {
   runId: string;
   runNonce: string;
@@ -72,13 +106,15 @@ export class DagConductorServiceV1 {
   readonly workerProjection?: (bindings: Array<{ workerStorageId: string; launchOwnerSessionId: string; workerId: string; attemptNumber: number; attemptNonce: string; configHash: string; resultHash: string | null; processDisposition: string }>) => Promise<DagWorkerProjectionInputV1 | null>;
   readonly dispatchEffect?: (effect: { effectId: string; kind: string; requestHash: string }, state: DagRunStateV1) => Promise<void>;
   readonly lifecycle: DagLifecycleRuntimeOptionsV1;
+  readonly integrationFactory?: (input: { store: DagRunSnapshotStoreV1; context: DagRunValidationContextV1; lock: DagRunStoreLockIdentityV1 }) => DagIntegrationReconciliationAdapterV1;
+  readonly startFailpoint?: (point: DagPreparedStartFailpointV1) => Promise<void> | void;
   #currentLock = new Map<string, DagRunStoreLockIdentityV1>();
   #lastGood = new Map<string, { state: DagRunStateV1; decision: DagSchedulerDecisionV1; projection: DagExecutionProjectionV1; cachedAt: string }>();
-  constructor(options: { workerProjection?: (bindings: Array<{ workerStorageId: string; launchOwnerSessionId: string; workerId: string; attemptNumber: number; attemptNonce: string; configHash: string; resultHash: string | null; processDisposition: string }>) => Promise<DagWorkerProjectionInputV1 | null>; dispatchEffect?: (effect: { effectId: string; kind: string; requestHash: string }, state: DagRunStateV1) => Promise<void>; lifecycle?: DagLifecycleRuntimeOptionsV1 } = {}) { this.workerProjection = options.workerProjection; this.dispatchEffect = options.dispatchEffect; this.lifecycle = options.lifecycle ?? {}; }
+  constructor(options: { workerProjection?: (bindings: Array<{ workerStorageId: string; launchOwnerSessionId: string; workerId: string; attemptNumber: number; attemptNonce: string; configHash: string; resultHash: string | null; processDisposition: string }>) => Promise<DagWorkerProjectionInputV1 | null>; dispatchEffect?: (effect: { effectId: string; kind: string; requestHash: string }, state: DagRunStateV1) => Promise<void>; lifecycle?: DagLifecycleRuntimeOptionsV1; integrationFactory?: (input: { store: DagRunSnapshotStoreV1; context: DagRunValidationContextV1; lock: DagRunStoreLockIdentityV1 }) => DagIntegrationReconciliationAdapterV1; startFailpoint?: (point: DagPreparedStartFailpointV1) => Promise<void> | void } = {}) { this.workerProjection = options.workerProjection; this.dispatchEffect = options.dispatchEffect; this.lifecycle = options.lifecycle ?? {}; this.integrationFactory = options.integrationFactory; this.startFailpoint = options.startFailpoint; }
 
   async start(ctx: DagConductorContextV1, input: DagRunStartInputV1): Promise<{ binding: DagSessionRunBindingV1; state: DagRunStateV1; decision: DagSchedulerDecisionV1 }> {
     if (!ID_RE.test(input.runId) || input.runNonce.length < 16 || !HASH_RE.test(input.planHash) || !Number.isInteger(input.maxActiveNodes) || input.maxActiveNodes < 1) throw new Error("Invalid exact DAG run start identity or maxActiveNodes");
-    const repositoryRoot = await realpath(ctx.cwd); const sessionId = String(ctx.sessionManager.getSessionId());
+    const repositoryRoot = await realpath(ctx.cwd);
     const planPath = resolveBoundPath(repositoryRoot, input.planPath); const genesisPath = resolveBoundPath(repositoryRoot, input.genesisPath); const contextPath = resolveBoundPath(repositoryRoot, input.contextPath);
     const plan = parseCanonicalDagPlanV1(await readFile(planPath, "utf8"));
     if (plan.planHash !== input.planHash) throw new Error("Plan artifact does not match requested plan hash");
@@ -88,18 +124,59 @@ export class DagConductorServiceV1 {
     const context = contextArtifact as DagRunValidationContextV1;
     const index = buildSchedulerPlanIndexV1(plan);
     const genesis = parseDagRunStateV1(await readFile(genesisPath, "utf8"), { ...context, plan, normalizedSchedulerIndexHash: index.indexHash });
-    if (genesis.runId !== input.runId || genesis.runNonce !== input.runNonce || genesis.identity.planHash !== plan.planHash || genesis.scheduler.maxActiveNodes !== input.maxActiveNodes || genesis.scheduler.policyHash !== DAG_SCHEDULER_POLICY_HASH_V1 || genesis.scheduler.normalizedIndexHash !== index.indexHash) throw new Error("Genesis does not bind exact start authorization, scheduler policy, or explicit maxActiveNodes");
+    const prepared = await this.startPrepared(ctx, { runId: input.runId, runNonce: input.runNonce, planHash: input.planHash, maxActiveNodes: input.maxActiveNodes, occurredAt: input.occurredAt, plan, genesis, context, seedFacts });
+    const advanced = await this.advance(ctx, prepared.state.runId, input.occurredAt);
+    return { binding: prepared.binding, state: advanced.state, decision: advanced.decision };
+  }
+
+  async startPrepared(ctx: DagConductorContextV1, input: DagPreparedRunStartInputV1): Promise<{ binding: DagSessionRunBindingV1; state: DagRunStateV1; decision: DagSchedulerDecisionV1 }> {
+    if (!ID_RE.test(input.runId) || input.runNonce.length < 16 || !HASH_RE.test(input.planHash) || !Number.isInteger(input.maxActiveNodes) || input.maxActiveNodes < 1) throw new Error("Invalid exact prepared DAG run start identity or maxActiveNodes");
+    const sourcePlanningPlanId = input.sourcePlanningPlanId ?? null; const sourcePlanningPlanHash = input.sourcePlanningPlanHash ?? null;
+    if ((sourcePlanningPlanId === null) !== (sourcePlanningPlanHash === null) || (sourcePlanningPlanId !== null && (!ID_RE.test(sourcePlanningPlanId) || !HASH_RE.test(sourcePlanningPlanHash!)))) throw new Error("Prepared DAG start source planning identity must provide one exact plan ID/hash pair");
+    const repositoryRoot = await realpath(ctx.cwd); const sessionId = String(ctx.sessionManager.getSessionId());
+    const plan = parseCanonicalDagPlanV1(canonicalStringify(input.plan));
+    if (plan.planHash !== input.planHash) throw new Error("Prepared plan does not match requested plan hash");
+    const context = parseStrictJson(canonicalStringify(input.context)) as unknown as DagRunValidationContextV1;
+    const seedFacts = parseStrictJson(canonicalStringify(input.seedFacts)) as unknown[];
+    if (!Array.isArray(seedFacts)) throw new Error("Prepared DAG start seedFacts must be an exact array");
+    const index = buildSchedulerPlanIndexV1(plan); const effectiveContext = { ...context, plan, normalizedSchedulerIndexHash: index.indexHash };
+    const genesis = parseDagRunStateV1(canonicalStringify(input.genesis), effectiveContext);
+    if (genesis.runId !== input.runId || genesis.runNonce !== input.runNonce || genesis.identity.planHash !== plan.planHash || genesis.scheduler.maxActiveNodes !== input.maxActiveNodes || genesis.scheduler.policyHash !== DAG_SCHEDULER_POLICY_HASH_V1 || genesis.scheduler.normalizedIndexHash !== index.indexHash) throw new Error("Genesis does not bind exact prepared start authorization, scheduler policy, or explicit maxActiveNodes");
+
+    let existingBinding = await this.#readBinding(repositoryRoot, sessionId);
+    if (existingBinding && (existingBinding.runId !== input.runId || existingBinding.runNonceHash !== canonicalHash(input.runNonce) || existingBinding.planHash !== plan.planHash)) throw new Error("Session already has a different exact DAG run binding");
+    const unfinished = await this.pendingStart(ctx);
+    if (unfinished && unfinished.runId !== input.runId) throw new Error(`Session has unfinished DAG start ${unfinished.runId}; recover it before starting another run`);
+
+    const preparedHash = canonicalHash({ runId: input.runId, runNonce: input.runNonce, planHash: input.planHash, maxActiveNodes: input.maxActiveNodes, occurredAt: input.occurredAt, plan, genesis, context, seedFacts, sourcePlanningPlanId, sourcePlanningPlanHash });
+    const intentPath = startIntentPath(repositoryRoot, sessionId, input.runId);
+    let intent = await readStartIntent(intentPath, sessionId, input.runId);
+    if (!intent) {
+      const candidate: DagRunStartIntentV1 = { schemaVersion: 1, kind: "DagRunStartIntentV1", startId: randomUUID(), state: "starting", revision: 0, sessionId, runId: input.runId, runNonce: input.runNonce, planHash: plan.planHash, preparedHash, sourcePlanningPlanId, sourcePlanningPlanHash, startedAt: input.occurredAt, bindingHash: null };
+      try { await publishImmutableJson(intentPath, candidate); intent = candidate; }
+      catch (error) { intent = await readStartIntent(intentPath, sessionId, input.runId); if (!intent) throw error; }
+    }
+    if (!intent) throw new Error("Prepared DAG start intent publication did not become durable");
+    assertExactStartReplay(intent, { runNonce: input.runNonce, planHash: plan.planHash, preparedHash, sourcePlanningPlanId, sourcePlanningPlanHash });
+    await this.startFailpoint?.("after_start_intent");
+
     const store = new DagRunSnapshotStoreV1(join(repositoryRoot, RUN_ROOT), input.runId);
     for (const fact of seedFacts) await store.putImmutableFact(fact);
-    await persistRunAuthority(store, plan, { ...context, plan, normalizedSchedulerIndexHash: index.indexHash });
-    const initializationLock = await processLockIdentity(sessionId, canonicalHash({ purpose: "dag-run-initialize", sessionId, runId: input.runId }), canonicalHash({ purpose: "dag-run-owner-token", sessionId, runId: input.runId, nonce: randomUUID() }), input.occurredAt);
-    await store.initialize(genesis, { ...context, plan, normalizedSchedulerIndexHash: index.indexHash }, initializationLock);
+    await persistRunAuthority(store, plan, effectiveContext);
+    await this.startFailpoint?.("after_run_authority");
+    const initializationLock = await processLockIdentity(sessionId, canonicalHash({ purpose: "dag-run-initialize", sessionId, runId: input.runId, startId: intent.startId }), canonicalHash({ purpose: "dag-run-owner-token", sessionId, runId: input.runId, startId: intent.startId, nonce: randomUUID() }), input.occurredAt);
+    await this.startFailpoint?.("before_genesis_initialize");
+    let priorState: DagRunStateV1 | null = null;
+    try { priorState = await store.read(effectiveContext); }
+    catch (error: any) { if (!(error?.causeValue?.code === "ENOENT" || error?.cause?.code === "ENOENT" || error?.code === "ENOENT")) throw error; }
+    if (!priorState || priorState.revision === 0) await store.initialize(genesis, effectiveContext, initializationLock);
+    else if (priorState.runId !== genesis.runId || priorState.runNonce !== genesis.runNonce || priorState.identity.planHash !== genesis.identity.planHash) throw new Error("Durable prepared start intent conflicts with existing run authority");
+    await this.startFailpoint?.("after_genesis_initialize");
 
-    const existingBinding = await this.#readBinding(repositoryRoot, sessionId);
-    if (existingBinding && (existingBinding.runId !== input.runId || existingBinding.runNonceHash !== canonicalHash(input.runNonce) || existingBinding.planHash !== plan.planHash)) throw new Error("Session already has a different exact DAG run binding");
-    let state = await store.read({ ...context, plan, normalizedSchedulerIndexHash: index.indexHash });
-    let effectiveContext = { ...context, plan, normalizedSchedulerIndexHash: index.indexHash };
+    let state = priorState?.revision ? priorState : await store.read(effectiveContext); let runtimeContext = effectiveContext;
+    await this.startFailpoint?.("before_owner_attach");
     if (state.owner.sessionId === null) {
+      if (existingBinding) throw new Error("Session binding exists before prepared run owner authority");
       const ownershipCore = {
         kind: "ownership" as const, runId: state.runId, runNonce: state.runNonce,
         priorSessionId: null, priorOwnerTokenHash: null, priorPid: 0, priorProcessStartIdentity: null, priorLockIdentity: null, priorAttachedAt: null,
@@ -110,25 +187,55 @@ export class DagConductorServiceV1 {
       const ownershipWithChain = { ...ownershipCore, chainHash: ownershipChainHashV1(ownershipCore, null) };
       const ownership = { ...ownershipWithChain, hash: canonicalHash(ownershipWithChain) };
       await store.putImmutableFact(ownership);
-      effectiveContext = { ...effectiveContext, facts: { ...effectiveContext.facts, [ownership.hash]: ownership } };
+      runtimeContext = { ...runtimeContext, facts: { ...runtimeContext.facts, [ownership.hash]: ownership } };
       const payload = { ownerTokenHash: initializationLock.ownerTokenHash, sessionId, pid: process.pid, processStartIdentity: initializationLock.processStartIdentity, lockIdentity: initializationLock.lockIdentity, ownershipReceipt: ownership.hash, priorOwnerDisposition: "absent" };
-      const result = await store.mutate({ input: reducerInput(state, "attach_owner", "observation", payload, input.occurredAt, { commandId: `attach-${input.runId}`, idempotencyKey: `attach:${input.runId}:0` }), context: effectiveContext, lock: initializationLock });
+      const result = await store.mutate({ input: reducerInput(state, "attach_owner", "observation", payload, input.occurredAt, { commandId: `attach-${intent.startId}`, idempotencyKey: `attach:${intent.startId}:0` }), context: runtimeContext, lock: initializationLock });
       if (!result.accepted) throw new Error(`DAG owner attach rejected: ${result.code}: ${result.message}`);
-      state = result.state;
-      this.#currentLock.set(input.runId, initializationLock);
+      state = result.state; this.#currentLock.set(input.runId, initializationLock);
     } else if (state.owner.sessionId === sessionId && state.owner.pid === process.pid && state.owner.processStartIdentity === initializationLock.processStartIdentity) {
-      const lock = dagRunStoreLockIdentityFromOwner(state.owner); this.#currentLock.set(input.runId, lock);
-    } else throw new Error("Existing DAG run owner requires explicit reattachment");
+      if (existingBinding) await validateBindingAuthority(existingBinding, repositoryRoot, plan, state);
+      this.#currentLock.set(input.runId, dagRunStoreLockIdentityFromOwner(state.owner));
+    } else if (state.owner.sessionId === sessionId) {
+      if (existingBinding) await validateBindingAuthority(existingBinding, repositoryRoot, plan, state);
+      const priorLock = dagRunStoreLockIdentityFromOwner(state.owner); const proof = await createDagRunStoreDeadOwnerProofV1(priorLock, input.occurredAt);
+      const newLock = await processLockIdentity(sessionId, canonicalHash({ purpose: "dag-run-start-recover", sessionId, runId: input.runId, startId: intent.startId, ownerEpoch: state.owner.ownerEpoch + 1 }), canonicalHash({ purpose: "dag-run-owner-token", sessionId, runId: input.runId, startId: intent.startId, nonce: randomUUID() }), input.occurredAt);
+      const priorOwnership = state.owner.ownershipReceipt ? await store.readImmutableFact(state.owner.ownershipReceipt) as any : null;
+      const ownershipCore = {
+        kind: "ownership" as const, runId: state.runId, runNonce: state.runNonce,
+        priorSessionId: state.owner.sessionId, priorOwnerTokenHash: state.owner.ownerTokenHash, priorPid: state.owner.pid, priorProcessStartIdentity: state.owner.processStartIdentity, priorLockIdentity: state.owner.lockIdentity, priorAttachedAt: state.owner.attachedAt,
+        disposition: "dead" as const, priorObservationHash: proof.observationHash, priorOwnershipReceiptHash: state.owner.ownershipReceipt, ownerEpoch: state.owner.ownerEpoch + 1,
+        successorSessionId: sessionId, successorPid: process.pid, successorProcessStartIdentity: newLock.processStartIdentity, successorLockIdentity: newLock.lockIdentity, lineageHash: null,
+      };
+      const ownershipWithChain = { ...ownershipCore, chainHash: ownershipChainHashV1(ownershipCore, priorOwnership?.kind === "ownership" ? priorOwnership.chainHash : null) };
+      const ownership = { ...ownershipWithChain, hash: canonicalHash(ownershipWithChain) }; await store.putImmutableFact(ownership);
+      runtimeContext = { ...runtimeContext, facts: { ...runtimeContext.facts, [ownership.hash]: ownership } };
+      const payload = { ownerTokenHash: newLock.ownerTokenHash, sessionId, pid: process.pid, processStartIdentity: newLock.processStartIdentity, lockIdentity: newLock.lockIdentity, ownershipReceipt: ownership.hash, priorOwnerDisposition: "dead" };
+      const recovery = await store.reattachAfterDeadOwner(proof, reducerInput(state, "attach_owner", "observation", payload, input.occurredAt, { commandId: `recover-${intent.startId}-${state.owner.ownerEpoch + 1}`, idempotencyKey: `recover:${intent.startId}:${state.owner.ownerEpoch + 1}` }), runtimeContext, newLock, async (candidate, lock) => candidate.expectedLockMetadataHash === canonicalHash(lock) && candidate.observationHash === proof.observationHash);
+      if (!recovery.result.accepted) throw new Error(`DAG prepared-start recovery rejected: ${recovery.result.code}: ${recovery.result.message}`);
+      state = recovery.result.state; this.#currentLock.set(input.runId, newLock);
+      if (existingBinding) existingBinding = await this.#createBinding(ctx, repositoryRoot, plan, state, input.occurredAt, { kind: "explicit_reattach", priorBindingHash: existingBinding.bindingHash, priorSessionId: existingBinding.sessionId, proofHash: ownership.hash }, existingBinding);
+    } else throw new Error("Existing DAG run owner conflicts with prepared start intent");
+    await this.startFailpoint?.("after_owner_attach");
 
+    await this.startFailpoint?.("before_final_binding");
     const binding = existingBinding ?? await this.#createBinding(ctx, repositoryRoot, plan, state, input.occurredAt);
-    const advanced = await this.advance(ctx, state.runId, input.occurredAt);
-    return { binding, state: advanced.state, decision: advanced.decision };
+    await this.startFailpoint?.("after_final_binding");
+    if (intent.state === "starting" || intent.bindingHash !== binding.bindingHash) {
+      const active: DagRunStartIntentV1 = { ...intent, state: "active", revision: intent.revision + 1, bindingHash: binding.bindingHash };
+      await replaceCanonicalJson(intentPath, intent, active); intent = active;
+    }
+    await this.startFailpoint?.("after_start_active");
+    await this.startFailpoint?.("before_response");
+    return { binding, state, decision: scheduleDagRunV1(plan, state) };
   }
 
   async advance(ctx: DagConductorContextV1, runId: string, occurredAt = new Date().toISOString()): Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }> {
     const loaded = await this.#loadBound(ctx, runId);
     const lock = await this.#currentOwnerLock(loaded);
-    const lifecycle = new DagLifecycleRuntimeV1(loaded.store, loaded.plan, loaded.context, lock, await realpath(ctx.cwd), this.lifecycle);
+    const lifecycleOptions = this.integrationFactory && !this.lifecycle.integration
+      ? { ...this.lifecycle, integration: this.integrationFactory({ store: loaded.store, context: loaded.context, lock }) }
+      : this.lifecycle;
+    const lifecycle = new DagLifecycleRuntimeV1(loaded.store, loaded.plan, loaded.context, lock, await realpath(ctx.cwd), lifecycleOptions);
     for (let step = 0; step < 256; step += 1) {
       const reconciled = await lifecycle.reconcileOne(occurredAt);
       if (reconciled.progressed) continue;
@@ -251,6 +358,40 @@ export class DagConductorServiceV1 {
 
   async binding(ctx: DagConductorContextV1): Promise<DagSessionRunBindingV1 | null> { return this.#readBinding(await realpath(ctx.cwd), String(ctx.sessionManager.getSessionId())); }
 
+  /** Return the sole unfinished start for this exact session, if one exists. */
+  async pendingStart(ctx: DagConductorContextV1, sourcePlanningPlanId?: string, sourcePlanningPlanHash?: string): Promise<Pick<DagRunStartIntentV1, "runId" | "runNonce" | "planHash" | "sourcePlanningPlanId" | "sourcePlanningPlanHash" | "startedAt"> | null> {
+    const repositoryRoot = await realpath(ctx.cwd);
+    const sessionId = String(ctx.sessionManager.getSessionId());
+    const directory = dirname(startIntentPath(repositoryRoot, sessionId, "placeholder"));
+    let names: string[];
+    try { names = await readdir(directory); }
+    catch (error: any) { if (error?.code === "ENOENT") return null; throw error; }
+    const matches: DagRunStartIntentV1[] = [];
+    for (const name of names.filter((value) => ID_RE.test(value.slice(0, -5)) && value.endsWith(".json")).sort()) {
+      const runId = name.slice(0, -5);
+      const intent = await readStartIntent(join(directory, name), sessionId, runId);
+      if (intent?.state === "starting") matches.push(intent);
+    }
+    if (matches.length > 1) throw new Error("Multiple unfinished DAG starts exist for the exact current session");
+    if (matches.length === 0) return null;
+    if ((sourcePlanningPlanId !== undefined && matches[0].sourcePlanningPlanId !== sourcePlanningPlanId)
+      || (sourcePlanningPlanHash !== undefined && matches[0].sourcePlanningPlanHash !== sourcePlanningPlanHash)) {
+      throw new Error(`Unfinished DAG start ${matches[0].runId} belongs to a different planning plan and must be recovered first`);
+    }
+    const { runId, runNonce, planHash: canonicalPlanHash, sourcePlanningPlanId: planId, sourcePlanningPlanHash: sourcePlanHash, startedAt } = matches[0];
+    return { runId, runNonce, planHash: canonicalPlanHash, sourcePlanningPlanId: planId, sourcePlanningPlanHash: sourcePlanHash, startedAt };
+  }
+
+  async startIdentity(ctx: DagConductorContextV1, runId: string): Promise<Pick<DagRunStartIntentV1, "runId" | "planHash" | "sourcePlanningPlanId" | "sourcePlanningPlanHash">> {
+    const repositoryRoot = await realpath(ctx.cwd);
+    const sessionId = String(ctx.sessionManager.getSessionId());
+    const binding = await this.#readBinding(repositoryRoot, sessionId);
+    if (!binding || binding.runId !== runId) throw new Error("No exact current-session binding exists for the requested DAG run");
+    const intent = await readStartIntent(startIntentPath(repositoryRoot, sessionId, runId), sessionId, runId);
+    if (!intent || intent.state !== "active" || intent.bindingHash !== binding.bindingHash || intent.planHash !== binding.planHash) throw new Error("Current-session binding does not resolve its exact active start identity");
+    return { runId: intent.runId, planHash: intent.planHash, sourcePlanningPlanId: intent.sourcePlanningPlanId, sourcePlanningPlanHash: intent.sourcePlanningPlanHash };
+  }
+
   async #loadForReattach(ctx: DagConductorContextV1, runId: string): Promise<LoadedRunV1> {
     const repositoryRoot = await realpath(ctx.cwd); const sessionId = String(ctx.sessionManager.getSessionId());
     const binding = await this.#readBinding(repositoryRoot, sessionId);
@@ -351,6 +492,20 @@ async function repositoryGitBinding(repositoryRoot: string): Promise<{ commonDir
 async function processLockIdentity(sessionId: string, lockIdentity: string, ownerTokenHash: string, acquiredAt: string): Promise<DagRunStoreLockIdentityV1> { return { lockIdentity, ownerTokenHash, sessionId, pid: process.pid, processStartIdentity: await currentProcessStartIdentity(), acquiredAt }; }
 async function currentProcessStartIdentity(): Promise<string> { if (process.platform !== "linux") return `process:${process.pid}:${process.uptime().toFixed(3)}`; const text = await readFile(`/proc/${process.pid}/stat`, "utf8"); return `linux-proc:${text.slice(text.lastIndexOf(")") + 2).trim().split(/\s+/)[19]}`; }
 function bindingPath(root: string, sessionId: string): string { return join(root, BINDING_ROOT, `${createHash("sha256").update(sessionId).digest("hex")}.json`); }
+function startIntentPath(root: string, sessionId: string, runId: string): string { return join(root, START_INTENT_ROOT, createHash("sha256").update(sessionId).digest("hex"), `${runId}.json`); }
+
+async function readStartIntent(path: string, sessionId: string, runId: string): Promise<DagRunStartIntentV1 | null> {
+  try {
+    const text = await readFile(path, "utf8"); const value = parseStrictJson(text) as unknown as DagRunStartIntentV1;
+    if (canonicalStringify(value) !== text || value.schemaVersion !== 1 || value.kind !== "DagRunStartIntentV1" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.startId) || !["starting", "active"].includes(value.state) || !Number.isInteger(value.revision) || value.revision < 0 || value.sessionId !== sessionId || value.runId !== runId || !ID_RE.test(value.runId) || value.runNonce.length < 16 || !HASH_RE.test(value.planHash) || !HASH_RE.test(value.preparedHash) || (value.sourcePlanningPlanId === null) !== (value.sourcePlanningPlanHash === null) || (value.sourcePlanningPlanId !== null && (!ID_RE.test(value.sourcePlanningPlanId) || !HASH_RE.test(value.sourcePlanningPlanHash!))) || (value.bindingHash !== null && !HASH_RE.test(value.bindingHash)) || (value.state === "starting" ? value.revision !== 0 || value.bindingHash !== null : value.revision < 1 || value.bindingHash === null)) throw new Error("DAG prepared start intent is corrupt");
+    return value;
+  } catch (error: any) { if (error?.code === "ENOENT") return null; throw error; }
+}
+
+function assertExactStartReplay(intent: DagRunStartIntentV1, expected: Pick<DagRunStartIntentV1, "runNonce" | "planHash" | "preparedHash" | "sourcePlanningPlanId" | "sourcePlanningPlanHash">): void {
+  if (intent.runNonce !== expected.runNonce || intent.planHash !== expected.planHash || intent.preparedHash !== expected.preparedHash || intent.sourcePlanningPlanId !== expected.sourcePlanningPlanId || intent.sourcePlanningPlanHash !== expected.sourcePlanningPlanHash) throw new Error("Prepared DAG start replay does not match the exact durable start intent");
+}
+
 function resolveBoundPath(root: string, value: string): string { if (!value || value.startsWith("/") || value.includes("\\") || value.split("/").includes("..")) throw new Error("DAG artifact path must be root-relative without traversal"); const path = resolve(root, value); if (path === root || !path.startsWith(`${root}/`)) throw new Error("DAG artifact path escapes repository root"); return path; }
 
 async function publishImmutableJson(path: string, value: unknown): Promise<void> {

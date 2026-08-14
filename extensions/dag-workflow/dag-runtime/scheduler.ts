@@ -1,6 +1,6 @@
 import { canonicalHash } from "./common.ts";
 import { PLAN_STAGE_IDS, type CanonicalDagPlanV1 } from "./plan.ts";
-import { dagRunSnapshotHash, type DagRunStateV1 } from "./run-state.ts";
+import { dagRunNeedsReplanV1, dagRunSnapshotHash, type DagRunStateV1 } from "./run-state.ts";
 
 export const DAG_SCHEDULER_POLICY_VERSION_V1 = "sticky-lanes-v1";
 export const DAG_SCHEDULER_POLICY_V1 = {
@@ -13,7 +13,7 @@ export const DAG_SCHEDULER_POLICY_V1 = {
 export const DAG_SCHEDULER_POLICY_HASH_V1 = canonicalHash(DAG_SCHEDULER_POLICY_V1);
 
 export type DagSchedulerBlockerCodeV1 =
-  | "OWNER_UNATTACHED" | "RUN_NOT_RUNNING" | "FRESHNESS_BLOCK" | "ITEM_NOT_RUNNABLE" | "AUTHORIZATION"
+  | "OWNER_UNATTACHED" | "RUN_NOT_RUNNING" | "NEEDS_REPLAN" | "FRESHNESS_BLOCK" | "ITEM_NOT_RUNNABLE" | "AUTHORIZATION"
   | "PRECEDENCE" | "GATE" | "ITEM_BLOCKER" | "STAGE_BLOCKER" | "ATTEMPT_ACTIVE"
   | "EFFECT_UNRECONCILED" | "PROVIDER_HOLD" | "INTEGRATION_NOT_HEAD" | "INTEGRATION_DRIFT";
 export type DagSchedulerAdmissionCodeV1 = "LANE_CAPACITY" | "EXISTING_RESERVATION" | "MUTEX" | "RESOURCE_CAPACITY" | "OPERATIONAL_CAPACITY" | "DYNAMIC_EXCLUSION" | "FAIRNESS_RESERVATION";
@@ -80,7 +80,7 @@ export interface DagSchedulerDecisionV1 {
   frontier: DagSchedulerSlotV1[];
   selected: DagSchedulerReservationProposalV1[];
   bypassIncrements: string[];
-  notice: "RESERVATIONS_PROPOSED" | "PAUSED" | "AWAITING_ACTIVE" | "WAITING_EXTERNAL" | "NEEDS_HUMAN" | "CAPACITY_OR_EXCLUSION_BLOCKED" | "INTEGRATION_DRIFT" | "RUN_BLOCKED" | "RUN_COMPLETED";
+  notice: "RESERVATIONS_PROPOSED" | "PAUSED" | "NEEDS_REPLAN" | "AWAITING_ACTIVE" | "WAITING_EXTERNAL" | "NEEDS_HUMAN" | "CAPACITY_OR_EXCLUSION_BLOCKED" | "INTEGRATION_DRIFT" | "RUN_BLOCKED" | "RUN_COMPLETED";
   decisionHash: string;
 }
 
@@ -210,6 +210,7 @@ export function scheduleDagRunV1(plan: CanonicalDagPlanV1, state: DagRunStateV1)
 }
 
 export function requireSchedulerDispatchIntentV1(state: DagRunStateV1, request: { effectId: string; kind: string; requestHash: string }): DagRunStateV1["scheduler"]["reservations"][string] {
+  if (dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan" || state.current.run === "needs_replan") throw new Error("needs_replan blocks scheduler dispatch");
   const reservation = state.scheduler.reservations[request.effectId];
   if (!request.kind.startsWith("scheduler_") || !reservation || request.kind !== `scheduler_${reservation.operationKind}` || reservation.normalizedRequestHash !== request.requestHash || reservation.state !== "dispatch_intent") throw new Error("Scheduler dispatch does not bind one exact durable dispatch intent");
   return reservation;
@@ -268,7 +269,9 @@ function deriveSlot(plan: CanonicalDagPlanV1, state: DagRunStateV1, workItemId: 
   if (item.current === "integration_ready" || item.current === "integrating") { stage = "F8"; operationKind = "integration"; }
   const blockers: Array<{ code: DagSchedulerBlockerCodeV1; id: string }> = [];
   if (!state.owner.sessionId || !state.owner.lockIdentity) blockers.push({ code: "OWNER_UNATTACHED", id: "run-owner" });
-  if (state.desired.run !== "running" || !["active", "integration"].includes(state.current.run)) blockers.push({ code: "RUN_NOT_RUNNING", id: state.current.run });
+  const needsReplan = dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan" || state.current.run === "needs_replan";
+  if (needsReplan) blockers.push({ code: "NEEDS_REPLAN", id: "run-needs-replan" });
+  else if (state.desired.run !== "running" || !["active", "integration"].includes(state.current.run)) blockers.push({ code: "RUN_NOT_RUNNING", id: state.current.run });
   if (state.freshness.blocksNewLaunches || !["valid_exact", "valid_revalidated"].includes(state.freshness.class)) blockers.push({ code: state.freshness.class === "integration_drift" ? "INTEGRATION_DRIFT" : "FRESHNESS_BLOCK", id: state.freshness.receipt.hash });
   if (item.desired !== "run" || ["cancelled", "superseded"].includes(item.current)) blockers.push({ code: "ITEM_NOT_RUNNABLE", id: workItemId });
   if (!item.authorizedStages.includes(stage)) blockers.push({ code: "AUTHORIZATION", id: stage });
@@ -322,6 +325,7 @@ function compareSlots(left: DagSchedulerSlotV1, right: DagSchedulerSlotV1): numb
 
 function noticeFor(state: DagRunStateV1, slots: DagSchedulerSlotV1[], selected: number, attention: boolean): DagSchedulerDecisionV1["notice"] {
   if (state.completion.state !== "open") return "RUN_COMPLETED";
+  if (dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan" || state.current.run === "needs_replan") return "NEEDS_REPLAN";
   if (state.desired.run === "paused" || state.current.run === "paused") return "PAUSED";
   if (state.freshness.class === "integration_drift") return "INTEGRATION_DRIFT";
   if (selected) return "RESERVATIONS_PROPOSED";
@@ -335,7 +339,7 @@ function noticeFor(state: DagRunStateV1, slots: DagSchedulerSlotV1[], selected: 
 function glyphFor(item: DagRunStateV1["workItems"][string], slot: DagSchedulerSlotV1 | undefined, operationActive: boolean, attemptNeedsAttention: boolean): DagExecutionNodeV1["glyph"] {
   if (["cancelled", "superseded"].includes(item.current)) return "x";
   if (item.current === "complete") return "#";
-  if (attemptNeedsAttention || item.blockerIds.length || item.openFindingIds.length || slot?.blockerCodes.some((code) => ["OWNER_UNATTACHED", "FRESHNESS_BLOCK", "INTEGRATION_DRIFT"].includes(code))) return "!";
+  if (attemptNeedsAttention || item.blockerIds.length || item.openFindingIds.length || slot?.blockerCodes.some((code) => ["OWNER_UNATTACHED", "NEEDS_REPLAN", "FRESHNESS_BLOCK", "INTEGRATION_DRIFT"].includes(code))) return "!";
   if (slot?.blockerCodes.includes("GATE")) return "?";
   if (item.current === "integrating") return "@";
   if (item.current === "integration_ready") return "+";

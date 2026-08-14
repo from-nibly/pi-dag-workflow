@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-structured-brainstorming; contract: 1; input: sha256:51d09fc2d1a0e88515b950304da2404646db9532b082501ca04ce899416e25e0 -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-structured-brainstorming; contract: 1; input: sha256:e129921f373d234cecd07c7be74002f10c4dd48da114cb0a32f3e9f6bc45dd1b -->
 
 # Structured brainstorming behavior
 
@@ -376,11 +376,11 @@ Before asking, exhaust relevant repository evidence and perform web research whe
 
 <a id="obj-com-question-context"></a>
 
-### Keep context freeform while codifying all rendering boilerplate
+### Explain the decision background before asking for a choice
 
-Each Decisions-needed point concisely explains its trigger, relevant evidence/current understanding, remaining uncertainty, consequences, and why the answer materially changes the model, without duplicating generated specs. Presentation mechanics and rich context formats remain deferred.
+Every Decisions-needed point must give enough background for an informed choice. Before presenting options, explain the current mechanism in concrete terms, the observed insufficiency or trigger, a realistic failure or consequence it protects against, why the issue must be decided now, what remains uncertain, and how each materially different answer changes implementation or authority. Define specialized terms in plain language and distinguish correctness protection from optional hardening. Do not rely on terse summaries or assume the user remembers earlier research.
 
-**Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
+**Rationale.** The user needs visibility into what each decision protects against and what choosing an option would commit, especially for dense authority, compiler, recovery, and release contracts.
 
 <a id="obj-com-real-options-only"></a>
 

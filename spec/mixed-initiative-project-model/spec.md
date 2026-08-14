@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-mixed-initiative; contract: 1; input: sha256:df3d2da0de7fda6a647119a8660707761569a71d6007ba0d59934909cb585a6d -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-mixed-initiative; contract: 1; input: sha256:74d6bf5ab3178b917567f30abf076eba5f85099d13486fe82fb45c11f60d8291 -->
 
 # Mixed-initiative project model
 
@@ -98,11 +98,11 @@ v1 uses a small explicit type union and shared metadata; subtype-specific fields
 
 <a id="obj-dec-direct-user-commit-derived-review"></a>
 
-### Direct statements commit; derivations require review
+### Use agent judgment for explicit user direction; do not claim a security boundary
 
-Explicit unambiguous user direction commits once; silence and agent-derived implications never commit; ambiguity or conflict remains unresolved.
+Explicit unambiguous user direction commits once; silence and agent-derived implications never commit; ambiguity or conflict remains unresolved. The agent uses contextual judgment to determine whether the user approved the semantic payload, and content references support traceability and stale-response handling rather than serving as a security or cryptographic consent boundary. Do not require a separate trusted adapter, typed approval ceremony, or byte-exact human-interaction receipt merely to defend against an agent hallucinating approval; the agent is already inside the trust boundary. Preserve clear separation between plan approval, execution authorization, and start intent through ordinary explicit interaction and model review semantics.
 
-**Rationale.** This preserves low ceremony and human authority simultaneously.
+**Rationale.** This project structures planning and execution for reliability and oversight; it should not add security theater that cannot constrain the trusted agent.
 
 <a id="obj-dec-model-prose-deterministic-projections"></a>
 
@@ -330,11 +330,11 @@ Hot reload, Pi resume, fork, and clone restore the exact focus-session link carr
 
 <a id="obj-dec-command-seed-classified-user-input"></a>
 
-### Seed is authority-eligible only when semantically explicit
+### Treat command seeds as non-authoritative guidance
 
-Input channel does not change semantic authority rules, and no command argument is auto-accepted merely because it started brainstorming.
+Arguments supplied to brainstorming commands guide exploration but cannot directly create durable intent, decisions, or commitments. Important constraints from a seed must be confirmed through an eligible direct interaction or exact review before becoming semantic authority.
 
-**Rationale.** This preserves direct-user commitment without turning `/dag brainstorm auth` into an accidental governing requirement.
+**Rationale.** This preserves a safe distinction between starting a brainstorm and authorizing governing project direction; the minor confirmation step is acceptable.
 
 <a id="obj-dec-retain-legacy-readonly-diagnostics"></a>
 
@@ -354,11 +354,11 @@ Within the trusted local agent and harness threat model, feedback returned throu
 
 <a id="obj-dec-separate-lavish-presentation-adapter"></a>
 
-### Keep Lavish in a separate presentation adapter
+### Use the separate Lavish adapter for planning review turns
 
-Add optional `dag_model_present_review` outside the six semantic project-model tools. It presents/resumes/ends the active review through Lavish, marks presentation only from real feedback, and returns bounded feedback to the agent. It never resolves model state or grants authority.
+Keep Lavish presentation separate from semantic authority, and use the Lavish whole-turn review adapter for material reviews in the planning and chunking focus. The adapter presents, resumes, and ends exact active reviews; semantic review receipts remain the only authority mechanism.
 
-**Rationale.** Separate presentation transport from semantic authority and allow independent resume/failure handling.
+**Rationale.** The planning frontier contains visual workflows, DAGs, comparisons, and structured decisions that are better reviewed as whole Lavish turns without making presentation itself authoritative.
 
 <a id="obj-dec-pinned-optional-lavish-cli"></a>
 

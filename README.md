@@ -1,8 +1,6 @@
 # pi-dag-workflow
 
-Pi extension for mixed-initiative project-model brainstorming and extension-owned asynchronous Pi workers. The production workflow covers research, intent clarification, semantic review, deterministic generated specifications, and durable process-isolated subagents.
-
-Model-aware DAG planning and execution remain deferred while this workflow is dogfooded.
+Pi extension for mixed-initiative project-model brainstorming, architecture-first DAG planning, exact session-bound execution, and extension-owned asynchronous Pi workers. The production workflow covers research, intent clarification, semantic review, deterministic generated specifications, inspectable plans, and durable process-isolated subagents.
 
 ## Authority
 
@@ -44,7 +42,32 @@ pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.1.0
 
 A focus session is ignored presentation state under `.ai/model-sessions/`. It contains selected workstreams, one active review turn, and one replaceable previous-review snapshot. Optional Lavish HTML and adjacent lifecycle metadata live under `<focus-id>/lavish/`. None of these files owns unique project meaning.
 
-Reloading, resuming, forking, or cloning a linked Pi conversation restores the exact focus. A new unlinked Pi session starts inactive. Concurrent multi-agent use of one focus is unsupported and has no locking or merge protocol.
+Reloading, resuming, forking, or cloning a linked Pi conversation restores the exact focus. A new unlinked Pi session starts inactive. Model and focus snapshots use process-shared locking, expected integer revisions, and durable atomic replacement; conflicting concurrent mutations fail rather than losing an update.
+
+## Planning, inspection, and execution
+
+One product workflow carries accepted project meaning into the shipped canonical runtime:
+
+```text
+/dag plan [--new | --plan <plan-id>] [goal]       # architecture, then internal decomposition
+/dag plan approve --plan <plan-id>@<revision>      # approve the exact current head
+/dag plan authorize --plan <plan-id>@<revision>    # authorize without starting
+/dag show [--plan <selector>] [--view plan|graph|lineage]
+/dag show [--plan <selector>] --node <id|Nxx>
+/dag show --run [<exact-current-session-run-id>]
+/dag run [--plan <plan-id>@<revision>]              # explicit start, or advance bound run
+/dag run --resume                                   # require an existing current-session binding
+```
+
+`/dag plan` keeps the active project-model focus. It asks the agent to establish outcomes, architecture, boundaries, risks, integration checks, and shell-free prefix/final validation argv before internally producing the smallest causal work-item graph. `dag_plan_save` derives Git and source identities from a clean tracked `HEAD`; callers never supply Git object IDs, hashes, artifact paths, or runtime receipts. Every successful revision returns deterministic Markdown and static-graph previews.
+
+Approval and authorization are independent retained revisions. They may be decided together after one exact review, but neither starts work. V1 authorization is deliberately whole-plan: its scope must equal the complete exact work-item ID set, while maximum concurrency remains independently bounded. Only an explicit `/dag run` starts execution. `/dag chunk` is intentionally absent because decomposition is an internal phase of `/dag plan`.
+
+Thin plans live under ignored `.ai/dag-plans-v1/`. Each head has immutable retained revisions, an exact active-focus binding, typed project-model/spec sources, one static semantic hash, and ordinary decision fields. Exact selectors are a plan ID for its head or `planId@revision`; prefix, modification-time, and inferred-latest selection are never used.
+
+`/dag show` is read-only. A current-session live run wins by default; otherwise one session-bound or unambiguous active-focus static plan is required. Static Markdown, graph, node, and lineage views are deterministic projections. Live views resolve only the exact current-session run binding.
+
+`/dag run` revalidates the clean Git baseline, target branch, authoritative model objects, generated specification bytes, approval, and authorization before creating run authority. It internally compiles the thin plan into the existing canonical F0–F8 contracts, generates UUID occurrence identities, durably records a recoverable start intent, binds the run to the current session, and only then permits scheduling. A repeated command advances the bound run without restarting or implicitly unpausing it. A process crash during start is recovered from the exact unfinished intent.
 
 ## Model tools
 
@@ -117,7 +140,7 @@ Obsolete `pi-subagents` artifacts are not adopted or deleted automatically. Hist
 
 ## Canonical DAG execution
 
-Model-aware planning remains deferred, but pre-authorized canonical plans now have a guarded execution surface. The conductor binds one exact run to the current Pi session and branch; it never selects a “latest” run.
+The product commands above use the existing guarded canonical runtime as a hidden execution substrate. The conductor binds one exact run to the current Pi session and branch; it never selects a “latest” run. Low-level tools remain available for exact diagnostics and compatibility.
 
 Read-only tools:
 
@@ -142,17 +165,7 @@ Real-Git integration uses core-only repository preflight, immutable private refs
 
 The reducer-driven F0–F8 lifecycle publishes immutable attempt, launch, worker-result, candidate, check, environment, finding, integration, and cleanup facts before they can advance authority. Owner takeover and prior-session worker reconciliation are process-identity fenced. Detached evaluation observes committed snapshot identities asynchronously, retains privacy-safe bounded accumulators and envelopes, and cannot affect execution. The dogfood portfolio runs six counterbalanced serial/parallel pairs (twelve canonical executions) plus separate recovery drills.
 
-These planning and lifecycle-authoring commands remain deferred:
-
-```text
-/dag plan
-/dag chunk
-/dag review
-/dag retro
-/dag archive
-```
-
-`/dag run` explains how to use the exact conductor start tool. GrillMe, promotion, legacy prompt workflows, the dormant `dag_subagent` adapter, the `pi-subagents` dependency, and model-unaware mutating DAG tools are removed.
+Separate `/dag review`, `/dag retro`, and `/dag archive` product workflows are not implemented. `/dag chunk` is intentionally folded into `/dag plan`. GrillMe, promotion, legacy prompt workflows, the dormant `dag_subagent` adapter, the `pi-subagents` dependency, and model-unaware mutating DAG tools are removed.
 
 Clearly labeled read-only diagnostics remain for pre-cutover artifacts:
 
@@ -187,19 +200,26 @@ project-model/migrations/brainstorm-v2-candidate.md  # mapping/omission audit
 
 The candidate does not become authoritative until its semantic mappings, omissions, generated specs, and exact manifest hash receive explicit human approval. Cutover is an isolated `dag_model_record_direction` operation with `{ "cutover": { "candidateManifestHash": "sha256:…" } }`; it creates `migration_cutover` receipts, changes model mode, and replaces the declared hand-maintained projection targets as one recoverable transaction. The importer refuses to replace an authoritative model, even with `--force`.
 
-## Validation
+## Source-checkout validation
+
+These repository release and test commands use tracked model/spec fixtures and Git history; they are contributor checks, not installed-package runtime commands.
 
 ```nu
 npm run smoke
 npm run test:model
+npm run test:dag-planning
+npm run test:dag-planning-runtime
+npm run test:dag-planning-command
+npm run test:dag-prepared-start
 npm run test:dag-runtime
 npm run test:dag-evaluation
 npm run test:dag-dogfood
 npm run test:dag-dogfood-portfolio
 npm run test:git-integration
 npm run test:workers
+npm run release:ready              # full deterministic matrix plus specs/package/clean-tree gates
 # Only while project-model/model.json is still a non-authoritative candidate:
 node scripts/migrate-brainstorm-to-project-model.mjs --force
 ```
 
-The production tests cover model validation, acceptance boundaries, focus sessions, sparse/stale review resolution, deterministic projections, Pi activation and fork restoration, disabled legacy workflows, and migration candidate generation.
+The production tests cover model validation, acceptance boundaries, concurrent model/focus CAS, sparse/stale review resolution, deterministic plan projections and lineage, exact command selection, real-Git source/baseline validation, crash-recoverable prepared start, canonical runtime compilation, whole-run replanning, Pi activation and fork restoration, legacy read-only compatibility, and migration candidate generation.

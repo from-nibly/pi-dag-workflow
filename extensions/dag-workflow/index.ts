@@ -9,7 +9,9 @@ import { findLatestRun, loadRun, readDag, runDir, summarizeRun, validateDag } fr
 import { renderDagDiagram } from "./diagram.ts";
 import { registerCanonicalDagRuntime } from "./dag-runtime/integration.ts";
 import { DagConductorServiceV1 } from "./dag-runtime/conductor.ts";
+import { DagReducerGitIntegrationDriverV1 } from "./dag-runtime/integration-driver.ts";
 import { canonicalHash, parseStrictJson } from "./dag-runtime/common.ts";
+import { createBuiltInLifecycleProcedureAdapterV1, registerDagPlanningIntegrationV1 } from "./planning/index.ts";
 import { registerProjectModelIntegration } from "./project-model/integration.ts";
 import { isWorkerChildRole, registerWorkerChild } from "./worker-runtime/child-report.ts";
 import { registerWorkerRuntime } from "./worker-runtime/integration.ts";
@@ -65,6 +67,7 @@ function ok(content: string, details: Record<string, unknown> = {}) {
 }
 
 function catalogProcedureAdapter(workerManager: any) {
+  const builtIn = () => workerManager.context?.cwd ? createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: workerManager.context.cwd }) : null;
   const exactEnvironment = {
     LC_ALL: "C",
     LANG: "C",
@@ -76,10 +79,15 @@ function catalogProcedureAdapter(workerManager: any) {
   return {
     adapterKind: "immutable-catalog-command-v1" as const,
     allowsProcedure(procedure: any) {
+      const internal = builtIn();
+      if (internal?.allowsProcedure?.(procedure)) return true;
       const executable = procedure?.executable;
       return Boolean(executable && executable.argv?.length > 0 && executable.argv[0].startsWith("/") && executable.environmentHash === canonicalHash(exactEnvironment) && executable.environmentProfileHash === procedure.environmentProfileHash && executable.readOnly === procedure.readOnly && executable.noEdit === procedure.readOnly && executable.timeoutMs > 0);
     },
-    async executeExact({ state, attempt, procedure }: any) {
+    async executeExact(input: any) {
+      const { state, attempt, procedure } = input;
+      const internal = builtIn();
+      if (internal?.allowsProcedure?.(procedure)) return internal.executeExact(input);
       const executable = procedure.executable;
       if (!this.allowsProcedure(procedure)) throw new Error(`Immutable command mapping is absent or invalid for ${procedure.procedureId}/${procedure.hash}`);
       const artifactPath = await realpath(executable.argv[0]);
@@ -136,6 +144,9 @@ export default function dagWorkflow(pi: ExtensionAPI) {
       const workers = await workerManager.readBoundAttempts(bindings);
       return { projectionHash: canonicalHash({ bindings, workers }), workers };
     },
+    integrationFactory({ store, context, lock }) {
+      return new DagReducerGitIntegrationDriverV1({ store, context, lock });
+    },
     lifecycle: {
       worker: {
         async launchExact(request) {
@@ -151,7 +162,7 @@ export default function dagWorkflow(pi: ExtensionAPI) {
           const status = (await execFileAsync("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout;
           const commit = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout.trim();
           const tree = (await execFileAsync("git", ["rev-parse", "HEAD^{tree}"], { cwd, env, maxBuffer: 1024 * 1024 })).stdout.trim();
-          if (terminal.terminalStatus === "succeeded" && ["F2", "F5"].includes(attempt.stage)) {
+          if (terminal.terminalStatus === "succeeded" && ["F2", "F5", "F6"].includes(attempt.stage)) {
             const expected = state.workItems[attempt.workItemId].candidate?.git.commit;
             if (status.trim() || !expected || commit !== expected) throw new Error(`${attempt.stage} fresh independent role violated its exact read-only candidate boundary`);
           }
@@ -218,23 +229,28 @@ export default function dagWorkflow(pi: ExtensionAPI) {
     },
   });
   registerCanonicalDagRuntime(pi, conductor);
+  const planningIntegration = registerDagPlanningIntegrationV1(pi, {
+    getActiveFocus: modelIntegration.getActiveFocus,
+    conductor,
+  });
 
   pi.registerCommand("dag", {
-    description: "Model brainstorming plus read-only inspection of legacy DAG artifacts",
+    description: "Model brainstorming, planning, exact inspection, and session-bound DAG execution",
     handler: async (args: string, ctx: CommandContext) => {
       const { command, rest, options } = parseArgs(args);
       if (command === "brainstorm") {
         await modelIntegration.handleBrainstormCommand(rest, ctx);
         return;
       }
+      if (await planningIntegration.handleCommand(command, { rest, options }, ctx)) return;
       if (modelIntegration.isActive()) modelIntegration.suspend(ctx);
 
-      if (["plan", "chunk", "review", "retro", "archive", "grillme"].includes(command)) {
-        ctx.ui.notify("Model-aware planning remains deferred; canonical execution is available through the exact dag_run_* conductor tools.", "warning");
+      if (command === "chunk") {
+        ctx.ui.notify("Chunking is an internal phase of /dag plan, not a separate command.", "info");
         return;
       }
-      if (command === "run") {
-        ctx.ui.notify("Canonical runs start through dag_run_start with exact plan, genesis, context, and authorization identities.", "info");
+      if (["review", "retro", "archive", "grillme"].includes(command)) {
+        ctx.ui.notify(`Model-aware /dag ${command} is not implemented.`, "warning");
         return;
       }
       if (command === "validate") {
@@ -273,7 +289,7 @@ export default function dagWorkflow(pi: ExtensionAPI) {
         ctx.ui.notify(`[legacy read-only]\n${(await readLogTail(path, 40)).slice(-4000) || "No log output"}`, "info");
         return;
       }
-      ctx.ui.notify("Usage: /dag brainstorm [new|resume|list|stop] | validate | status | workers | inspect | tail", "info");
+      ctx.ui.notify("Usage: /dag brainstorm [new|resume|list|stop] | plan | show | run | validate | status | workers | inspect | tail", "info");
     },
   });
 

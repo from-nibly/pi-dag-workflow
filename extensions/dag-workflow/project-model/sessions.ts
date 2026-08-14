@@ -1,14 +1,20 @@
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { lstat, readFile, readdir } from "node:fs/promises";
+import { basename, join, relative, resolve } from "node:path";
 import { nowIso, slugify } from "./model.ts";
+import { durableReplaceJson, withFileLock } from "./persistence.ts";
 import { DEFAULT_FOCUS_SESSION_DIR, type FocusSession, type ReviewDirection } from "./types.ts";
+
+type RevisionedFocusSession = FocusSession & { revision: number };
 
 export class FocusSessionStore {
   readonly root: string;
   readonly dir: string;
 
   constructor(root: string, directory = DEFAULT_FOCUS_SESSION_DIR) {
-    this.root = resolve(root);
+    const lexicalRoot = resolve(root);
+    this.root = realpathSync(lexicalRoot);
+    if (this.root !== lexicalRoot) throw new Error("Focus-session repository root must not traverse symlinks");
     this.dir = resolve(this.root, directory);
     if (!isWithin(this.root, this.dir)) throw new Error("Focus-session directory must stay inside the repository");
   }
@@ -16,6 +22,7 @@ export class FocusSessionStore {
   path(id: string): string { return join(this.dir, `${normalizeFocusId(id)}.json`); }
 
   async list(): Promise<Array<{ id: string; title: string; status: FocusSession["status"]; workstreamIds: string[]; updatedAt: string }>> {
+    await assertNoSymlinkPath(this.root, this.dir);
     let names: string[];
     try { names = await readdir(this.dir); } catch { return []; }
     const sessions = [];
@@ -33,49 +40,78 @@ export class FocusSessionStore {
   async create(input: { id?: string; title: string; seed?: string; workstreamIds?: string[] }): Promise<FocusSession> {
     if (!input.title?.trim()) throw new Error("Focus title is required");
     const id = normalizeFocusId(input.id ?? input.title);
-    try { await this.load(id); throw new Error(`Focus session already exists: ${id}`); }
-    catch (error: any) { if (!String(error?.message).startsWith("Focus session not found:")) throw error; }
-    const createdAt = nowIso();
-    const session: FocusSession = {
-      schemaVersion: 1,
-      id,
-      title: input.title.trim(),
-      ...(input.seed?.trim() ? { seed: input.seed.trim() } : {}),
-      workstreamIds: [...new Set(input.workstreamIds ?? [])].sort(),
-      createdAt,
-      updatedAt: createdAt,
-      status: "active",
-    };
-    return this.write(session);
+    const path = this.path(id);
+    await assertNoSymlinkPath(this.root, path);
+    return withFileLock(path, async () => {
+      if (await this.loadOptional(id)) throw new Error(`Focus session already exists: ${id}`);
+      const createdAt = nowIso();
+      const session = normalizeFocusSession({
+        schemaVersion: 1,
+        revision: 0,
+        id,
+        title: input.title.trim(),
+        ...(input.seed?.trim() ? { seed: input.seed.trim() } : {}),
+        workstreamIds: [...new Set(input.workstreamIds ?? [])].sort(),
+        createdAt,
+        updatedAt: createdAt,
+        status: "active",
+      } as RevisionedFocusSession);
+      return this.writeUnlocked(path, session, -1, null);
+    });
   }
 
   async load(id: string): Promise<FocusSession> {
+    await assertNoSymlinkPath(this.root, this.path(id));
+    const session = await this.loadOptional(id);
+    if (!session) throw new Error(`Focus session not found: ${normalizeFocusId(id)}`);
+    return session;
+  }
+
+  async write(input: FocusSession, expectedRevision = storedFocusRevision(input) ?? -1): Promise<FocusSession> {
+    const suppliedRevision = (input as RevisionedFocusSession).revision;
+    if (suppliedRevision !== undefined && (!Number.isSafeInteger(suppliedRevision) || suppliedRevision < 0)) throw new Error("Focus session revision must be a non-negative safe integer");
+    assertExpectedFocusRevision(expectedRevision);
+    const session = normalizeFocusSession({ ...structuredClone(input), updatedAt: nowIso() } as FocusSession);
+    validateFocusSession(session);
+    const path = this.path(session.id);
+    await assertNoSymlinkPath(this.root, path);
+    return withFileLock(path, async () => {
+      const current = await this.loadOptional(session.id);
+      return this.writeUnlocked(path, session, expectedRevision, current ? focusRevision(current) : null);
+    });
+  }
+
+  async mutate(id: string, mutator: (session: FocusSession) => void | Promise<void>): Promise<FocusSession> {
     const path = this.path(id);
+    await assertNoSymlinkPath(this.root, path);
+    return withFileLock(path, async () => {
+      const session = await this.loadOptional(id);
+      if (!session) throw new Error(`Focus session not found: ${normalizeFocusId(id)}`);
+      const expectedRevision = focusRevision(session);
+      await mutator(session);
+      return this.writeUnlocked(path, normalizeFocusSession(session), expectedRevision, expectedRevision);
+    });
+  }
+
+  private async loadOptional(id: string): Promise<RevisionedFocusSession | null> {
+    const path = this.path(id);
+    let raw: string;
+    try { raw = await readFile(path, "utf8"); }
+    catch (error: any) { if (error?.code === "ENOENT") return null; throw error; }
     let parsed: FocusSession;
-    try { parsed = JSON.parse(await readFile(path, "utf8")) as FocusSession; }
-    catch (error: any) {
-      if (error?.code === "ENOENT") throw new Error(`Focus session not found: ${normalizeFocusId(id)}`);
-      throw new Error(`Malformed focus session ${path}: ${error.message}`);
-    }
+    try { parsed = JSON.parse(raw) as FocusSession; }
+    catch (error: any) { throw new Error(`Malformed focus session ${path}: ${error.message}`); }
     validateFocusSession(parsed);
     return normalizeFocusSession(parsed);
   }
 
-  async write(input: FocusSession): Promise<FocusSession> {
-    const session = normalizeFocusSession({ ...structuredClone(input), updatedAt: nowIso() });
+  private async writeUnlocked(path: string, input: RevisionedFocusSession, expectedRevision: number, currentRevision: number | null): Promise<RevisionedFocusSession> {
+    const actualRevision = currentRevision ?? -1;
+    if (actualRevision !== expectedRevision) throw new Error(`Focus session revision conflict: expected ${expectedRevision}, found ${actualRevision}`);
+    const session = normalizeFocusSession({ ...structuredClone(input), revision: expectedRevision + 1, updatedAt: nowIso() } as RevisionedFocusSession);
     validateFocusSession(session);
-    const path = this.path(session.id);
-    await mkdir(dirname(path), { recursive: true });
-    const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(session, null, 2)}\n`, "utf8");
-    await rename(temporary, path);
+    await durableReplaceJson(path, session, { enableTestCrashPoints: true });
     return session;
-  }
-
-  async mutate(id: string, mutator: (session: FocusSession) => void | Promise<void>): Promise<FocusSession> {
-    const session = await this.load(id);
-    await mutator(session);
-    return this.write(session);
   }
 }
 
@@ -88,6 +124,8 @@ export function validateFocusSession(session: FocusSession): void {
   const errors: string[] = [];
   if (!session || typeof session !== "object") throw new Error("Invalid focus session:\n- session must be an object");
   if (session.schemaVersion !== 1) errors.push("schemaVersion must be 1");
+  const revision = (session as RevisionedFocusSession).revision;
+  if (revision !== undefined && (!Number.isSafeInteger(revision) || revision < 0)) errors.push("revision must be a non-negative safe integer");
   if (typeof session.id !== "string" || !session.id.startsWith("focus-")) errors.push("id must start with focus-");
   if (typeof session.title !== "string" || !session.title.trim()) errors.push("title is required");
   if (!Array.isArray(session.workstreamIds) || session.workstreamIds.some((id) => typeof id !== "string")) errors.push("workstreamIds must be a string array");
@@ -155,8 +193,9 @@ function validateReviewDirectionShape(direction: ReviewDirection, label: string,
   if (!Array.isArray(value.relationships) || value.relationships.some((relation: any) => !relation || typeof relation.kind !== "string" || typeof relation.targetId !== "string")) errors.push(`${label}.value.relationships is invalid`);
 }
 
-function normalizeFocusSession(input: FocusSession): FocusSession {
-  const session = structuredClone(input);
+function normalizeFocusSession(input: FocusSession): RevisionedFocusSession {
+  const session = structuredClone(input) as RevisionedFocusSession;
+  session.revision = storedFocusRevision(session) ?? 0;
   session.id = normalizeFocusId(session.id);
   session.workstreamIds = [...new Set(session.workstreamIds ?? [])].sort();
   if (session.previousReview) {
@@ -166,6 +205,39 @@ function normalizeFocusSession(input: FocusSession): FocusSession {
   return session;
 }
 
+function storedFocusRevision(session: FocusSession): number | undefined {
+  const revision = (session as RevisionedFocusSession).revision;
+  return Number.isSafeInteger(revision) && revision >= 0 ? revision : undefined;
+}
+
+function focusRevision(session: FocusSession): number {
+  const revision = storedFocusRevision(session);
+  if (revision === undefined) throw new Error("Focus session requires an expected integer revision");
+  return revision;
+}
+
+function assertExpectedFocusRevision(revision: number): void {
+  if (!Number.isSafeInteger(revision) || revision < -1) throw new Error("Expected focus session revision must be an integer of at least -1");
+}
+
 function isWithin(root: string, target: string): boolean {
   return target === root || target.startsWith(`${root}/`);
+}
+
+async function assertNoSymlinkPath(root: string, target: string): Promise<void> {
+  const rel = relative(root, target);
+  if (rel.startsWith("..") || rel.startsWith("/")) throw new Error("Focus-session path escapes the repository");
+  let current = root;
+  try {
+    if ((await lstat(current)).isSymbolicLink()) throw new Error(`Refusing focus-session repository root symlink: ${current}`);
+  } catch (error: any) { if (error?.code !== "ENOENT") throw error; }
+  for (const segment of rel.split(/[\\/]/).filter(Boolean)) {
+    current = join(current, segment);
+    try {
+      if ((await lstat(current)).isSymbolicLink()) throw new Error(`Refusing focus-session path through symlink: ${current}`);
+    } catch (error: any) {
+      if (error?.code !== "ENOENT") throw error;
+      break;
+    }
+  }
 }

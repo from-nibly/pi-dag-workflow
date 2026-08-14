@@ -22,6 +22,7 @@ import {
   HashRefV1Schema,
   QuarantineProjectionV1Schema,
   assertDagRunStateV1,
+  dagRunNeedsReplanV1,
   dagRunSnapshotHash,
   deriveStageAggregateDispositionV1,
   exactLifecycleProcedureCatalogBindingV1,
@@ -460,6 +461,7 @@ function applyInput(
       return null;
     }
     case "mark_scheduler_reservation_dispatch": {
+      if (dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan" || state.current.run === "needs_replan") return precondition("needs_replan blocks new scheduler dispatch");
       const reservation = state.scheduler.reservations[payload.reservationId]; if (!reservation || reservation.state !== "reserved" || reservation.normalizedRequestHash !== payload.normalizedRequestHash) return precondition("only an exact durable reserved scheduler operation may enter dispatch intent"); reservation.state = "dispatch_intent"; effects.push({ effectId: reservation.reservationId, kind: `scheduler_${reservation.operationKind}`, requestHash: reservation.normalizedRequestHash }); notices.push(notice(state, "scheduler_dispatch_intended", reservation.reservationId, reservation.normalizedRequestHash)); return null;
     }
     case "record_scheduler_reservation_dispatch": {
@@ -483,6 +485,7 @@ function applyInput(
       return null;
     }
     case "begin_stage_attempt": {
+      if (dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan" || state.current.run === "needs_replan") return precondition("needs_replan blocks new stage attempts");
       const reservation = state.scheduler.reservations[payload.reservationId];
       const item = reservation ? state.workItems[reservation.workItemId] : null;
       const stage = item && reservation ? item.stages[reservation.stage] : null;
@@ -628,6 +631,10 @@ function applyInput(
       state.evidenceIndex.findings[fact.findingId] = structuredClone(payload.finding);
       state.findingClosures[fact.findingId] = { findingId: fact.findingId, findingHash: fact.hash, workItemId: fact.workItemId, stage: fact.stage, stageAttemptId: fact.stageAttemptId, attemptInputHash: fact.attemptInputHash, introducedByEvidenceHash: fact.evidenceHash, kind: fact.findingKind, severity: fact.severity, materiality: fact.materiality, fingerprint: fact.fingerprint, semanticSubjectId: fact.semanticSubjectId, state: "open", resolutionHash: null, supersedingEvidenceHash: null };
       item.openFindingIds = [...item.openFindingIds, fact.findingId].sort();
+      if (fact.severity === "blocking" && fact.materiality === "plan_affecting") {
+        state.desired = { run: "needs_replan", reason: `Blocking plan-affecting finding ${fact.findingId}`, requestedAt: input.occurredAt, requestedBy: "conductor" };
+        notices.push(notice(state, "run_needs_replan", state.runId, fact.hash));
+      }
       notices.push(notice(state, "finding_recorded", fact.findingId, fact.hash));
       return null;
     }
@@ -639,7 +646,7 @@ function applyInput(
       const findingFact = finding ? context.facts[finding.findingHash] as any : undefined;
       if (!exactFactRef(payload.resolution, fact, "finding_resolution") || payload.resolution.id !== fact.findingId || !finding || !attempt || !item || finding.state !== "open" || fact.planHash !== state.identity.planHash || fact.runId !== state.runId || fact.runNonce !== state.runNonce || fact.authorizationSetHash !== state.identity.authorizationSet.hash || fact.findingHash !== finding.findingHash || fact.workItemId !== finding.workItemId || fact.stage !== finding.stage || fact.stageAttemptId !== finding.stageAttemptId || fact.attemptInputHash !== finding.attemptInputHash || utcTimestampOrderValue(fact.resolvedAt) < utcTimestampOrderValue(findingFact?.observedAt) || utcTimestampOrderValue(fact.resolvedAt) > utcTimestampOrderValue(input.occurredAt)) return precondition("finding resolution must bind the sole exact current finding and immutable stage/attempt/input identity at a non-future time");
       if (finding.materiality === "plan_affecting") {
-        if (fact.disposition !== "successor_plan_required" || fact.supersedingEvidenceHash !== null) return precondition("plan-affecting finding requires successor-plan disposition without local superseding evidence");
+        if (!["successor_plan_required", "dismissed", "misclassified"].includes(fact.disposition) || fact.supersedingEvidenceHash !== null) return precondition("plan-affecting finding requires an explicit successor-required, dismissed, or misclassified disposition without local superseding evidence");
       } else if (!["corrected", "equivalent_accepted", "invalidated"].includes(fact.disposition) || !exactFindingResolutionEvidenceAtIngestion(state, context, finding, findingFact, fact)) return precondition("local finding resolution requires exact same-item canonical stage or typed correction evidence at a valid candidate generation");
       const superseding = fact.supersedingEvidenceHash ? context.facts[fact.supersedingEvidenceHash] as any : null;
       if (superseding?.kind === "finding_correction") { (state.evidenceIndex as any).findingCorrections ??= {}; (state.evidenceIndex as any).findingCorrections[superseding.hash] = { kind: "finding_correction", schemaVersion: 1, id: superseding.hash.slice(7, 31), hash: superseding.hash, bytes: Buffer.byteLength(canonicalStringify(superseding)), mediaType: "application/json", sensitivity: "internal", retention: "run", locator: null }; }
@@ -647,6 +654,10 @@ function applyInput(
       finding.state = fact.disposition; finding.resolutionHash = fact.hash; finding.supersedingEvidenceHash = fact.supersedingEvidenceHash;
       item.openFindingIds = item.openFindingIds.filter((id) => id !== fact.findingId);
       if (fact.disposition === "successor_plan_required") item.openFindingIds = [...item.openFindingIds, fact.findingId].sort();
+      if (state.desired.run === "needs_replan" && !dagRunNeedsReplanV1(state)) {
+        state.desired = { run: "running", reason: null, requestedAt: input.occurredAt, requestedBy: "conductor" };
+        notices.push(notice(state, "run_replan_hold_cleared", state.runId, fact.hash));
+      }
       notices.push(notice(state, "finding_resolved", fact.findingId, fact.hash));
       return null;
     }
@@ -655,6 +666,7 @@ function applyInput(
     case "seal_f8_integration_ready":
       return sealStageAttempt(state, input, payload, context, notices, true);
     case "reserve_integration_attempt": {
+      if (dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan" || state.current.run === "needs_replan") return precondition("needs_replan blocks new integration attempts");
       if (state.desired.run !== "running" || state.freshness.blocksIntegration) return precondition("integration reservation requires a running integration-fresh run");
       const item = state.workItems[payload.workItemId]; const repository = state.repositories[payload.repositoryId]; const train = state.integrationTrains[payload.repositoryId];
       const planTrain = context.plan.constraints.integrationTrains.find(({ repositoryId }) => repositoryId === payload.repositoryId);
@@ -758,6 +770,7 @@ function applyInput(
       notices.push(notice(state, "integration_verified", attempt.integrationAttemptId, fact.hash)); return null;
     }
     case "prepare_git_landing": {
+      if (dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan" || state.current.run === "needs_replan") return precondition("needs_replan blocks new integration landing effects");
       const attempt = state.integrationAttempts[payload.integrationAttemptId]; const train = Object.values(state.integrationTrains).find(({ entries }) => Boolean(entries[attempt?.entryId])); const entry = train?.entries[attempt?.entryId]; const effect = payload.landingEffect;
       if (!attempt || !train || !entry || entry.state !== "landing" || !attempt.composedTree || !attempt.proposalVerificationFactHash || attempt.prefixEvidenceHashes.length === 0 || attempt.finalEvidenceHashes.length === 0 || canonicalHash(payload.intendedLandedTree) !== canonicalHash(attempt.composedTree)) return precondition("landing intent requires exact current composed and fully verified proposal");
       if (effect.kind !== "land_target" || effect.effectId !== `${attempt.integrationAttemptId}-land` || effect.subject.kind !== "repository" || effect.subject.id !== train.repositoryId || effect.state !== "intended" || effect.dispatchCount !== 0 || effect.createdRevision !== state.revision + 1 || effect.createdAt !== input.occurredAt || effect.boundOwnerEpoch !== state.owner.ownerEpoch || effect.boundAuthorizationSetHash !== state.identity.authorizationSet.hash || effect.boundFreshnessReceiptHash !== state.freshness.receipt.hash) return precondition("landing effect must be one pristine current-authority intent");
@@ -817,6 +830,7 @@ function applyInput(
       notices.push(notice(state, "integration_accepted", item.workItemId, fact.hash)); return null;
     }
     case "put_effect_intent": {
+      if (dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan" || state.current.run === "needs_replan") return precondition("needs_replan blocks new effect intents");
       const effect = payload.effect;
       if (state.effects[effect.effectId]) return precondition("effect ID collides with an existing immutable effect slot");
       if (state.desired.run !== "running" && !["reconcile_external_effect", "cleanup_worktree"].includes(effect.kind)) return precondition("non-running run may create only reconciliation or terminal worktree-cleanup intents");
@@ -852,6 +866,7 @@ function applyInput(
       return null;
     }
     case "mark_effect_dispatching": {
+      if (dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan" || state.current.run === "needs_replan") return precondition("needs_replan blocks new effect dispatch");
       const effect = state.effects[payload.effectId];
       const stageAttempt = effect?.boundStageAttemptId ? state.stageAttempts[effect.boundStageAttemptId] : undefined;
       if (effect && stageAttempt && !isPostTerminalClosureEffect(effect.kind) && !isExactOpenStageEffectBoundary(state, stageAttempt)) return precondition("stage-bound execution effect cannot dispatch after its exact attempt evidence seal");
@@ -867,6 +882,7 @@ function applyInput(
       return null;
     }
     case "retry_effect_dispatch": {
+      if (dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan" || state.current.run === "needs_replan") return precondition("needs_replan blocks effect redispatch");
       const effect = state.effects[payload.effectId];
       const stageAttempt = effect?.boundStageAttemptId ? state.stageAttempts[effect.boundStageAttemptId] : undefined;
       if (effect && stageAttempt && !isPostTerminalClosureEffect(effect.kind) && !isExactOpenStageEffectBoundary(state, stageAttempt)) return precondition("stage-bound execution effect cannot redispatch after its exact attempt evidence seal");
@@ -1496,7 +1512,8 @@ function rederiveCurrent(state: DagRunStateV1, commandId: string): void {
   state.current.activeWorkItemIds = Object.values(state.scheduler.activeNodeLanes).filter(({ releaseDisposition }) => releaseDisposition === null).map(({ workItemId }) => workItemId).sort();
   state.current.blockedWorkItemIds = ids.filter((id) => state.workItems[id].current === "blocked");
   state.current.integrationReadyWorkItemIds = ids.filter((id) => state.workItems[id].current === "integration_ready");
-  if (state.completion.state === "plan_complete") state.current.run = "completed";
+  if (dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan") state.current.run = "needs_replan";
+  else if (state.completion.state === "plan_complete") state.current.run = "completed";
   else if (state.desired.run === "paused") state.current.run = "paused";
   else if (state.desired.run === "cancelled") {
     state.current.run = ids.every((id) => ["complete", "cancelled", "superseded"].includes(state.workItems[id].current)) ? "cancelled" : "cancelling";

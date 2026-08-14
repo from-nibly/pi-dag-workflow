@@ -1,11 +1,13 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
 import dagWorkflow from "../extensions/dag-workflow/index.ts";
 import { ProjectModelDomain } from "../extensions/dag-workflow/project-model/domain.ts";
 import { migrateLegacyBrainstorm } from "../extensions/dag-workflow/project-model/migration.ts";
 import { candidateManifestHash, validateProjectModel } from "../extensions/dag-workflow/project-model/model.ts";
-import { validateFocusSession } from "../extensions/dag-workflow/project-model/sessions.ts";
+import { FocusSessionStore, validateFocusSession } from "../extensions/dag-workflow/project-model/sessions.ts";
+import { ProjectModelStore } from "../extensions/dag-workflow/project-model/store.ts";
 import { LavishCliAdapter, parsePollOutput } from "../extensions/dag-workflow/project-model/lavish-cli.ts";
 import { ReviewPresentationManager } from "../extensions/dag-workflow/project-model/review-presentation.ts";
 import { renderReviewTurn } from "../extensions/dag-workflow/project-model/review-renderer.ts";
@@ -165,8 +167,21 @@ process.stdout.write("session:\n  file: "+args[0]+"\n  status: opened\n");
     try { await domain.resolveReview(focus.id, { outcomes: [], update: { removeIds: ["PROP-two"] } }, "user-remove"); }
     catch { unresolvedRemovalRejected = true; }
     assert(unresolvedRemovalRejected, "resolution cannot commit a model that invalidates its remaining review");
-    assert((await domain.models.load()).project.revision === beforeSessionFailure.project.revision, "failed review finalization leaves model unchanged");
+    const afterSessionFailure = await domain.models.load();
+    assert(afterSessionFailure.project.revision >= beforeSessionFailure.project.revision, "a rejected pre-commit finalization never moves model revision backward");
+    assert(afterSessionFailure.proposals.some(({ id }) => id === "PROP-two"), "failed review finalization restores prior model semantics");
     assert(Boolean((await domain.sessions.load(focus.id)).activeReview), "failed review finalization preserves the review packet");
+
+    const beforeForcedFinalizeFailure = await domain.models.load();
+    let forcedFinalizeRejected = false;
+    try {
+      await domain.transact((draft, changed) => { draft.project.title = "Transient committed title"; changed.add("project.title"); }, async () => { throw new Error("forced finalize failure"); });
+    } catch (error) { forcedFinalizeRejected = String(error.message).includes("forced finalize failure"); }
+    assert(forcedFinalizeRejected, "forced post-commit finalization failure is surfaced");
+    const afterForcedFinalizeFailure = await domain.models.load();
+    assert(afterForcedFinalizeFailure.project.revision === beforeForcedFinalizeFailure.project.revision + 2, "post-commit rollback consumes a new revision instead of returning to the old revision");
+    assert(afterForcedFinalizeFailure.project.title === beforeForcedFinalizeFailure.project.title, "post-commit rollback restores prior model semantics without ABA");
+
     const rejectedOutcome = await domain.resolveReview(focus.id, { outcomes: [{ pointId: "point-two", action: "reject" }] }, "user-reject");
     assert(rejectedOutcome.appliedPointIds.includes("point-two"), "reviewed rejection is applied durably");
     assert((await domain.models.load()).decisions.some(({ id }) => id === "DEC-reject-two"), "rejection creates its reviewed durable decision");
@@ -349,6 +364,82 @@ process.stdout.write("session:\n  file: "+args[0]+"\n  status: opened\n");
   });
 }
 
+async function testProcessSharedPersistence() {
+  await withTemp("process-shared", async (root) => {
+    const models = new ProjectModelStore(root);
+    const sessions = new FocusSessionStore(root);
+    await models.initialize("concurrent", "Concurrent");
+    const focus = await sessions.create({ title: "Concurrent focus" });
+    const child = join(root, "persistence-child.mjs");
+    const storeUrl = new URL("../extensions/dag-workflow/project-model/store.ts", import.meta.url).href;
+    const sessionsUrl = new URL("../extensions/dag-workflow/project-model/sessions.ts", import.meta.url).href;
+    await writeFile(child, `import { ProjectModelStore } from ${JSON.stringify(storeUrl)};\nimport { FocusSessionStore } from ${JSON.stringify(sessionsUrl)};\nconst [mode, root, value] = process.argv.slice(2);\nif (mode.startsWith("model")) {\n  const store = new ProjectModelStore(root);\n  await store.mutate(async (draft) => { await new Promise((resolve) => setTimeout(resolve, 25)); draft.project.title += "|" + value; });\n} else {\n  const store = new FocusSessionStore(root);\n  await store.mutate("focus-concurrent-focus", async (session) => { await new Promise((resolve) => setTimeout(resolve, 25)); session.workstreamIds.push(value); });\n}\n`);
+
+    await Promise.all(Array.from({ length: 8 }, (_, index) => runProcess(child, ["model", root, String(index)])));
+    const concurrentModel = await models.load();
+    assert(concurrentModel.project.revision === 8, "process-shared model lock preserves every concurrent revision");
+    assert(Array.from({ length: 8 }, (_, index) => concurrentModel.project.title.includes(`|${index}`)).every(Boolean), "process-shared model mutations do not lose concurrent values");
+
+    await Promise.all(Array.from({ length: 8 }, (_, index) => runProcess(child, ["focus", root, `WS-${index}`])));
+    const concurrentFocus = await sessions.load(focus.id);
+    assert(concurrentFocus.revision === 8, "process-shared focus lock preserves every concurrent revision");
+    assert(Array.from({ length: 8 }, (_, index) => concurrentFocus.workstreamIds.includes(`WS-${index}`)).every(Boolean), "process-shared focus mutations do not lose concurrent values");
+
+    const staleModel = structuredClone(await models.load());
+    await models.mutate((draft) => { draft.project.title += "|fresh"; });
+    staleModel.project.revision += 1;
+    let staleModelRejected = false;
+    try { await models.write(staleModel); } catch (error) { staleModelRejected = String(error.message).includes("revision conflict"); }
+    assert(staleModelRejected, "model write compares its expected integer revision under the lock");
+
+    const staleFocus = structuredClone(await sessions.load(focus.id));
+    await sessions.mutate(focus.id, (session) => { session.status = "suspended"; });
+    let staleFocusRejected = false;
+    try { await sessions.write(staleFocus); } catch (error) { staleFocusRejected = String(error.message).includes("revision conflict"); }
+    assert(staleFocusRejected, "focus write compares its expected integer revision under the lock");
+
+    const historicalId = "focus-historical";
+    const historicalPath = sessions.path(historicalId);
+    const timestamp = new Date().toISOString();
+    await mkdir(join(root, ".ai/project-model/focus"), { recursive: true });
+    await writeFile(historicalPath, `${JSON.stringify({ schemaVersion: 1, id: historicalId, title: "Historical", workstreamIds: [], createdAt: timestamp, updatedAt: timestamp, status: "active" }, null, 2)}\n`);
+    assert((await sessions.load(historicalId)).revision === 0, "historical focus files without a revision remain readable");
+    assert((await sessions.mutate(historicalId, (session) => { session.seed = "preserved"; })).revision === 1, "historical focus files enter revisioned persistence on mutation");
+
+    const beforeCrash = await models.load();
+    const tempCrash = await runProcess(child, ["model-crash", root, "temp-crash"], { PI_PROJECT_MODEL_TEST_CRASH_POINT: "after-temp-fsync" }, true);
+    assert(tempCrash.signal === "SIGKILL", "temp-fsync crash point terminates the writer process");
+    const afterTempCrash = await models.load();
+    assert(afterTempCrash.project.revision === beforeCrash.project.revision && afterTempCrash.project.title === beforeCrash.project.title, "crash after temp fsync leaves the prior snapshot intact");
+    await models.mutate((draft) => { draft.project.title += "|recovered-temp"; });
+    assert((await models.load()).project.title.includes("|recovered-temp"), "PID/start identity recovery retires a crashed writer lock");
+
+    const beforeRenameCrash = await models.load();
+    const renameCrash = await runProcess(child, ["model-crash", root, "rename-crash"], { PI_PROJECT_MODEL_TEST_CRASH_POINT: "after-rename" }, true);
+    assert(renameCrash.signal === "SIGKILL", "post-rename crash point terminates the writer process");
+    const afterRenameCrash = await models.load();
+    assert(afterRenameCrash.project.revision === beforeRenameCrash.project.revision + 1 && afterRenameCrash.project.title.includes("|rename-crash"), "renamed snapshot is complete and readable after a writer crash");
+    await models.mutate((draft) => { draft.project.title += "|recovered-rename"; });
+    assert((await models.load()).project.title.includes("|recovered-rename"), "stale lock recovery also succeeds after atomic rename");
+
+    await mkdir(join(root, "redirected-focus"));
+    await symlink(join(root, "redirected-focus"), join(root, "linked-focus"));
+    let focusSymlinkRejected = false;
+    try { await new FocusSessionStore(root, "linked-focus").create({ title: "Redirected" }); }
+    catch (error) { focusSymlinkRejected = String(error.message).includes("symlink"); }
+    assert(focusSymlinkRejected, "focus persistence refuses a repository path redirected through a symlink");
+
+    const rootAlias = `${root}-ancestor-alias`;
+    await symlink(root, rootAlias);
+    let modelRootAliasRejected = false;
+    let focusRootAliasRejected = false;
+    try { new ProjectModelStore(rootAlias); } catch (error) { modelRootAliasRejected = String(error.message).includes("symlink"); }
+    try { new FocusSessionStore(rootAlias); } catch (error) { focusRootAliasRejected = String(error.message).includes("symlink"); }
+    await rm(rootAlias, { force: true });
+    assert(modelRootAliasRejected && focusRootAliasRejected, "model and focus stores reject repository roots reached through symlink ancestors");
+  });
+}
+
 async function testMigration() {
   await withTemp("migration", async (root) => {
     await mkdir(join(root, "spec"), { recursive: true });
@@ -371,7 +462,10 @@ async function testPiIntegration() {
     const domain = new ProjectModelDomain(root);
     await domain.models.initialize("demo", "Demo");
     const pi = new FakePi();
-    dagWorkflow(pi);
+    const workerRoleEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith("PI_DAG_WORKER_")));
+    for (const key of Object.keys(workerRoleEnvironment)) delete process.env[key];
+    try { dagWorkflow(pi); }
+    finally { for (const [key, value] of Object.entries(workerRoleEnvironment)) process.env[key] = value; }
     pi.loading = false;
     const ctx = pi.context(root);
     await pi.runCommand("dag", "brainstorm new Schema focus", ctx);
@@ -409,7 +503,8 @@ async function testPiIntegration() {
     });
     await pi.runCommand("dag", "brainstorm resume focus-schema-focus", ctx);
     await pi.runCommand("dag", "plan", ctx);
-    assert(ctx.ui.notifications.some(({ message }) => message.includes("deferred")), "legacy plan command is disabled clearly");
+    assert(pi.activeTools.has("dag_model_context"), "planning keeps the exact model focus active instead of suspending it");
+    assert(!ctx.ui.notifications.some(({ message }) => message.includes("deferred")), "planning is routed to the product integration rather than the legacy deferral");
     await pi.runCommand("dag", "brainstorm stop", ctx);
     await pi.emit("session_start", { reason: "reload" }, ctx);
     assert(!pi.activeTools.has("dag_model_context") && !pi.activeTools.has("dag_model_present_review"), "suspended focus is not restored by an older active session link");
@@ -452,6 +547,20 @@ class FakePi {
   }
 }
 
+function runProcess(script, args, env = {}, allowSignal = false) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script, ...args], { env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = ""; let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
+      if (code === 0 || (allowSignal && signal)) resolve({ code, signal, stdout, stderr });
+      else reject(new Error(`Persistence child failed (${code ?? signal}): ${stderr || stdout}`));
+    });
+  });
+}
+
 async function withTemp(name, fn) {
   const root = await mkdtemp(join(tmpdir(), `pi-model-${name}-`));
   try { await fn(root); } finally { await rm(root, { recursive: true, force: true }); }
@@ -460,6 +569,7 @@ function assertIncludes(text, value, message) { assert(text.includes(value), `${
 function assert(value, message) { if (!value) throw new Error(`Project model test failed: ${message}`); }
 
 await testDomainAndProjection();
+await testProcessSharedPersistence();
 await testMigration();
 await testPiIntegration();
 console.log("Project model production tests OK");

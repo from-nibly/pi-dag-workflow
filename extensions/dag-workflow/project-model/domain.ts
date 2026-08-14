@@ -448,7 +448,7 @@ export class ProjectModelDomain {
     const backups = await backupPaths(this.root, paths);
     let changedPaths: string[] = [];
     let stalePaths: string[] = [];
-    let modelCommitted = false;
+    let committedModel: ProjectModel | null = null;
     try {
       if (draft.project.mode === "authoritative") {
         const generated = await this.projector.generate(draft, { replaceUnmanaged: options.replaceUnmanagedSpecs });
@@ -456,12 +456,23 @@ export class ProjectModelDomain {
         stalePaths = generated.stalePaths;
       }
       const model = await this.models.write(draft);
-      modelCommitted = true;
+      committedModel = model;
       if (finalize) await finalize(model);
       return { model, changedIds: [...changed].sort(), changedPaths, stalePaths };
     } catch (error) {
+      if (!committedModel) {
+        await restorePaths(this.root, backups);
+        throw error;
+      }
+      const latest = await this.models.load();
+      if (latest.project.revision !== committedModel.project.revision || modelHash(latest) !== modelHash(committedModel)) {
+        throw new AggregateError([error], "Project-model transaction finalization failed after concurrent model authority advanced; refusing non-monotonic rollback or stale spec restoration");
+      }
       await restorePaths(this.root, backups);
-      if (modelCommitted) await this.models.write(current);
+      const rollback = structuredClone(current);
+      rollback.project.revision = latest.project.revision + 1;
+      rollback.project.updatedAt = nowIso();
+      await this.models.write(rollback, latest.project.revision);
       throw error;
     }
   }

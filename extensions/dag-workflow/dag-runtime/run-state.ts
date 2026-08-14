@@ -176,7 +176,7 @@ export interface FindingResolutionFactBindingV1 {
   stage: typeof PLAN_STAGE_IDS[number];
   stageAttemptId: string;
   attemptInputHash: string;
-  disposition: "corrected" | "equivalent_accepted" | "successor_plan_required" | "invalidated";
+  disposition: "corrected" | "equivalent_accepted" | "successor_plan_required" | "invalidated" | "dismissed" | "misclassified";
   supersedingEvidenceHash: string | null;
   resolvedAt: string;
 }
@@ -762,8 +762,8 @@ export interface DagRunValidationContextV1 {
   authorityReceipts?: Readonly<Record<string, QuarantineAuthorityBindingV1>>;
 }
 
-const RunDesiredSchema = Type.Enum(["running", "paused", "cancelled", "superseded"]);
-const RunCurrentSchema = Type.Enum(["initializing", "active", "paused", "cancelling", "blocked", "integration", "needs_decision", "completed", "cancelled", "superseded"]);
+const RunDesiredSchema = Type.Enum(["running", "paused", "needs_replan", "cancelled", "superseded"]);
+const RunCurrentSchema = Type.Enum(["initializing", "active", "paused", "needs_replan", "cancelling", "blocked", "integration", "needs_decision", "completed", "cancelled", "superseded"]);
 const RunCompletionSchema = Type.Enum(["open", "authorized_scope_complete", "plan_complete"]);
 const FreshnessClassSchema = Type.Enum(["valid_exact", "valid_revalidated", "stale_model", "stale_code", "stale_schema", "integration_drift", "unknown_impact"]);
 const StageStateSchema = Type.Enum(["pending", "active", "passed", "failed", "blocked", "budget_exhausted", "cancelled", "invalidated"]);
@@ -775,7 +775,7 @@ const ProcessDispositionSchema = Type.Enum(["live", "dead", "ambiguous", "not_ap
 const FindingKindSchema = Type.Enum(["product_defect", "test_evidence_gap", "architecture_issue", "oracle_contract_issue", "infrastructure_failure", "capability_absent", "external_precondition_failure", "equivalent_nonactionable"]);
 const FindingSeveritySchema = Type.Enum(["advisory", "blocking"]);
 const FindingMaterialitySchema = Type.Enum(["local", "plan_affecting"]);
-const FindingClosureSchema = Type.Enum(["open", "corrected", "equivalent_accepted", "successor_plan_required", "invalidated"]);
+const FindingClosureSchema = Type.Enum(["open", "corrected", "equivalent_accepted", "successor_plan_required", "invalidated", "dismissed", "misclassified"]);
 const FailureClassSchema = Type.Enum(["product", "evidence", "architecture", "oracle_contract", "infrastructure", "capability", "external_precondition", "worker_runtime", "cancellation", "integration", "integrity"]);
 const ProcedureClassSchema = Type.Enum(["pure", "idempotent", "compensatable", "non_repeatable", "unknown"]);
 const EffectStateSchema = Type.Enum(["intended", "dispatching", "observed", "reconciled", "failed", "ambiguous", "cancelled"]);
@@ -848,7 +848,7 @@ const FindingResolutionFactBindingV1Schema = StrictObject({
   runNonce: Type.String({ minLength: 16, maxLength: 256 }), authorizationSetHash: HashSchema,
   findingId: IdSchema, findingHash: HashSchema, workItemId: IdSchema, stage: PlanStageIdSchema,
   stageAttemptId: IdSchema, attemptInputHash: HashSchema,
-  disposition: Type.Enum(["corrected", "equivalent_accepted", "successor_plan_required", "invalidated"]),
+  disposition: Type.Enum(["corrected", "equivalent_accepted", "successor_plan_required", "invalidated", "dismissed", "misclassified"]),
   supersedingEvidenceHash: Nullable(HashSchema), resolvedAt: TimestampSchema,
 });
 const FindingCorrectionFactBindingV1Schema = StrictObject({
@@ -1701,6 +1701,13 @@ export function dagRunSnapshotHash(state: Omit<DagRunStateV1, "snapshotHash"> | 
   return hashWithoutField(state as unknown as Record<string, unknown>, "snapshotHash");
 }
 
+export function dagRunNeedsReplanV1(state: DagRunStateV1): boolean {
+  return Object.values(state.findingClosures).some((finding) =>
+    finding.severity === "blocking"
+    && finding.materiality === "plan_affecting"
+    && ["open", "successor_plan_required"].includes(finding.state));
+}
+
 export function ownershipChainHashV1(fact: Pick<OwnershipFactBindingV1, "runId" | "runNonce" | "ownerEpoch" | "priorOwnershipReceiptHash" | "successorSessionId" | "successorPid" | "successorProcessStartIdentity" | "successorLockIdentity">, priorChainHash: string | null): string {
   return canonicalHash({
     kind: "ownership_chain", runId: fact.runId, runNonce: fact.runNonce, ownerEpoch: fact.ownerEpoch,
@@ -1770,6 +1777,10 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
   validateTimestampFields(state, issues);
   pushIssue(issues, "/snapshotHash", state.snapshotHash === dagRunSnapshotHash(state), "does not match canonical snapshot content");
   pushIssue(issues, "/previousSnapshotHash", state.revision === 0 ? state.previousSnapshotHash === null : state.previousSnapshotHash !== null, "must be null only at revision zero");
+  const needsReplan = dagRunNeedsReplanV1(state);
+  if (state.desired.run === "needs_replan") pushIssue(issues, "/desired/run", needsReplan, "needs_replan intent requires an unresolved blocking plan-affecting finding");
+  if (state.current.run === "needs_replan") pushIssue(issues, "/current/run", needsReplan, "needs_replan current state requires an unresolved blocking plan-affecting finding");
+  if (state.desired.run === "needs_replan") pushIssue(issues, "/current/run", state.current.run === "needs_replan", "needs_replan intent must be scheduler-visible in current state");
   pushIssue(issues, "/freshness/evaluatedPlanHash", state.freshness.evaluatedPlanHash === state.identity.planHash, "must bind the run planHash");
   pushIssue(issues, "/freshness/modelClosureHash", state.freshness.modelClosureHash === context.plan.modelBinding.closure.closureHash, "must bind the canonical plan model closure");
   validateRunPlanJoin(state, context.plan, issues);
@@ -1924,7 +1935,7 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     pushIssue(issues, `${path}/authorizedStages`, isSortedUnique(item.authorizedStages), "must be sorted and deduplicated");
     if (item.currentStage) pushIssue(issues, `${path}/currentStage`, item.authorizedStages.includes(item.currentStage), "current stage must be within exact authorization scope");
     if (item.current === "ready") {
-      pushIssue(issues, `${path}/current`, item.desired === "run" && ["running", "paused"].includes(state.desired.run), "ready work requires runnable item intent; a global pause may retain readiness while blocking dispatch");
+      pushIssue(issues, `${path}/current`, item.desired === "run" && ["running", "paused", "needs_replan"].includes(state.desired.run), "ready work requires runnable item intent; a global pause or replan hold may retain readiness while blocking dispatch");
       pushIssue(issues, `${path}/current`, item.authorizedStages.includes("F0"), "ready work requires F0 authorization");
       pushIssue(issues, `${path}/precedenceIds`, item.precedenceIds.every((id) => state.precedence[id]?.state === "satisfied"), "ready work requires every causal predecessor integrated and satisfied");
       pushIssue(issues, `${path}/gateIds`, item.gateIds.every((id) => state.gates[id]?.state === "released"), "ready work requires every gate released");
@@ -2009,7 +2020,8 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
       for (const stage of PLAN_STAGE_IDS) pushIssue(issues, `${path}/stages/${stage}/state`, item.stages[stage].state === "passed", "must be passed before integration readiness");
       pushIssue(issues, `${path}/candidate`, item.candidate !== null, "integration readiness requires a current candidate");
       const unresolvedMaterialFindings = Object.values(state.findingClosures).filter((finding) => finding.workItemId === workItemId && ["open", "successor_plan_required"].includes(finding.state) && (finding.severity === "blocking" || finding.materiality === "plan_affecting"));
-      pushIssue(issues, `${path}/openFindingIds`, unresolvedMaterialFindings.length === 0, "integration readiness cannot retain blocking or plan-affecting findings");
+      const heldPlanFindings = unresolvedMaterialFindings.length > 0 && unresolvedMaterialFindings.every((finding) => finding.severity === "blocking" && finding.materiality === "plan_affecting") && needsReplan;
+      pushIssue(issues, `${path}/openFindingIds`, unresolvedMaterialFindings.length === 0 || heldPlanFindings, "integration readiness may retain only blocking plan-affecting findings while the whole run is held for replanning");
       const unresolvedEffects = Object.values(state.effects).filter((effect) => effect.subject.kind === "work_item" && effect.subject.id === workItemId && !["applied_exact", "compensated", "proven_absent"].includes(effect.reconciliation));
       pushIssue(issues, `${path}/integrationReadyReceipt`, unresolvedEffects.length === 0, "integration readiness requires every work-item effect reconciled");
       const readyFact = item.integrationReadyReceipt ? context.facts[item.integrationReadyReceipt] : undefined;
@@ -2174,7 +2186,7 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
       const exactResolution = resolutionRef?.id === findingId && resolutionRef.hash === finding.resolutionHash && resolution?.kind === "finding_resolution" && resolution.hash === finding.resolutionHash && resolution.hash === hashWithoutField(resolution, "hash") && resolution.planHash === state.identity.planHash && resolution.runId === state.runId && resolution.runNonce === state.runNonce && resolution.authorizationSetHash === state.identity.authorizationSet.hash && resolution.findingId === findingId && resolution.findingHash === finding.findingHash && resolution.workItemId === finding.workItemId && resolution.stage === finding.stage && resolution.stageAttemptId === finding.stageAttemptId && resolution.attemptInputHash === finding.attemptInputHash && resolution.disposition === finding.state && resolution.supersedingEvidenceHash === finding.supersedingEvidenceHash && utcTimestampOrderValue(resolution.resolvedAt) >= utcTimestampOrderValue(findingFact?.observedAt) && utcTimestampOrderValue(resolution.resolvedAt) <= utcTimestampOrderValue(state.updatedAt);
       pushIssue(issues, `/findingClosures/${findingId}/resolutionHash`, Boolean(exactResolution), "closed finding must resolve its sole exact immutable current resolution at a non-future time");
       const exactMateriality = finding.materiality === "plan_affecting"
-        ? finding.state === "successor_plan_required" && finding.supersedingEvidenceHash === null
+        ? ["successor_plan_required", "dismissed", "misclassified"].includes(finding.state) && finding.supersedingEvidenceHash === null
         : ["corrected", "equivalent_accepted", "invalidated"].includes(finding.state) && exactFindingResolutionEvidence(state, context, finding, findingFact, resolution);
       pushIssue(issues, `/findingClosures/${findingId}/supersedingEvidenceHash`, exactMateriality, "finding closure disposition and superseding evidence must match materiality exactly");
     }
@@ -2848,8 +2860,14 @@ function validateStageEnvironmentAuthority(state: DagRunStateV1, context: DagRun
 }
 
 function exactStageClosureHashes(state: DagRunStateV1, context: DagRunValidationContextV1, item: any, attempt: any): { findings: string[]; effects: string[]; effectsExact: boolean } {
+  const sealRevision = exactStageAttemptSealRevision(state, attempt);
   const findings = Object.values(state.findingClosures)
     .filter((finding) => finding.workItemId === item.workItemId && finding.stageAttemptId === attempt.stageAttemptId)
+    .filter((finding) => {
+      if (sealRevision === null) return true;
+      const slotId = canonicalHash({ type: "record_finding", naturalIdentity: finding.findingId });
+      return (state.idempotencySlots[slotId]?.appliedRevision ?? Number.MAX_SAFE_INTEGER) < sealRevision;
+    })
     .map(({ findingHash }) => findingHash).sort();
   const applicableEffects = Object.values(state.effects)
     .filter((effect) => effect.subject.kind === "work_item" && effect.subject.id === item.workItemId && effect.boundStageAttemptId === attempt.stageAttemptId && !["launch_worker", "cancel_worker", "materialize_workspace", "cleanup_worktree"].includes(effect.kind));

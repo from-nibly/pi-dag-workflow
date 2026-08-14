@@ -251,6 +251,7 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
 
   return {
     isActive: () => modeActive,
+    getActiveFocus: (ctx: CommandContext) => ({ id: requireFocus(ctx), repositoryRoot: resolve(ctx.cwd) }),
     suspend: (ctx: CommandContext) => {
       if (activeFocus && activeFocus.repositoryRoot === resolve(ctx.cwd)) appendLink(ctx.cwd, activeFocus.id, "suspended");
       deactivate();

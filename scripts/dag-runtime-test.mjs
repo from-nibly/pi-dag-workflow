@@ -1273,6 +1273,7 @@ const lifecycleRef = (kind, id, fact) => ({ ...ref(kind, id, fact.hash), bytes: 
 const stageProducer = { F0: "conductor", F1: "owned_worker", F2: "owned_worker", F3: "owned_worker", F4: "deterministic_runner", F5: "owned_worker", F6: "owned_worker", F7: "deterministic_runner", F8: "conductor" };
 let lifecycleCandidate = null;
 let firstAttemptState = null; let firstF8Payload = null; let sealedF0State = null; let sealedF0Context = null; let lifecycleStageEffect = null;
+let reservedF1Fixture = null; let pendingF0EffectFixture = null; let runningF1Fixture = null;
 const nonPassFixtures = [];
 for (const stage of PLAN_STAGE_IDS) {
   const decision = scheduleDagRunV1(plan, lifecycleState);
@@ -1281,6 +1282,7 @@ for (const stage of PLAN_STAGE_IDS) {
   lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "reserve_scheduler_batch", reserve, { commandId: `lifecycle-${stage}-reserve`, idempotencyKey: `lifecycle-${stage}-reserve` }), lifecycleContext);
   assert.equal(lifecycleTransition.accepted, true, `${stage} reservation succeeds`); lifecycleState = lifecycleTransition.state;
   const reservation = decision.selected[0];
+  if (stage === "F1") reservedF1Fixture = { state: clone(lifecycleState), context: { ...lifecycleContext, facts: { ...lifecycleContext.facts } }, reservation: clone(reservation) };
   lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "mark_scheduler_reservation_dispatch", { reservationId: reservation.reservationId, normalizedRequestHash: reservation.normalizedRequestHash }, { commandId: `lifecycle-${stage}-dispatch`, idempotencyKey: `lifecycle-${stage}-dispatch` }), lifecycleContext); assert.equal(lifecycleTransition.accepted, true); lifecycleState = lifecycleTransition.state;
   lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "record_scheduler_reservation_dispatch", { reservationId: reservation.reservationId, normalizedRequestHash: reservation.normalizedRequestHash, disposition: "active" }, { kind: "observation", commandId: `lifecycle-${stage}-active`, idempotencyKey: `lifecycle-${stage}-active` }), lifecycleContext); assert.equal(lifecycleTransition.accepted, true); lifecycleState = lifecycleTransition.state;
   const attemptId = `lifecycle-attempt-${stage.toLowerCase()}`; const producerKind = stageProducer[stage]; const inputCandidate = ["F0", "F1"].includes(stage) ? null : lifecycleCandidate;
@@ -1303,6 +1305,7 @@ for (const stage of PLAN_STAGE_IDS) {
     lifecycleStageEffect = { effectId: "lifecycle-f0-stage-effect", kind: "put_immutable_fact", subject: { kind: "work_item", id: "item-api" }, boundStageAttemptId: attemptId, boundWorkerResultHash: null, effectScopeId: null, effectScopeKind: null, provider: null, procedureClass: "pure", requestHash: H("e"), boundOwnerEpoch: lifecycleState.owner.ownerEpoch, boundAuthorizationSetHash: lifecycleState.identity.authorizationSet.hash, boundFreshnessReceiptHash: lifecycleState.freshness.receipt.hash, boundCandidateGeneration: lifecycleState.workItems["item-api"].candidateGeneration, boundGateEpochHash: H("f"), state: "intended", dispatchCount: 0, createdRevision: lifecycleState.revision + 1, createdAt: NOW, lastDispatchAt: null, observationHash: null, reconciliation: "not_started", blockerId: null };
     lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "put_effect_intent", { effect: lifecycleStageEffect }, { commandId: "lifecycle-f0-effect-intent", idempotencyKey: "lifecycle-f0-effect-intent" }), lifecycleContext);
     assert.equal(lifecycleTransition.accepted, true, `pre-seal exact-attempt effect intent is admitted: ${JSON.stringify(lifecycleTransition)}`); lifecycleState = lifecycleTransition.state;
+    pendingF0EffectFixture = { state: clone(lifecycleState), context: { ...lifecycleContext, facts: { ...lifecycleContext.facts } }, effectId: lifecycleStageEffect.effectId };
     lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "mark_effect_dispatching", { effectId: lifecycleStageEffect.effectId, expectedDispatchCount: 0 }, { commandId: "lifecycle-f0-effect-dispatch", idempotencyKey: "lifecycle-f0-effect-dispatch" }), lifecycleContext);
     assert.equal(lifecycleTransition.accepted, true, "pre-seal exact-attempt effect dispatch is durably authorized"); lifecycleState = lifecycleTransition.state;
     const stageEffectObservationCore = { kind: "effect_reconciliation", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, effectId: lifecycleStageEffect.effectId, requestHash: lifecycleStageEffect.requestHash, reconciliation: "applied_exact", closedAt: NOW };
@@ -1321,6 +1324,7 @@ for (const stage of PLAN_STAGE_IDS) {
     const exactF5ReadOnlyOutput = stage === "F5" ? { ...exactWorkerGitOutput(lifecycleCandidate.git, lifecycleCandidate.git.commit, lifecycleCandidate.git.tree), outputCommonDirIdentityHash: canonicalHash({ lifecycle: "common-dir" }), outputWorktreeIdentityHash: canonicalHash({ stage, attemptId, worktree: true }) } : null;
     const resultCore = { kind: "worker_result", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, workItemId: "item-api", stage, stageAttemptId: attemptId, launchIntentId, workerStorageId: binding.workerStorageId, launchOwnerSessionId: binding.launchOwnerSessionId, workerId: binding.workerId, attemptNumber: binding.attemptNumber, attemptNonce: binding.attemptNonce, configHash: binding.configHash, completionId: `completion-${stage.toLowerCase()}`, terminalStatus: "succeeded", processDisposition: "dead", retrySafe: true, ...(["F1", "F3"].includes(stage) ? exactWorkerGitOutput(stage === "F1" ? plan.repositories[0].baseline : lifecycleCandidate.git, O("c"), O("d")) : exactF5ReadOnlyOutput ?? noWorkerGitOutput()) };
     workerResult = { ...resultCore, hash: canonicalHash(resultCore) }; const resultReference = lifecycleRef("worker_result", workerResult.completionId, workerResult); lifecycleContext.facts[workerResult.hash] = workerResult;
+    if (stage === "F1") runningF1Fixture = { state: clone(lifecycleState), context: { ...lifecycleContext, facts: { ...lifecycleContext.facts } }, result: clone(resultReference) };
     if (["F2", "F5"].includes(stage)) {
       const divergentCore = { ...resultCore, ...exactWorkerGitOutput(lifecycleCandidate.git, O("e"), O("f")) }; const divergentResult = { ...divergentCore, hash: canonicalHash(divergentCore) }; lifecycleContext.facts[divergentResult.hash] = divergentResult;
       const divergentInput = reducerInput(lifecycleState, "record_worker_result", { stageAttemptId: attemptId, result: lifecycleRef("worker_result", `divergent-${stage.toLowerCase()}`, divergentResult) }, { kind: "observation", commandId: `lifecycle-${stage}-divergent-result`, idempotencyKey: `lifecycle-${stage}-divergent-result` });
@@ -1467,6 +1471,65 @@ for (const stage of PLAN_STAGE_IDS) {
   assert.deepEqual(lifecycleState.workItems["item-api"].activeLeaseIds, [], `${stage} removes exactly its released leases from the work item`);
   for (const capacity of Object.values(lifecycleState.scheduler.operationalCapacities)) { assert.equal(capacity.allocatedUnits, 0, `${stage} release restores exact operational allocation`); assert(!capacity.reservationIds.includes(reservation.reservationId), `${stage} release removes its exact operational reservation identity`); }
 }
+
+const recordBlockingPlanFinding = (fixture, findingId, attemptId) => {
+  const attempt = fixture.state.stageAttempts[attemptId];
+  const evidenceHash = attempt.evidence?.hash ?? attempt.attemptInput.hash;
+  const core = { kind: "finding", planHash: plan.planHash, runId: fixture.state.runId, runNonce: fixture.state.runNonce, authorizationSetHash: fixture.state.identity.authorizationSet.hash, findingId, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, evidenceHash, findingKind: "architecture_issue", severity: "blocking", materiality: "plan_affecting", fingerprint: canonicalHash({ findingId, fingerprint: true }), semanticSubjectId: "subject-api", observedAt: NOW };
+  const fact = { ...core, hash: canonicalHash(core) };
+  const context = { ...fixture.context, facts: { ...fixture.context.facts, [fact.hash]: fact } };
+  const transition = reduceDagRunV1(fixture.state, reducerInput(fixture.state, "record_finding", { finding: lifecycleRef("finding", findingId, fact) }, { kind: "observation", commandId: `command-${findingId}`, idempotencyKey: `key-${findingId}` }), context);
+  assert.equal(transition.accepted, true, `${findingId} records and holds atomically: ${JSON.stringify(transition)}`);
+  return { state: transition.state, context, fact };
+};
+
+assert(reservedF1Fixture && pendingF0EffectFixture && runningF1Fixture, "replan fixtures cover reserved dispatch, intended effects, and a running worker");
+const reservedF1Held = recordBlockingPlanFinding(reservedF1Fixture, "finding-replan-reserved-f1", "lifecycle-attempt-f0");
+assert.equal(reservedF1Held.state.desired.run, "needs_replan", "blocking plan finding atomically changes desired run state");
+assert.equal(reservedF1Held.state.current.run, "needs_replan", "blocking plan finding is immediately scheduler-visible");
+const heldWorkerDecision = scheduleDagRunV1(plan, reservedF1Held.state);
+assert.equal(heldWorkerDecision.notice, "NEEDS_REPLAN", "scheduler reports the whole-run replan hold");
+assert.equal(heldWorkerDecision.selected.length, 0, "replan hold proposes no new worker or procedure reservation");
+assert(heldWorkerDecision.frontier.every(({ blockerCodes }) => blockerCodes.includes("NEEDS_REPLAN")), "every runnable frontier slot exposes the replan blocker");
+const heldReservation = reservedF1Fixture.reservation;
+const heldSchedulerDispatch = reduceDagRunV1(reservedF1Held.state, reducerInput(reservedF1Held.state, "mark_scheduler_reservation_dispatch", { reservationId: heldReservation.reservationId, normalizedRequestHash: heldReservation.normalizedRequestHash }, { commandId: "command-held-f1-dispatch", idempotencyKey: "key-held-f1-dispatch" }), reservedF1Held.context);
+assert.equal(heldSchedulerDispatch.accepted, false, "replan hold blocks dispatch of a previously reserved worker/procedure operation");
+
+const pendingEffectHeld = recordBlockingPlanFinding(pendingF0EffectFixture, "finding-replan-pending-effect", "lifecycle-attempt-f0");
+const heldEffectDispatch = reduceDagRunV1(pendingEffectHeld.state, reducerInput(pendingEffectHeld.state, "mark_effect_dispatching", { effectId: pendingF0EffectFixture.effectId, expectedDispatchCount: 0 }, { commandId: "command-held-effect-dispatch", idempotencyKey: "key-held-effect-dispatch" }), pendingEffectHeld.context);
+assert.equal(heldEffectDispatch.accepted, false, "replan hold blocks new effect dispatch");
+
+const runningWorkerHeld = recordBlockingPlanFinding(runningF1Fixture, "finding-replan-running-worker", "lifecycle-attempt-f1");
+const runningSettlement = reduceDagRunV1(runningWorkerHeld.state, reducerInput(runningWorkerHeld.state, "record_worker_result", { stageAttemptId: "lifecycle-attempt-f1", result: runningF1Fixture.result }, { kind: "observation", commandId: "command-held-running-result", idempotencyKey: "key-held-running-result" }), runningWorkerHeld.context);
+assert.equal(runningSettlement.accepted, true, "already-running current-generation worker may settle while held");
+assert.equal(runningSettlement.accepted && runningSettlement.state.stageAttempts["lifecycle-attempt-f1"].state, "result_observed", "held running result is retained without dispatching successor work");
+assert.equal(runningSettlement.accepted && runningSettlement.state.current.run, "needs_replan", "running settlement does not clear the whole-run hold");
+
+const integrationHeld = recordBlockingPlanFinding({ state: lifecycleState, context: lifecycleContext }, "finding-replan-integration-ready", "lifecycle-attempt-f0");
+const heldIntegrationDecision = scheduleDagRunV1(plan, integrationHeld.state);
+assert.equal(heldIntegrationDecision.selected.length, 0, "integration-ready work cannot reserve or dispatch while replanning is required");
+assert.equal(heldIntegrationDecision.frontier[0].operationKind, "integration", "held frontier remains visibly integration-ready");
+assert(heldIntegrationDecision.frontier[0].blockerCodes.includes("NEEDS_REPLAN"), "integration readiness carries the whole-run replan blocker");
+
+const dispositionFor = (held, disposition, suffix) => {
+  const finding = held.state.findingClosures[held.fact.findingId];
+  const core = { kind: "finding_resolution", planHash: plan.planHash, runId: held.state.runId, runNonce: held.state.runNonce, authorizationSetHash: held.state.identity.authorizationSet.hash, findingId: finding.findingId, findingHash: finding.findingHash, workItemId: finding.workItemId, stage: finding.stage, stageAttemptId: finding.stageAttemptId, attemptInputHash: finding.attemptInputHash, disposition, supersedingEvidenceHash: null, resolvedAt: NOW };
+  const fact = { ...core, hash: canonicalHash(core) };
+  const context = { ...held.context, facts: { ...held.context.facts, [fact.hash]: fact } };
+  return reduceDagRunV1(held.state, reducerInput(held.state, "record_finding_resolution", { resolution: lifecycleRef("finding_resolution", finding.findingId, fact) }, { kind: "observation", commandId: `command-${suffix}`, idempotencyKey: `key-${suffix}` }), context);
+};
+const dismissedReplan = dispositionFor(integrationHeld, "dismissed", "replan-dismissed");
+assert.equal(dismissedReplan.accepted, true, "explicit dismissed disposition clears a misclassified plan hold");
+assert.equal(dismissedReplan.accepted && dismissedReplan.state.desired.run, "running", "dismissed finding resumes existing run intent");
+assert.equal(dismissedReplan.accepted && dismissedReplan.state.current.run, "integration", "dismissed finding restores integration readiness");
+assert.equal(dismissedReplan.accepted && scheduleDagRunV1(plan, dismissedReplan.state).selected[0]?.operationKind, "integration", "dismissed finding makes existing integration-ready work dispatchable again");
+const misclassifiedReplan = dispositionFor(integrationHeld, "misclassified", "replan-misclassified");
+assert.equal(misclassifiedReplan.accepted && misclassifiedReplan.state.current.run, "integration", "explicit misclassified disposition downgrades the finding and resumes the existing run");
+const confirmedReplan = dispositionFor(integrationHeld, "successor_plan_required", "replan-confirmed");
+assert.equal(confirmedReplan.accepted, true, "explicit confirmed semantic disposition is retained");
+assert.equal(confirmedReplan.accepted && confirmedReplan.state.current.run, "needs_replan", "successor-required disposition remains held");
+assert.equal(confirmedReplan.accepted && scheduleDagRunV1(plan, confirmedReplan.state).selected.length, 0, "confirmed successor requirement cannot resume current-plan dispatch");
+
 assert.equal(nonPassFixtures.length, 3, "reducer produced FAIL/BLOCKED/BUDGET F2 snapshot fixtures");
 for (const fixture of nonPassFixtures) {
   const closureForgeryState = clone(fixture.state); const closureForgeryFacts = { ...fixture.context.facts };

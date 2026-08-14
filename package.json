@@ -2,18 +2,23 @@
   "name": "pi-dag-workflow",
   "version": "0.1.0",
   "type": "module",
-  "description": "Pi extension for authoritative project modeling and durable asynchronous subagents.",
+  "description": "Pi extension for authoritative project modeling, inspectable DAG planning, and durable execution.",
   "keywords": ["pi-package", "pi-extension", "dag-workflow"],
   "license": "MIT",
   "scripts": {
     "smoke": "node scripts/smoke-test.mjs",
     "test:model": "node scripts/project-model-test.mjs",
+    "test:dag-planning": "node scripts/dag-planning-test.mjs",
+    "test:dag-planning-runtime": "node scripts/dag-planning-runtime-test.mjs",
+    "test:dag-planning-command": "node scripts/dag-planning-command-test.mjs",
+    "test:dag-prepared-start": "node scripts/dag-prepared-start-test.mjs",
     "test:dag-runtime": "node scripts/dag-runtime-test.mjs",
     "test:dag-evaluation": "node scripts/dag-evaluation-test.mjs",
     "test:dag-dogfood": "node scripts/dag-dogfood-test.mjs",
     "test:dag-dogfood-portfolio": "node scripts/dag-dogfood-portfolio.mjs",
     "test:git-integration": "node scripts/git-integration-test.mjs",
     "test:workers": "node scripts/worker-runtime-test.mjs",
+    "release:ready": "node scripts/release-readiness.mjs",
     "migrate:model": "node scripts/migrate-brainstorm-to-project-model.mjs",
     "pack:dry": "npm pack --dry-run"
   },
@@ -34,6 +39,8 @@
   "files": [
     "extensions/",
     "scripts/",
+    "project-model/",
+    "spec/",
     "README.md",
     "LICENSE"
   ]

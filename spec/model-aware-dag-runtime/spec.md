@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:5170dd8e6c570ff8550c2477f6a309737c7ed6bd0f185432046dadd35276de8e -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:4f09ce458f1fc26b08eb1509c2d7f76f1c71091fc0ad61a337e0de5aca1936b7 -->
 
 # Model-aware DAG planning and execution
 
@@ -12,11 +12,11 @@ _No accepted current content._
 
 <a id="obj-dec-one-artifact-two-phase-dag-planning"></a>
 
-### Use one canonical planning artifact with two internal phases
+### Ship one focus-linked plan/show/run workflow over the existing runtime
 
-Model-aware DAG planning is one versioned transaction and artifact with an architecture/outcomes phase followed by executable decomposition. The user reviews both views together. `/dag plan` owns the workflow; chunking is an internal phase and projection, while read-only graph/decomposition inspection may remain. The artifact binds exact project-model objects/hashes, accepted architecture gates, node contracts, typed scheduling constraints, and execution authorization.
+`/dag plan` is one seamless focus-linked workflow: it establishes architecture and outcomes, internally decomposes them into executable work items, and saves one revisioned inspectable plan record. The record contains repository baseline, concise governing source references, outcomes, non-goals, architecture notes and risks, work items, checks, dependencies, optional concurrency constraints, and integration profile. `/dag plan` atomically writes the record and automatically previews deterministic human-readable Markdown and a static graph. `/dag show` renders exact plan, node, lineage, and live-run views without mtime-based selection. Explicit `/dag run` resolves the saved plan, validates its whole-plan identity and current baseline, derives low-level genesis/context internally, and creates or resumes one canonical run. Keep the shipped worker, scheduler, lifecycle, and Git runtime as the hidden execution substrate. Build the first vertical slice through ordinary reviewed coding and tests, then dogfood it on remaining release work. Defer mandatory compilation manifests, phase-fact forests, new receipt chains, and bootstrap-authority ceremony until field use demonstrates a concrete need.
 
-**Rationale.** Preserve architecture-first thinking without a second stale prose-to-DAG authority handoff.
+**Rationale.** The missing value is a usable planning and inspection workflow, not more internal authority machinery.
 
 <a id="obj-dec-fixed-evidence-producing-dag-node-lifecycle"></a>
 
@@ -226,11 +226,11 @@ The immutable plan stores executable change work items separately from non-execu
 
 <a id="obj-dec-closed-content-hashed-plan-envelope-v1"></a>
 
-### Use a closed content-hashed canonical plan envelope
+### Use one canonical plan hash and practical identities elsewhere
 
-`CanonicalDagPlanV1` is a strict JSON object with exactly `schemaVersion`, `kind`, `canonicalization`, `planId`, `revision`, optional `supersedesPlanHash`, `createdAt`, `generator`, `modelBinding`, `repositories`, `architecture`, `semanticSubjects`, `acceptanceOracles`, `workItems`, `gates`, `constraints`, `lifecycleBinding`, `artifactPolicy`, `projectionContract`, and `planHash`. `planHash` is SHA-256 over canonical JSON of every field except itself. Object keys sort recursively; schema-declared sets sort/deduplicate by stable key; semantically ordered arrays preserve order; duplicate keys, unknown fields, non-finite numbers, absolute paths, and malformed hashes fail validation. Contracts, oracles, work items, gates, and constraints each carry a content hash. `planId` remains stable across successor revisions, `revision` increases, and every revision after 1 names `supersedesPlanHash`. Entity IDs never establish equivalence; reuse of old evidence after re-decomposition requires a detached adoption receipt binding old/new plan, entity, oracle, model/context input, repository tree, and content hashes. No mutable run, approval, worker, evidence-body, or capacity fields are valid in the envelope.
+Historical `CanonicalDagPlanV1` artifacts remain readable and immutable. New planning records use stable IDs and monotonic revisions for lineage and occurrence identity, plus one canonical whole-plan hash when exact portable plan bytes must be reviewed, cached, or joined across stores. Do not require blanket nested entity hashes, schema hashes, self-hashed receipts, or hash chains unless an entity is independently stored, compared, cached, or reused and a concrete content-equality failure requires it. Use process-shared locks with expected integer revisions for mutable CAS; generations for stale result fencing; durable temp-write/fsync/rename/fsync for snapshots; semantic hashes for project-model objects and selected governing closure; digests for independently hydrated artifacts and stored projection bundles; native Git OIDs without wrapper hashes; and stable natural operation IDs with persisted request comparison for external-effect idempotency. Hashes provide checksums, content addressing, fingerprints, and privacy-safe equality—not authentication or proof of human intent. Introduce versioned simplified writers only where needed and never reinterpret active V1 artifacts.
 
-**Rationale.** A closed exact identity prevents legacy split authority and unknown execution fields, while per-entity hashes and explicit adoption allow safe reuse without copying status by name.
+**Rationale.** Every retained identity mechanism must prevent a concrete local reliability failure; redundant hash layers add migration and validation risk without creating a security boundary.
 
 <a id="obj-dec-versioned-governing-selector-closure-v1"></a>
 
@@ -258,27 +258,27 @@ Schema v1 gates are non-executable records with kind model-authority, contract, 
 
 <a id="obj-dec-content-addressed-bounded-plan-artifact-policy-v1"></a>
 
-### Use a bounded content-addressed artifact and sensitivity contract
+### Use bounded content-addressed planning and artifact storage
 
-Every plan context/evidence reference uses `ArtifactRefV1` with SHA-256 digest, byte size, media type, optional schema ID, sensitivity public/internal/restricted, retention ephemeral/run/project, and optional validated root-relative locator; locator is never identity. Hydration verifies digest, size, and type before launch; missing or mismatched content blocks. Restricted content and sensitive locators are omitted from general projections/completions and never automatically read or injected. Plans, receipts, run snapshots, widgets, reports, diagnostics, and durable artifacts contain no secret values. Symbolic credential requirements declare provider, scope, purpose, phases, environment, and semantic class auth-only/semantic-versioned/non-replayable, with just-in-time delivery outside durable records. A hash-bound artifact-policy profile supplies inline/count/byte limits, accepted roots/types, retention, and redaction. Worktrees, dependency trees, arbitrary directories, and source copies are forbidden durable artifacts; source identity uses immutable repository commits/trees.
+Store mutable planning transaction snapshots under ignored repository-local `.ai/dag-plan-transactions-v1` and immutable canonical plan bytes, phase facts, receipts, projection bundles, and lineage indexes under ignored `.ai/dag-plans-v1`. Publish exact candidate bytes without regeneration. Every context/evidence reference uses `ArtifactRefV1` with SHA-256 digest, byte size, media type, optional schema, sensitivity, retention, and optional validated locator; locator is never identity. Hydration verifies digest, size, and type before launch; missing or restricted required content blocks. Plans and durable artifacts contain no secrets, worktrees, dependency trees, arbitrary directories, or source copies. Human-readable Markdown and diagrams are deterministic on-demand or exportable projections and never editable authority; a later explicit projection policy may track generated plan Markdown, while width-specific layouts remain disposable.
 
-**Rationale.** This solves missing ignored context and artifact identity without repeating historical giant archives, secret leakage, mutable path references, or automatic injection of unbounded content.
+**Rationale.** Repository-local ignored content-addressed storage provides crash recovery, exact publication lineage, bounded hydration, and readable exports without making transient planning state or projections authoritative.
 
 <a id="obj-dec-broad-coordination-plan-authorization-v1"></a>
 
-### Default to broad whole-plan coordination authorization
+### Default to broad whole-plan coordination authorization with independent approval
 
-The default detached authorization receipt binds exact plan and reviewed-projection hashes and authorizes all work items plus dependency/integration closure in every declared repository; all F0–F8 local/isolated activity; unrestricted architecture-preserving edits anywhere in each work item's repository; worktree and commit operations; per-repository rebase, exact-prefix verification, and fast-forward landing into declared targets; and reviewed reversible non-production external evaluation scopes, within bound budgets and retry policy. It imposes no path, directory, symbol, module, or internal-design limits and requires no repeated confirmation for normal retries or typed back-edges. Fresh authorization is required only for materially new semantic work, an undeclared repository or target, production deployment, irreversible/destructive external effects, credentials/effect scope beyond the plan, or budget escalation. Optional partial authorization must be mechanically dependency/effect/integration closed, leaves everything else visibly blocked, and can only narrow the plan's maximum envelope. This is coordination under the trusted-agent threat model, not a security sandbox.
+The default detached authorization receipt binds exact plan, review receipt, and reviewed-projection hashes and authorizes all dependency/effect/integration-closed work within the plan maximum, including F0–F8 activity, architecture-preserving repository edits, worktree/commit operations, exact verification and landing, and reviewed reversible non-production evaluation scopes within budgets and retry policy. The final `/dag plan` Lavish turn may offer exact plan approval and run authorization together, but they remain independent decisions with separate content-bound receipts; the user may approve without authorizing. Authorization binds exact scope, effects, repositories, targets, retry ceilings, validity, and max concurrency. Neither approval nor authorization starts execution; explicit `/dag run` does. Fresh authorization remains required for materially new semantics, undeclared repositories/targets, production deployment, irreversible effects, new credentials/effect scope, or budget escalation. Optional partial authorization must be mechanically closed and can only narrow the plan maximum.
 
-**Rationale.** A reviewed plan should run autonomously enough to preserve architecture and throughput, while human attention remains concentrated on genuinely new meaning, targets, irreversible effects, and budget.
+**Rationale.** One review minimizes ceremony while preserving the distinction between accepting architecture and authorizing external effects.
 
 <a id="obj-dec-deterministic-plan-projections-v1"></a>
 
-### Derive all plan and execution views from versioned projection contracts
+### Derive all plan and execution views through `/dag show`
 
-`projectionContract` binds versioned pure projections for architecture/outcome review Markdown, decomposition review, static typed graph, bounded node execution packet, normalized scheduler indexes, optional explicitly non-executable legacy inspection, and `DagExecutionProjectionV1`. Every projection identifies plan hash, projection kind/version, and any joined run/worker input hashes; set ordering and focus tie-breaks are deterministic. Node packets contain only the work item and referenced outcomes, contracts, oracles, context, and policy facts and cannot broaden authority. The execution projection joins immutable plan topology with atomic run status and only worker attempts explicitly mapped by run state; it never infers DAG status from generic workers. Human-readable Markdown remains a first-class generated projection, not authority. Exact terminal glyphs, widths, topology slicing, and controls remain under the separate widget projection/layout review.
+`projectionContract` binds versioned pure projections for architecture/outcome review Markdown, decomposition review, static typed graph, bounded node execution packet, normalized scheduler indexes, optional explicitly non-executable legacy inspection, and `DagExecutionProjectionV1`. Every projection identifies plan hash, projection kind/version, and joined run/worker input hashes; ordering and focus tie-breaks are deterministic. Node packets contain the work item and complete referenced outcomes, contracts, oracles, context, artifacts, and policy facts without broadening authority. Human-readable Markdown remains a first-class generated projection, not authority. Use `/dag show` as the canonical read-only namespace for static plans, exact nodes, and exact session-bound live overlays; automatically preview the human plan and static graph after each valid `/dag plan` revision. Ambiguity produces a bounded selector list rather than choosing latest or mtime. Keep legacy `dag_diagram` explicitly legacy and keep Lavish/exports non-authoritative.
 
-**Rationale.** This preserves readable planning and reuses existing graph mechanics without recreating editable projections or a second status store.
+**Rationale.** One exact inspection namespace preserves readable planning and live execution without creating editable projections, implicit selection, or a second status store.
 
 <a id="obj-dec-stage-evidence-disposition-finding-contract-v1"></a>
 
@@ -314,11 +314,11 @@ Lifecycle limits apply only to retries. Product repair, test/review/hardening re
 
 <a id="obj-dec-integration-ready-completion-predicate-v1"></a>
 
-### Separate deterministic F8 integration readiness from exact combined-state completion
+### Separate local completion and release readiness from explicit publication
 
-F8 is a deterministic no-edit conductor seal. `integration_ready` requires current plan/review/authorization and entity hashes; exact clean candidate commit/tree and approved lineage; observed semantic effects within plan; one current hash-linked legal F0–F7 evidence chain; valid F2/F5 freshness; F7 exact-final-tree replay; no unresolved blocking or material finding; valid check applicability and waivers; hydrated bounded artifacts; usage within budget; reconciled side effects; released enqueue gates; and complete declared integration obligations. `IntegrationReadyReceiptV1` binds that closure but never means complete. Completion requires separate `IntegrationReceiptV1` proving composition or rebase onto the exact accepted train prefix, source-to-integrated lineage, no unreviewed semantic conflict-resolution edits, successful exact-prefix and required final profiles on the resulting tree, compare-and-swap/fast-forward landing to the expected target, and downstream combined-state invalidation/reruns. Any semantic conflict edit returns to the earliest affected F stage.
+F8 remains a deterministic no-edit integration-readiness seal, and canonical plan completion means changes are locally composed, landed, and verified in required combined state. For this release, add a deterministic release-readiness check covering focused suites, one true plan/show/run end-to-end fixture, reload/resume and duplicate invocation, stale baseline, worker failure/retry, plan-affecting pause, Git target drift, generated-spec drift, package dry-run and contents, documentation/version/changelog expectations, and clean Git status. A passing check means the repository is ready for an explicit human-operated push, tag, or package publication. `/dag run` never publishes remotely. Defer `/dag release`, remote push state, credential schemas, and release receipts until explicitly requested or justified by field failure.
 
-**Rationale.** Isolated candidate evidence cannot prove the future combined tree. Separate deterministic receipts prevent successful workers, clean rebases, or pre-integration green checks from being mistaken for landed verified completion.
+**Rationale.** Release readiness is required now; remote release orchestration is a separate product feature with no demonstrated V1 need.
 
 <a id="obj-dec-closed-atomic-dag-run-state-reducer-v1"></a>
 
@@ -338,11 +338,11 @@ Exactly one conductor may mutate a run. The atomic snapshot store acquires a pro
 
 <a id="obj-dec-run-pause-cancel-late-result-v1"></a>
 
-### Pause new dispatch, fence cancellation first, and require explicit late-result adoption
+### Pause plan-invalid runs simply and fence cancellation generations
 
-Pause stops new worker, procedure, effect, and integration dispatch but does not cancel already-running attempts; current-generation attempts may settle and their exact results/evidence may ingest normally. Cancellation, semantic back-edge, replan, and successor-plan operations atomically advance/fence the affected generation, invalidate current pointers and downstream closure, mark leases release-requested, and persist cancellation/reconciliation intents before any external signal or replacement launch. Results arriving for old, cancelled, superseded, or replaced generations are retained in quarantine and cannot advance stages, release current leases, or satisfy retry safety. There is no automatic late-result adoption. A result proven by immutable ordering evidence to have completed before the cancellation CAS may be explicitly adopted only with exact plan/entity/input/candidate/procedure/environment/authorization/effect equivalence and external authority; adoption attaches a worker fact only, and current conductor-sealed stage evidence remains required.
+Ordinary pause stops new worker, procedure, effect, and integration dispatch while already-running current-generation attempts may settle and ingest normally. Cancellation and replacement fence affected generations before external signals; old-generation results remain quarantined and cannot advance or land. When a blocking plan-affecting finding is recorded, the same atomic run update sets the whole run to `needs_replan` and blocks all new dispatch and integration. Running workers may settle and their branches/results are retained. Agent/user review classifies the finding: a confirmed semantic plan change creates a revised plan and distinct run, while a dismissed or misclassified finding may be downgraded and the existing run resumed with an explicit disposition. Defer affected-closure continuation, mandatory successor on dismissal, automatic candidate-adoption receipts, and cross-plan evidence transfer. Prior output may be bounded context and must be revalidated according to actual changed scope.
 
-**Rationale.** Non-cancelling pause avoids unnecessary replacement retries, while generation-first cancellation makes races deterministic. A narrow explicit pre-cancel adoption path preserves provably completed work without allowing arrival order to override authority.
+**Rationale.** A simple whole-run pause closes the concrete unsafe-dispatch gap without prematurely building a complex successor protocol.
 
 <a id="obj-dec-run-authorization-successor-candidate-adoption-v1"></a>
 
