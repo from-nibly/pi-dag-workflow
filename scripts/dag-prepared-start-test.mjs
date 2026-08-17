@@ -164,4 +164,20 @@ for (const boundary of START_BOUNDARIES) {
   } finally { await rm(first.root, { recursive: true, force: true }); }
 }
 
+{
+  const historical = await fixture("historical-no-start-intent");
+  try {
+    const first = new DagConductorServiceV1();
+    const started = await first.startPrepared(historical.ctx, historical.input);
+    await first.detach();
+    await rm(join(historical.root, ".ai", "dag-start-intents-v1"), { recursive: true, force: true });
+    const resumed = new DagConductorServiceV1();
+    const recovered = await resumed.activate(historical.ctx, started.state.runId, new Date(Date.parse(started.state.updatedAt) + 1).toISOString());
+    assert.equal(recovered.state.owner.ownerEpoch, started.state.owner.ownerEpoch + 1, "historical low-level run without a prepared-start intent remains resumable");
+    const identity = await resumed.startIdentity(historical.ctx, started.state.runId);
+    assert.equal(identity.sourcePlanningPlanId, null);
+    assert.equal(identity.sourcePlanningPlanHash, null);
+  } finally { await rm(historical.root, { recursive: true, force: true }); }
+}
+
 console.log("dag prepared start tests passed");

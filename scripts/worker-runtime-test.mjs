@@ -280,6 +280,8 @@ try {
   await writeFile(descendantSessionFile, `${JSON.stringify({ type: "session", version: 3, id: "manager-descendant", timestamp: new Date().toISOString(), cwd: managerRoot, parentSession: sourceSessionFile })}\n`);
   const parentPi = createFakeParentPi();
   const manager = new WorkerManager(parentPi, { piCliPath: resolve("scripts/fixtures/fake-worker-rpc.mjs"), watchIntervalMs: 20, launchGraceMs: 500, observeUninspectableProcesses: async () => ({ status: "observed", processes: [] }) });
+  const terminalEvents = [];
+  manager.onTerminalResult((event) => { terminalEvents.push(event); });
   process.env.FAKE_WORKER_RPC_MODE = "valid";
   await manager.attach(managerContext(managerRoot, "manager-source", sourceSessionFile));
   const unsafeDisposableRoot = join(root, "src");
@@ -307,6 +309,8 @@ try {
   await waitFor(async () => { await manager.scan(); return parentPi.messages.length === 1; });
   const firstMessage = parentPi.messages[0];
   assert(firstMessage.message.content.includes("Fake worker completed.") && firstMessage.options.deliverAs === "followUp" && firstMessage.options.triggerTurn, "manager delivers one compact triggered follow-up");
+  await waitFor(() => terminalEvents.some((event) => event.workerId === launched.workerId && event.terminalStatus === "succeeded"));
+  assert(terminalEvents.filter((event) => event.workerId === launched.workerId).length === 1, "one exact terminal ingestion emits one conductor wake event");
   await manager.attach(managerContext(managerRoot, "manager-source", sourceSessionFile));
   await waitFor(async () => parentPi.messages.length === 2);
   assert(parentPi.messages[1].message.details.completionId === firstMessage.message.details.completionId, "reload redelivers an unacknowledged completion with the same stable ID");

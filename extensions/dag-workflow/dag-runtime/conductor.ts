@@ -14,6 +14,8 @@ const BINDING_ROOT = ".ai/dag-session-bindings-v1";
 const START_INTENT_ROOT = ".ai/dag-start-intents-v1";
 const HASH_RE = /^sha256:[0-9a-f]{64}$/;
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const SERVICE_REGISTRY_KEY = Symbol.for("pi-dag-workflow.canonical-conductor-services-v1");
+const conductorServiceRegistry: Map<string, { serviceId: string; lockIdentity: string }> = (globalThis as any)[SERVICE_REGISTRY_KEY] ??= new Map();
 
 export interface DagConductorContextV1 {
   cwd: string;
@@ -33,7 +35,7 @@ export interface DagSessionRunBindingV1 {
   planHash: string;
   ownerEpoch: number;
   ownershipReceiptHash: string;
-  lineage: { kind: "start" | "direct_fork" | "explicit_reattach"; priorBindingHash: string | null; priorSessionId: string | null; proofHash: string | null };
+  lineage: { kind: "start" | "direct_fork" | "explicit_reattach" | "same_manager_resume"; priorBindingHash: string | null; priorSessionId: string | null; proofHash: string | null };
   storeRoot: typeof RUN_ROOT;
   boundAt: string;
   bindingHash: string;
@@ -65,6 +67,8 @@ export interface DagPreparedRunStartInputV1 {
 }
 
 export type DagPreparedStartFailpointV1 = "after_start_intent" | "after_run_authority" | "before_genesis_initialize" | "after_genesis_initialize" | "before_owner_attach" | "after_owner_attach" | "before_final_binding" | "after_final_binding" | "after_start_active" | "before_response";
+export type DagOwnerResumeFailpointV1 = "after_owner_transfer" | "after_owner_binding" | "after_owner_start_identity";
+export type DagConductorPumpFailpointV1 = "after_quiescent_check";
 
 interface DagRunStartIntentV1 {
   schemaVersion: 1;
@@ -108,9 +112,87 @@ export class DagConductorServiceV1 {
   readonly lifecycle: DagLifecycleRuntimeOptionsV1;
   readonly integrationFactory?: (input: { store: DagRunSnapshotStoreV1; context: DagRunValidationContextV1; lock: DagRunStoreLockIdentityV1 }) => DagIntegrationReconciliationAdapterV1;
   readonly startFailpoint?: (point: DagPreparedStartFailpointV1) => Promise<void> | void;
+  readonly ownerResumeFailpoint?: (point: DagOwnerResumeFailpointV1) => Promise<void> | void;
+  readonly pumpFailpoint?: (point: DagConductorPumpFailpointV1) => Promise<void> | void;
+  #serviceId = randomUUID();
   #currentLock = new Map<string, DagRunStoreLockIdentityV1>();
+  #ownedServiceKeys = new Set<string>();
+  #activeContexts = new Map<string, DagConductorContextV1>();
+  #wakeGenerations = new Map<string, number>();
+  #pumps = new Map<string, Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }>>();
+  #detaching = false;
+  #detachPromise: Promise<void> | null = null;
   #lastGood = new Map<string, { state: DagRunStateV1; decision: DagSchedulerDecisionV1; projection: DagExecutionProjectionV1; cachedAt: string }>();
-  constructor(options: { workerProjection?: (bindings: Array<{ workerStorageId: string; launchOwnerSessionId: string; workerId: string; attemptNumber: number; attemptNonce: string; configHash: string; resultHash: string | null; processDisposition: string }>) => Promise<DagWorkerProjectionInputV1 | null>; dispatchEffect?: (effect: { effectId: string; kind: string; requestHash: string }, state: DagRunStateV1) => Promise<void>; lifecycle?: DagLifecycleRuntimeOptionsV1; integrationFactory?: (input: { store: DagRunSnapshotStoreV1; context: DagRunValidationContextV1; lock: DagRunStoreLockIdentityV1 }) => DagIntegrationReconciliationAdapterV1; startFailpoint?: (point: DagPreparedStartFailpointV1) => Promise<void> | void } = {}) { this.workerProjection = options.workerProjection; this.dispatchEffect = options.dispatchEffect; this.lifecycle = options.lifecycle ?? {}; this.integrationFactory = options.integrationFactory; this.startFailpoint = options.startFailpoint; }
+  constructor(options: { workerProjection?: (bindings: Array<{ workerStorageId: string; launchOwnerSessionId: string; workerId: string; attemptNumber: number; attemptNonce: string; configHash: string; resultHash: string | null; processDisposition: string }>) => Promise<DagWorkerProjectionInputV1 | null>; dispatchEffect?: (effect: { effectId: string; kind: string; requestHash: string }, state: DagRunStateV1) => Promise<void>; lifecycle?: DagLifecycleRuntimeOptionsV1; integrationFactory?: (input: { store: DagRunSnapshotStoreV1; context: DagRunValidationContextV1; lock: DagRunStoreLockIdentityV1 }) => DagIntegrationReconciliationAdapterV1; startFailpoint?: (point: DagPreparedStartFailpointV1) => Promise<void> | void; ownerResumeFailpoint?: (point: DagOwnerResumeFailpointV1) => Promise<void> | void; pumpFailpoint?: (point: DagConductorPumpFailpointV1) => Promise<void> | void } = {}) { this.workerProjection = options.workerProjection; this.dispatchEffect = options.dispatchEffect; this.lifecycle = options.lifecycle ?? {}; this.integrationFactory = options.integrationFactory; this.startFailpoint = options.startFailpoint; this.ownerResumeFailpoint = options.ownerResumeFailpoint; this.pumpFailpoint = options.pumpFailpoint; }
+
+  /** Drain this exact service generation before releasing its process-local ownership fence. */
+  detach(): Promise<void> {
+    if (this.#detachPromise) return this.#detachPromise;
+    this.#detaching = true;
+    this.#activeContexts.clear();
+    this.#detachPromise = (async () => {
+      await Promise.allSettled([...this.#pumps.values()]);
+      for (const key of this.#ownedServiceKeys) if (conductorServiceRegistry.get(key)?.serviceId === this.#serviceId) conductorServiceRegistry.delete(key);
+      this.#ownedServiceKeys.clear(); this.#wakeGenerations.clear(); this.#currentLock.clear();
+    })();
+    return this.#detachPromise;
+  }
+
+  /** Coalesce one service-owned advancement pump and fence stale same-process service generations first. */
+  async activate(ctx: DagConductorContextV1, runId: string, occurredAt = new Date().toISOString()): Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }> {
+    if (this.#detaching) throw new Error("DAG conductor service is detaching and cannot accept another wake");
+    this.#activeContexts.set(runId, ctx);
+    this.#wakeGenerations.set(runId, (this.#wakeGenerations.get(runId) ?? 0) + 1);
+    return this.#startPump(ctx, runId, occurredAt);
+  }
+
+  #startPump(ctx: DagConductorContextV1, runId: string, occurredAt: string): Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }> {
+    const current = this.#pumps.get(runId);
+    if (current) return current;
+    let observedWakeGeneration = this.#wakeGenerations.get(runId)!;
+    const body = (async () => {
+      let result: { state: DagRunStateV1; decision: DagSchedulerDecisionV1 };
+      for (;;) {
+        observedWakeGeneration = this.#wakeGenerations.get(runId)!;
+        await this.#ensureOperationalOwner(ctx, runId, occurredAt);
+        result = await this.advance(ctx, runId, occurredAt);
+        // Give terminal-result microtasks queued at the waiting boundary a chance
+        // to mark this run dirty before this pass settles.
+        await Promise.resolve();
+        if (this.#wakeGenerations.get(runId) === observedWakeGeneration) {
+          await this.pumpFailpoint?.("after_quiescent_check");
+          return { result, settledWakeGeneration: observedWakeGeneration };
+        }
+      }
+    })();
+    let pump!: Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }>;
+    pump = body.then(
+      ({ result, settledWakeGeneration }) => {
+        if (this.#pumps.get(runId) === pump) this.#pumps.delete(runId);
+        if (["completed", "cancelled", "superseded"].includes(result.state.current.run)) this.#activeContexts.delete(runId);
+        if (!this.#detaching && this.#activeContexts.has(runId) && this.#wakeGenerations.get(runId) !== settledWakeGeneration) return this.#startPump(ctx, runId, occurredAt);
+        return result;
+      },
+      (error) => {
+        if (this.#pumps.get(runId) === pump) this.#pumps.delete(runId);
+        if (!this.#detaching && this.#activeContexts.has(runId) && this.#wakeGenerations.get(runId) !== observedWakeGeneration) return this.#startPump(ctx, runId, occurredAt);
+        throw error;
+      },
+    );
+    this.#pumps.set(runId, pump);
+    return pump;
+  }
+
+  /** Resume the exact bound run when a session/agent lifecycle event wakes the extension. */
+  async resumeBound(ctx: DagConductorContextV1, occurredAt = new Date().toISOString()): Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 } | null> {
+    const binding = await this.binding(ctx);
+    return binding ? this.activate(ctx, binding.runId, occurredAt) : null;
+  }
+
+  /** Wake all runs attached to this exact service instance after asynchronous worker state changes. */
+  async wakeActive(occurredAt = new Date().toISOString()): Promise<void> {
+    await Promise.all([...this.#activeContexts.entries()].map(([runId, ctx]) => this.activate(ctx, runId, occurredAt).then(() => undefined)));
+  }
 
   async start(ctx: DagConductorContextV1, input: DagRunStartInputV1): Promise<{ binding: DagSessionRunBindingV1; state: DagRunStateV1; decision: DagSchedulerDecisionV1 }> {
     if (!ID_RE.test(input.runId) || input.runNonce.length < 16 || !HASH_RE.test(input.planHash) || !Number.isInteger(input.maxActiveNodes) || input.maxActiveNodes < 1) throw new Error("Invalid exact DAG run start identity or maxActiveNodes");
@@ -125,7 +207,7 @@ export class DagConductorServiceV1 {
     const index = buildSchedulerPlanIndexV1(plan);
     const genesis = parseDagRunStateV1(await readFile(genesisPath, "utf8"), { ...context, plan, normalizedSchedulerIndexHash: index.indexHash });
     const prepared = await this.startPrepared(ctx, { runId: input.runId, runNonce: input.runNonce, planHash: input.planHash, maxActiveNodes: input.maxActiveNodes, occurredAt: input.occurredAt, plan, genesis, context, seedFacts });
-    const advanced = await this.advance(ctx, prepared.state.runId, input.occurredAt);
+    const advanced = await this.activate(ctx, prepared.state.runId, input.occurredAt);
     return { binding: prepared.binding, state: advanced.state, decision: advanced.decision };
   }
 
@@ -194,7 +276,14 @@ export class DagConductorServiceV1 {
       state = result.state; this.#currentLock.set(input.runId, initializationLock);
     } else if (state.owner.sessionId === sessionId && state.owner.pid === process.pid && state.owner.processStartIdentity === initializationLock.processStartIdentity) {
       if (existingBinding) await validateBindingAuthority(existingBinding, repositoryRoot, plan, state);
-      this.#currentLock.set(input.runId, dagRunStoreLockIdentityFromOwner(state.owner));
+      const held = this.#currentLock.get(input.runId);
+      if (held?.lockIdentity === state.owner.lockIdentity && held.ownerTokenHash === state.owner.ownerTokenHash) this.#currentLock.set(input.runId, held);
+      else if (existingBinding) {
+        await this.#ensureOperationalOwner(ctx, input.runId, input.occurredAt);
+        state = await store.read(effectiveContext);
+        existingBinding = await this.#readBinding(repositoryRoot, sessionId);
+        intent = await readStartIntent(intentPath, sessionId, input.runId) ?? intent;
+      } else throw new Error("Prepared-start recovery found same-process owner authority without its exact session binding");
     } else if (state.owner.sessionId === sessionId) {
       if (existingBinding) await validateBindingAuthority(existingBinding, repositoryRoot, plan, state);
       const priorLock = dagRunStoreLockIdentityFromOwner(state.owner); const proof = await createDagRunStoreDeadOwnerProofV1(priorLock, input.occurredAt);
@@ -225,6 +314,7 @@ export class DagConductorServiceV1 {
       await replaceCanonicalJson(intentPath, intent, active); intent = active;
     }
     await this.startFailpoint?.("after_start_active");
+    this.#claimService(repositoryRoot, input.runId, await this.#currentOwnerLock({ binding, plan, context: runtimeContext, store, state }));
     await this.startFailpoint?.("before_response");
     return { binding, state, decision: scheduleDagRunV1(plan, state) };
   }
@@ -325,9 +415,20 @@ export class DagConductorServiceV1 {
 
   async reattach(ctx: DagConductorContextV1, guard: DagMutationGuardV1): Promise<DagRunStateV1> {
     const loaded = await this.#loadForReattach(ctx, guard.runId);
+    const repositoryRoot = await realpath(ctx.cwd); const sessionId = String(ctx.sessionManager.getSessionId()); const processStartIdentity = await currentProcessStartIdentity();
+    if (loaded.binding.ownerEpoch === loaded.state.owner.ownerEpoch && loaded.binding.ownershipReceiptHash === loaded.state.owner.ownershipReceipt) {
+      await this.#refreshStartIntentBinding(repositoryRoot, loaded.binding.lineage?.priorSessionId ?? loaded.state.owner.sessionId, sessionId, guard.runId, loaded.binding.bindingHash);
+    }
+    if (loaded.state.runNonce === guard.runNonce && loaded.state.owner.ownerEpoch === guard.ownerEpoch + 1 && loaded.state.owner.sessionId === sessionId && loaded.state.owner.pid === process.pid && loaded.state.owner.processStartIdentity === processStartIdentity) {
+      const ownership = loaded.state.owner.ownershipReceipt ? await loaded.store.readImmutableFact(loaded.state.owner.ownershipReceipt) as any : null;
+      const previousPath = loaded.state.previousSnapshotHash ? join(loaded.store.snapshotsDirectory, `${loaded.state.previousSnapshotHash.slice("sha256:".length)}.json`) : null;
+      const previous = previousPath ? parseStrictJson(await readFile(previousPath, "utf8")) as DagRunStateV1 : null;
+      if (ownership?.kind === "ownership" && ownership.ownerEpoch === loaded.state.owner.ownerEpoch && ownership.priorSessionId !== null && previous?.revision === guard.expectedRevision && previous.snapshotHash === guard.expectedSnapshotHash && previous.owner.ownerEpoch === guard.ownerEpoch) {
+        const lock = dagRunStoreLockIdentityFromOwner(loaded.state.owner); this.#currentLock.set(guard.runId, lock); this.#claimService(repositoryRoot, guard.runId, lock); return loaded.state;
+      }
+    }
     if (loaded.state.runNonce !== guard.runNonce || loaded.state.revision !== guard.expectedRevision || loaded.state.snapshotHash !== guard.expectedSnapshotHash || loaded.state.owner.ownerEpoch !== guard.ownerEpoch) throw new Error("DAG reattach guard is stale");
     if (!loaded.state.owner.sessionId || !loaded.state.owner.lockIdentity) throw new Error("Detached epoch-zero run uses start/attach, not dead-owner reattach");
-    const repositoryRoot = await realpath(ctx.cwd); const sessionId = String(ctx.sessionManager.getSessionId());
     const priorBinding = await this.#readBinding(repositoryRoot, loaded.state.owner.sessionId);
     if (!priorBinding) throw new Error("DAG reattach requires the exact prior owner session binding");
     await validateBindingAuthority(priorBinding, repositoryRoot, loaded.plan, loaded.state);
@@ -351,8 +452,13 @@ export class DagConductorServiceV1 {
     const input = reducerInput(loaded.state, "attach_owner", "observation", payload, guard.occurredAt, guard);
     const recovery = await loaded.store.reattachAfterDeadOwner(proof, input, context, newLock, async (candidate, lock) => candidate.expectedLockMetadataHash === canonicalHash(lock) && candidate.observationHash === proof.observationHash);
     if (!recovery.result.accepted) throw new Error(`DAG reattach rejected: ${recovery.result.code}: ${recovery.result.message}`);
+    await this.ownerResumeFailpoint?.("after_owner_transfer");
     this.#currentLock.set(guard.runId, newLock);
-    await this.#createBinding(ctx, repositoryRoot, loaded.plan, recovery.result.state, guard.occurredAt, { kind: "explicit_reattach", priorBindingHash: priorBinding.bindingHash, priorSessionId: priorBinding.sessionId, proofHash: ownership.hash }, successorExistingBinding);
+    this.#claimService(repositoryRoot, guard.runId, newLock);
+    const binding = await this.#createBinding(ctx, repositoryRoot, loaded.plan, recovery.result.state, guard.occurredAt, { kind: "explicit_reattach", priorBindingHash: priorBinding.bindingHash, priorSessionId: priorBinding.sessionId, proofHash: ownership.hash }, successorExistingBinding);
+    await this.ownerResumeFailpoint?.("after_owner_binding");
+    await this.#refreshStartIntentBinding(repositoryRoot, priorBinding.sessionId, sessionId, guard.runId, binding.bindingHash);
+    await this.ownerResumeFailpoint?.("after_owner_start_identity");
     return recovery.result.state;
   }
 
@@ -388,19 +494,40 @@ export class DagConductorServiceV1 {
     const binding = await this.#readBinding(repositoryRoot, sessionId);
     if (!binding || binding.runId !== runId) throw new Error("No exact current-session binding exists for the requested DAG run");
     const intent = await readStartIntent(startIntentPath(repositoryRoot, sessionId, runId), sessionId, runId);
-    if (!intent || intent.state !== "active" || intent.bindingHash !== binding.bindingHash || intent.planHash !== binding.planHash) throw new Error("Current-session binding does not resolve its exact active start identity");
+    if (!intent) {
+      if (await requiresPreparedStartIntent(repositoryRoot, binding.storeRoot, runId)) throw new Error("Current product run is missing its exact prepared-start identity");
+      return { runId: binding.runId, planHash: binding.planHash, sourcePlanningPlanId: null, sourcePlanningPlanHash: null };
+    }
+    if (intent.state !== "active" || intent.bindingHash !== binding.bindingHash || intent.planHash !== binding.planHash) throw new Error("Current-session binding does not resolve its exact active start identity");
     return { runId: intent.runId, planHash: intent.planHash, sourcePlanningPlanId: intent.sourcePlanningPlanId, sourcePlanningPlanHash: intent.sourcePlanningPlanHash };
   }
 
   async #loadForReattach(ctx: DagConductorContextV1, runId: string): Promise<LoadedRunV1> {
     const repositoryRoot = await realpath(ctx.cwd); const sessionId = String(ctx.sessionManager.getSessionId());
     const binding = await this.#readBinding(repositoryRoot, sessionId);
-    if (binding) return this.#loadBound(ctx, runId);
+    if (binding) return this.#loadBound(ctx, runId, true);
     const store = new DagRunSnapshotStoreV1(join(repositoryRoot, RUN_ROOT), runId);
     const plan = parseCanonicalDagPlanV1(await readFile(join(store.runDirectory, "authority", "plan.json"), "utf8"));
     const context = parseStrictJson(await readFile(join(store.runDirectory, "authority", "context.json"), "utf8")) as unknown as DagRunValidationContextV1;
     const index = buildSchedulerPlanIndexV1(plan); const effectiveContext = { ...context, plan, normalizedSchedulerIndexHash: index.indexHash };
-    const state = await store.read(effectiveContext); const git = await repositoryGitBinding(repositoryRoot);
+    const state = await store.read(effectiveContext);
+    if (state.owner.sessionId === sessionId && state.owner.ownershipReceipt) {
+      const ownership = await store.readImmutableFact(state.owner.ownershipReceipt) as any;
+      const sourceSessionId = ownership?.priorSessionId as string | null;
+      const sourceBinding = sourceSessionId ? await this.#readBinding(repositoryRoot, sourceSessionId) : null;
+      const repairable = sourceBinding && ownership?.kind === "ownership" && ownership.hash === state.owner.ownershipReceipt
+        && ownership.ownerEpoch === state.owner.ownerEpoch && ownership.successorSessionId === sessionId
+        && ownership.successorPid === state.owner.pid && ownership.successorProcessStartIdentity === state.owner.processStartIdentity
+        && ownership.successorLockIdentity === state.owner.lockIdentity && sourceBinding.ownerEpoch === state.owner.ownerEpoch - 1
+        && sourceBinding.ownershipReceiptHash === ownership.priorOwnershipReceiptHash;
+      if (!repairable) throw new Error("DAG owner recovery has no exact predecessor binding for successor repair");
+      await validateBindingRepository(sourceBinding, repositoryRoot);
+      const lineageKind = ownership.disposition === "same_manager" ? "same_manager_resume" : "explicit_reattach";
+      const repaired = await this.#createBinding(ctx, repositoryRoot, plan, state, state.updatedAt, { kind: lineageKind, priorBindingHash: sourceBinding.bindingHash, priorSessionId: sourceSessionId, proofHash: ownership.hash });
+      await this.#refreshStartIntentBinding(repositoryRoot, sourceSessionId!, sessionId, runId, repaired.bindingHash);
+      return this.#loadBound(ctx, runId);
+    }
+    const git = await repositoryGitBinding(repositoryRoot);
     const placeholderCore = { schemaVersion: 1 as const, kind: "DagSessionRunBindingV1" as const, sessionId, sessionFileHash: null, repositoryRootHash: canonicalHash(repositoryRoot), commonDirIdentityHash: git.commonDirIdentityHash, branchRef: git.branchRef, runId, runNonceHash: canonicalHash(state.runNonce), planHash: plan.planHash, storeRoot: RUN_ROOT, boundAt: state.createdAt };
     const placeholder = { ...placeholderCore, bindingHash: canonicalHash(placeholderCore) };
     return { binding: placeholder, plan, context: effectiveContext, store, state };
@@ -412,8 +539,8 @@ export class DagConductorServiceV1 {
     return loaded;
   }
 
-  async #loadBound(ctx: DagConductorContextV1, runId: string): Promise<LoadedRunV1> {
-    const repositoryRoot = await realpath(ctx.cwd); const sessionId = String(ctx.sessionManager.getSessionId()); const binding = await this.#readBinding(repositoryRoot, sessionId);
+  async #loadBound(ctx: DagConductorContextV1, runId: string, repairBinding = false): Promise<LoadedRunV1> {
+    const repositoryRoot = await realpath(ctx.cwd); const sessionId = String(ctx.sessionManager.getSessionId()); let binding = await this.#readBinding(repositoryRoot, sessionId);
     if (!binding || binding.runId !== runId) throw new Error("No exact current-session binding exists for the requested DAG run");
     await validateBindingRepository(binding, repositoryRoot);
     const store = new DagRunSnapshotStoreV1(join(repositoryRoot, binding.storeRoot), runId);
@@ -421,15 +548,114 @@ export class DagConductorServiceV1 {
     const context = parseStrictJson(await readFile(join(store.runDirectory, "authority", "context.json"), "utf8")) as unknown as DagRunValidationContextV1;
     const index = buildSchedulerPlanIndexV1(plan); const effectiveContext = { ...context, plan, normalizedSchedulerIndexHash: index.indexHash };
     const state = await store.read(effectiveContext);
-    if ((state.runNonce && canonicalHash(state.runNonce) !== binding.runNonceHash) || state.identity.planHash !== binding.planHash || state.owner.ownerEpoch !== binding.ownerEpoch || state.owner.ownershipReceipt !== binding.ownershipReceiptHash || state.owner.sessionId !== binding.sessionId) throw new Error("Session binding conflicts with run authority");
+    const staticIdentityExact = (!state.runNonce || canonicalHash(state.runNonce) === binding.runNonceHash) && state.identity.planHash === binding.planHash && state.owner.sessionId === binding.sessionId;
+    if (!staticIdentityExact) throw new Error("Session binding conflicts with run authority");
+    if (state.owner.ownerEpoch !== binding.ownerEpoch || state.owner.ownershipReceipt !== binding.ownershipReceiptHash) {
+      if (!repairBinding) throw new Error("Session binding conflicts with run authority");
+      const previousPath = state.previousSnapshotHash ? join(store.snapshotsDirectory, `${state.previousSnapshotHash.slice("sha256:".length)}.json`) : null;
+      const previous = previousPath ? parseStrictJson(await readFile(previousPath, "utf8")) as DagRunStateV1 : null;
+      const ownership = state.owner.ownershipReceipt ? await store.readImmutableFact(state.owner.ownershipReceipt) as any : null;
+      const repairable = previous && state.owner.ownerEpoch === binding.ownerEpoch + 1 && previous.owner.ownerEpoch === binding.ownerEpoch
+        && previous.owner.ownershipReceipt === binding.ownershipReceiptHash && previous.owner.sessionId === binding.sessionId
+        && ownership?.kind === "ownership" && ["same_manager", "dead"].includes(ownership.disposition) && ownership.priorOwnershipReceiptHash === previous.owner.ownershipReceipt
+        && ownership.successorSessionId === state.owner.sessionId && ownership.successorPid === state.owner.pid
+        && ownership.successorProcessStartIdentity === state.owner.processStartIdentity && ownership.successorLockIdentity === state.owner.lockIdentity;
+      if (!repairable) throw new Error("Session binding conflicts with run authority");
+      const lineageKind = ownership.disposition === "same_manager" ? "same_manager_resume" : "explicit_reattach";
+      binding = await this.#createBinding(ctx, repositoryRoot, plan, state, state.updatedAt, { kind: lineageKind, priorBindingHash: binding.bindingHash, priorSessionId: binding.sessionId, proofHash: ownership.hash }, binding);
+      await this.#refreshStartIntentBinding(repositoryRoot, binding.lineage.priorSessionId ?? sessionId, sessionId, runId, binding.bindingHash);
+    }
     return { binding, plan, context: effectiveContext, store, state };
   }
 
+  #serviceKey(repositoryRoot: string, runId: string): string { return canonicalHash({ repositoryRoot, runId }); }
+
+  #claimService(repositoryRoot: string, runId: string, lock: DagRunStoreLockIdentityV1): void {
+    const key = this.#serviceKey(repositoryRoot, runId);
+    const current = conductorServiceRegistry.get(key);
+    if (current && current.serviceId !== this.#serviceId && current.lockIdentity === lock.lockIdentity) throw new Error("Another conductor service generation is still operational for this exact run");
+    conductorServiceRegistry.set(key, { serviceId: this.#serviceId, lockIdentity: lock.lockIdentity });
+    this.#ownedServiceKeys.add(key);
+  }
+
   async #currentOwnerLock(loaded: LoadedRunV1): Promise<DagRunStoreLockIdentityV1> {
-    const current = this.#currentLock.get(loaded.state.runId) ?? dagRunStoreLockIdentityFromOwner(loaded.state.owner);
+    const current = this.#currentLock.get(loaded.state.runId);
     const start = await currentProcessStartIdentity();
-    if (current.pid !== process.pid || current.processStartIdentity !== start) throw new Error("Current process does not own the exact DAG conductor epoch; use dag_run_reattach");
-    this.#currentLock.set(loaded.state.runId, current); return current;
+    if (!current || current.lockIdentity !== loaded.state.owner.lockIdentity || current.ownerTokenHash !== loaded.state.owner.ownerTokenHash || current.sessionId !== loaded.state.owner.sessionId || current.pid !== process.pid || current.processStartIdentity !== start) throw new Error("Current conductor service does not own the exact DAG epoch; activate or reattach the run");
+    return current;
+  }
+
+  async #ensureOperationalOwner(ctx: DagConductorContextV1, runId: string, occurredAt: string): Promise<void> {
+    let loaded = await this.#loadBound(ctx, runId, true);
+    const repositoryRoot = await realpath(ctx.cwd);
+    const sessionId = String(ctx.sessionManager.getSessionId());
+    await this.#refreshStartIntentBinding(repositoryRoot, loaded.binding.lineage.priorSessionId ?? sessionId, sessionId, runId, loaded.binding.bindingHash);
+    const serviceKey = this.#serviceKey(repositoryRoot, runId);
+    const registered = conductorServiceRegistry.get(serviceKey);
+    const cached = this.#currentLock.get(runId);
+    if (cached && cached.lockIdentity === loaded.state.owner.lockIdentity && cached.ownerTokenHash === loaded.state.owner.ownerTokenHash) {
+      if (registered && registered.serviceId !== this.#serviceId && registered.lockIdentity === cached.lockIdentity) throw new Error("Another conductor service generation is still operational for this exact run");
+      this.#claimService(repositoryRoot, runId, cached);
+      await this.#currentOwnerLock(loaded);
+      return;
+    }
+    if (registered && registered.serviceId !== this.#serviceId && registered.lockIdentity === loaded.state.owner.lockIdentity) throw new Error("Another conductor service generation is still operational for this exact run");
+    const processStartIdentity = await currentProcessStartIdentity();
+    if (loaded.state.owner.sessionId !== sessionId || loaded.state.owner.pid !== process.pid || loaded.state.owner.processStartIdentity !== processStartIdentity) throw new Error("DAG owner belongs to another live process or session; use exact proven-dead reattachment");
+
+    const prior = loaded.state.owner;
+    const priorLock = dagRunStoreLockIdentityFromOwner(prior);
+    const newLock = await processLockIdentity(sessionId, canonicalHash({ purpose: "dag-run-service-resume", sessionId, runId, ownerEpoch: prior.ownerEpoch + 1, nonce: randomUUID() }), canonicalHash({ purpose: "dag-run-owner-token", sessionId, runId, ownerEpoch: prior.ownerEpoch + 1, nonce: randomUUID() }), occurredAt);
+    const lineageHash = canonicalHash({
+      kind: "direct_owner_transfer", runId: loaded.state.runId, runNonce: loaded.state.runNonce,
+      priorSessionId: prior.sessionId, priorOwnerTokenHash: prior.ownerTokenHash, priorPid: prior.pid,
+      priorProcessStartIdentity: prior.processStartIdentity, priorLockIdentity: prior.lockIdentity,
+      successorSessionId: sessionId, successorPid: newLock.pid, successorProcessStartIdentity: newLock.processStartIdentity,
+      successorLockIdentity: newLock.lockIdentity,
+    });
+    const priorOwnership = prior.ownershipReceipt ? await loaded.store.readImmutableFact(prior.ownershipReceipt) as any : null;
+    const ownershipCore = {
+      kind: "ownership" as const, runId: loaded.state.runId, runNonce: loaded.state.runNonce,
+      priorSessionId: prior.sessionId, priorOwnerTokenHash: prior.ownerTokenHash, priorPid: prior.pid,
+      priorProcessStartIdentity: prior.processStartIdentity, priorLockIdentity: prior.lockIdentity, priorAttachedAt: prior.attachedAt,
+      disposition: "same_manager" as const, priorObservationHash: null, priorOwnershipReceiptHash: prior.ownershipReceipt,
+      ownerEpoch: prior.ownerEpoch + 1, successorSessionId: sessionId, successorPid: newLock.pid,
+      successorProcessStartIdentity: newLock.processStartIdentity, successorLockIdentity: newLock.lockIdentity, lineageHash,
+    };
+    const ownershipWithChain = { ...ownershipCore, chainHash: ownershipChainHashV1(ownershipCore, priorOwnership?.kind === "ownership" ? priorOwnership.chainHash : null) };
+    const ownership = { ...ownershipWithChain, hash: canonicalHash(ownershipWithChain) };
+    await loaded.store.putImmutableFact(ownership);
+    const context = { ...loaded.context, facts: { ...loaded.context.facts, [ownership.hash]: ownership } };
+    const payload = { ownerTokenHash: newLock.ownerTokenHash, sessionId, pid: newLock.pid, processStartIdentity: newLock.processStartIdentity, lockIdentity: newLock.lockIdentity, ownershipReceipt: ownership.hash, priorOwnerDisposition: "same_manager" };
+    const transferred = await loaded.store.mutate({ input: reducerInput(loaded.state, "transfer_owner", "command", payload, occurredAt, { commandId: `service-resume-${prior.ownerEpoch + 1}-${ownership.hash.slice(7, 19)}`, idempotencyKey: `service-resume:${loaded.state.runNonce}:${prior.ownerEpoch + 1}` }), context, lock: priorLock });
+    if (!transferred.accepted) throw new Error(`DAG same-manager service recovery rejected: ${transferred.code}: ${transferred.message}`);
+    await this.ownerResumeFailpoint?.("after_owner_transfer");
+    this.#currentLock.set(runId, newLock);
+    this.#claimService(repositoryRoot, runId, newLock);
+    const binding = await this.#createBinding(ctx, repositoryRoot, loaded.plan, transferred.state, occurredAt, { kind: "same_manager_resume", priorBindingHash: loaded.binding.bindingHash, priorSessionId: sessionId, proofHash: ownership.hash }, loaded.binding);
+    await this.ownerResumeFailpoint?.("after_owner_binding");
+    await this.#refreshStartIntentBinding(repositoryRoot, sessionId, sessionId, runId, binding.bindingHash);
+    await this.ownerResumeFailpoint?.("after_owner_start_identity");
+  }
+
+  async #refreshStartIntentBinding(repositoryRoot: string, sourceSessionId: string, targetSessionId: string, runId: string, bindingHash: string): Promise<void> {
+    const sourcePath = startIntentPath(repositoryRoot, sourceSessionId, runId);
+    const intent = await readStartIntent(sourcePath, sourceSessionId, runId);
+    if (!intent) {
+      if (await requiresPreparedStartIntent(repositoryRoot, RUN_ROOT, runId)) throw new Error("Current product run is missing its exact prepared-start identity");
+      return; // Historical low-level canonical runs predate prepared-start intents.
+    }
+    if (intent.state !== "active") throw new Error("DAG owner recovery requires the exact active prepared-start intent");
+    if (sourceSessionId === targetSessionId) {
+      if (intent.bindingHash === bindingHash) return;
+      await replaceCanonicalJson(sourcePath, intent, { ...intent, revision: intent.revision + 1, bindingHash });
+      return;
+    }
+    const targetPath = startIntentPath(repositoryRoot, targetSessionId, runId);
+    const successor = { ...intent, sessionId: targetSessionId, revision: intent.revision + 1, bindingHash };
+    await publishImmutableJson(targetPath, successor);
+    const exact = await readStartIntent(targetPath, targetSessionId, runId);
+    if (!exact || canonicalStringify(exact) !== canonicalStringify(successor)) throw new Error("DAG successor start identity did not publish exact bytes");
   }
 
   async #createBinding(ctx: DagConductorContextV1, repositoryRoot: string, plan: CanonicalDagPlanV1, state: DagRunStateV1, at: string, lineage: DagSessionRunBindingV1["lineage"] = { kind: "start", priorBindingHash: null, priorSessionId: null, proofHash: null }, expectedExisting: DagSessionRunBindingV1 | null = null): Promise<DagSessionRunBindingV1> {
@@ -491,6 +717,10 @@ async function repositoryGitBinding(repositoryRoot: string): Promise<{ commonDir
 
 async function processLockIdentity(sessionId: string, lockIdentity: string, ownerTokenHash: string, acquiredAt: string): Promise<DagRunStoreLockIdentityV1> { return { lockIdentity, ownerTokenHash, sessionId, pid: process.pid, processStartIdentity: await currentProcessStartIdentity(), acquiredAt }; }
 async function currentProcessStartIdentity(): Promise<string> { if (process.platform !== "linux") return `process:${process.pid}:${process.uptime().toFixed(3)}`; const text = await readFile(`/proc/${process.pid}/stat`, "utf8"); return `linux-proc:${text.slice(text.lastIndexOf(")") + 2).trim().split(/\s+/)[19]}`; }
+async function requiresPreparedStartIntent(root: string, storeRoot: string, runId: string): Promise<boolean> {
+  const plan = parseCanonicalDagPlanV1(await readFile(join(root, storeRoot, runId, "authority", "plan.json"), "utf8"));
+  return plan.generator.name === "thin-plan-runtime-adapter";
+}
 function bindingPath(root: string, sessionId: string): string { return join(root, BINDING_ROOT, `${createHash("sha256").update(sessionId).digest("hex")}.json`); }
 function startIntentPath(root: string, sessionId: string, runId: string): string { return join(root, START_INTENT_ROOT, createHash("sha256").update(sessionId).digest("hex"), `${runId}.json`); }
 

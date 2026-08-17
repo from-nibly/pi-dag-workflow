@@ -59,6 +59,17 @@ export class WorkerManager {
     this.processStartIdentity = null;
     this.cancellationTimers = new Map();
     this.dispatchingAttempts = new Set();
+    this.terminalResultListeners = new Set();
+  }
+
+  onTerminalResult(listener) {
+    if (typeof listener !== "function") throw new Error("Terminal-result listener must be a function");
+    this.terminalResultListeners.add(listener);
+    return () => this.terminalResultListeners.delete(listener);
+  }
+
+  #notifyTerminalResult(event) {
+    for (const listener of this.terminalResultListeners) queueMicrotask(() => Promise.resolve(listener(event)).catch((error) => console.error(`Worker terminal-result listener failed: ${error.message}`)));
   }
 
   async attach(ctx) {
@@ -1041,7 +1052,7 @@ export class WorkerManager {
       await this.#quarantineAttemptArtifact(workerId, attemptNumber, path, "late-post-cancellation-result", "Non-cancelled terminal result did not precede the serialized cancellation intent");
       await this.#writeRecoveryResult(workerId, attemptNumber, "lost", "Non-cancelled terminal result conflicted with serialized cancellation authority", true);
       if (await pathExists(paths.recoveryResult)) await this.#ingestResult(workerId, attemptNumber, paths.recoveryResult, true);
-    }
+    } else if (ingestion.result?.adopted) this.#notifyTerminalResult({ workerId, attemptNumber, completionId: result.completionId, terminalStatus: result.terminalStatus });
   }
 
   async dispatchNext() {

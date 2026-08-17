@@ -3,7 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import { access, link, mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { canonicalHash, canonicalStringify, parseStrictJson, utcTimestampOrderValue } from "./common.ts";
-import { dagRunSnapshotHash, parseDagRunStateV1, validateDagRunStateShapeV1, type DagRunStateV1, type DagRunValidationContextV1 } from "./run-state.ts";
+import { MAX_OWNERSHIP_LINEAGE_DEPTH_V1, dagRunSnapshotHash, parseDagRunStateV1, validateDagRunStateShapeV1, type DagRunStateV1, type DagRunValidationContextV1 } from "./run-state.ts";
 import { reduceDagRunV1, type DagRunInputV1, type DagRunReducerResultV1 } from "./reducer.ts";
 
 export interface DagRunStoreLockIdentityV1 {
@@ -457,7 +457,7 @@ export class DagRunSnapshotStoreV1 {
       for (const hash of pending) {
         const stored = await this.readImmutableFact(hash).catch((error) => { throw new DagRunStoreCorruptError(`Snapshot referenced immutable fact ${hash} is unavailable`, error); });
         if (!(stored as any)?.hash || (stored as any).hash !== hash) throw new DagRunStoreCorruptError(`Snapshot referenced immutable fact ${hash} does not bind its own hash`);
-        if ((stored as any).kind === "ownership" && ++ownershipReceiptCount > 64) throw new DagRunStoreCorruptError("Ownership receipt hydration exceeds the bounded 64-epoch lineage limit");
+        if ((stored as any).kind === "ownership" && ++ownershipReceiptCount > MAX_OWNERSHIP_LINEAGE_DEPTH_V1) throw new DagRunStoreCorruptError("Ownership receipt hydration exceeds the bounded lineage limit");
         if (facts[hash] && canonicalStringify(facts[hash]) !== canonicalStringify(stored)) throw new DagRunStoreCorruptError(`Snapshot referenced immutable fact ${hash} conflicts with supplied validation context`);
         if (semanticHashes.has(hash)) { facts[hash] = stored as any; enqueueNested(stored); }
         loaded.add(hash);
@@ -523,7 +523,7 @@ export class DagRunSnapshotStoreV1 {
       if (loaded.has(hash)) continue;
       const reference = references.find((candidate) => candidate.hash === hash);
       const stored = await this.readImmutableFact(hash).catch((error) => { throw new DagRunStoreCorruptError(`Input referenced immutable fact ${hash} is unavailable`, error); });
-      if ((stored as any)?.kind === "ownership" && ++ownershipReceiptCount > 64) throw new DagRunStoreCorruptError("Input ownership receipt hydration exceeds the bounded 64-epoch lineage limit");
+      if ((stored as any)?.kind === "ownership" && ++ownershipReceiptCount > MAX_OWNERSHIP_LINEAGE_DEPTH_V1) throw new DagRunStoreCorruptError("Input ownership receipt hydration exceeds the bounded lineage limit");
       if ((stored as any)?.hash !== hash || (reference?.kind && (stored as any)?.kind !== reference.kind) || (reference?.bytes !== undefined && Buffer.byteLength(canonicalStringify(stored)) !== reference.bytes)) throw new DagRunStoreCorruptError(`Input referenced immutable fact ${hash} has corrupt identity, kind, or byte metadata`);
       if (facts[hash] && canonicalStringify(facts[hash]) !== canonicalStringify(stored)) throw new DagRunStoreCorruptError(`Input referenced immutable fact ${hash} conflicts with supplied validation context`);
       facts[hash] = stored as any; loaded.add(hash);

@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { canonicalHash } from "../extensions/dag-workflow/dag-runtime/common.ts";
 import { DagConductorServiceV1 } from "../extensions/dag-workflow/dag-runtime/conductor.ts";
 import { semanticHash } from "../extensions/dag-workflow/project-model/model.ts";
 import { registerDagPlanningIntegrationV1 } from "../extensions/dag-workflow/planning/integration.ts";
@@ -13,6 +14,35 @@ const run = promisify(execFile);
 const AT = "2026-08-14T12:00:00.000Z";
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
+
+function waitingWorkerAdapter(launches, onTerminalRead = null) {
+  let terminalReads = 0;
+  return {
+    async launchExact(request, state) {
+      const attemptNonce = `nonce-${request.workerId}-0123456789`;
+      const config = {
+        storageId: `command-test-storage-${state.runId}`, ownerSessionId: state.owner.sessionId,
+        workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce,
+        launchKey: request.launchKey, requestHash: request.configRequestHash,
+        launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity },
+      };
+      const configHash = canonicalHash(config);
+      const configCore = { kind: "worker_config", configHash, config };
+      const observation = {
+        workerStorageId: config.storageId, launchOwnerSessionId: state.owner.sessionId, workerId: request.workerId,
+        attemptNumber: request.expectedAttemptNumber, attemptNonce, configHash,
+        configFact: { ...configCore, hash: canonicalHash(configCore) }, supervisorPid: process.pid,
+        supervisorStartIdentity: state.owner.processStartIdentity, childPid: null, childStartIdentity: null,
+        mailboxHash: null, heartbeatAt: state.updatedAt,
+      };
+      launches.push({ request: structuredClone(request), observation: structuredClone(observation) });
+      return observation;
+    },
+    async readTerminalExact() { terminalReads += 1; return (await onTerminalRead?.(terminalReads)) ?? null; },
+    async cancelExact() { return "proven_absent"; },
+    async cleanupExact() { return "proven_absent"; },
+  };
+}
 
 async function git(cwd, args) {
   const result = await run("git", args, { cwd, encoding: "utf8", env: {
@@ -66,7 +96,7 @@ class FakeConductor {
     this.pending = null;
     return { binding, state: this.current.state, decision: { selected: [] } };
   }
-  async advance(_ctx, runId) {
+  async activate(_ctx, runId) {
     this.advances += 1;
     if (!this.current || this.current.binding.runId !== runId) throw new Error("no fake binding");
     return { state: this.current.state, decision: { selected: [] } };
@@ -235,19 +265,122 @@ test("a restarted run command reuses the exact unfinished prepared-start identit
 test("plan, show, and run reach the real canonical runtime through the prepared boundary", async () => {
   const fx = await fixture("real-runtime");
   try {
-    const conductor = new DagConductorServiceV1({ lifecycle: { procedure: createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }) } });
+    const launches = [];
+    let terminalReads = 0;
+    let boundaryWake = null;
+    let conductor;
+    const worker = waitingWorkerAdapter(launches, (count) => { terminalReads = count; });
+    let publishedSettlementWake = false;
+    conductor = new DagConductorServiceV1({
+      lifecycle: { procedure: createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }), worker },
+      pumpFailpoint(point) {
+        if (point === "after_quiescent_check" && !publishedSettlementWake) {
+          publishedSettlementWake = true;
+          boundaryWake = conductor.wakeActive();
+        }
+      },
+    });
     const integration = registerDagPlanningIntegrationV1(fx.pi, { getActiveFocus: () => ({ id: "focus-delivery", repositoryRoot: fx.root }), conductor });
     await fx.pi.call("dag_plan_save", saveInput(), fx.ctx);
     await approveAndAuthorize(fx, "delivery");
     await integration.handleCommand("show", "--plan delivery@3 --view graph", fx.ctx);
     assert.match(fx.ui.messages.at(-1).text, /N01 -> N02/);
     await integration.handleCommand("run", "--plan delivery@3", fx.ctx);
+    if (boundaryWake) await boundaryWake;
     const binding = await conductor.binding(fx.ctx);
     assert(binding, "the product run command publishes a real current-session binding");
     const status = await conductor.status(fx.ctx, binding.runId);
     assert.equal(status.state.identity.planId, "delivery");
     assert.equal(status.state.workItems.commands.stages.F0.state, "passed", "the real hidden lifecycle completes F0");
     assert.equal(status.state.workItems.commands.currentStage, "F1", "the real runtime reaches the owned implementation boundary");
+    assert.equal(launches.length, 1, "post-F0 advancement dispatches the ready F1 worker without another run command");
+    assert(terminalReads >= 2, "a wake published after the pump quiescence check hands off to a successor pass");
+    assert(status.state.workerBindings[Object.keys(status.state.stageAttempts).find((id) => status.state.stageAttempts[id].stage === "F1")], "the F1 attempt has an exact worker binding");
+  } finally { await rm(fx.root, { recursive: true, force: true }); }
+});
+
+test("a fresh conductor service fences the stale wrapper generation and resumes post-F0 dispatch", async () => {
+  const fx = await fixture("service-resume");
+  try {
+    const launches = [];
+    let interrupted = false;
+    const first = new DagConductorServiceV1({ lifecycle: {
+      procedure: createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }),
+      worker: waitingWorkerAdapter(launches),
+      failpoint(point) { if (!interrupted && point === "after_procedure_reconcile") { interrupted = true; throw new Error("simulated command-scoped pump exit"); } },
+    } });
+    const integration = registerDagPlanningIntegrationV1(fx.pi, { getActiveFocus: () => ({ id: "focus-delivery", repositoryRoot: fx.root }), conductor: first });
+    await fx.pi.call("dag_plan_save", saveInput(), fx.ctx);
+    await approveAndAuthorize(fx, "delivery");
+    await integration.handleCommand("run", "--plan delivery@3", fx.ctx);
+    assert.match(fx.ui.messages.at(-1).text, /simulated command-scoped pump exit/);
+    const binding = await first.binding(fx.ctx);
+    const interruptedState = (await first.status(fx.ctx, binding.runId)).state;
+    assert(Object.values(interruptedState.effects).some((effect) => effect.kind === "run_procedure" && effect.state === "reconciled"), "interruption preserves applied_exact F0 effect authority");
+    assert(Object.values(interruptedState.stageAttempts).some((attempt) => attempt.stage === "F0" && attempt.state === "running"), "interruption reproduces an unsealed running F0 attempt");
+    assert.equal(launches.length, 0, "interrupted pump has not dispatched F1");
+
+    const lifecycle = () => ({
+      procedure: createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }),
+      worker: waitingWorkerAdapter(launches),
+    });
+    let activeService = new DagConductorServiceV1({ lifecycle: lifecycle() });
+    let recoveryAt = new Date(Date.parse(interruptedState.updatedAt) + 1).toISOString();
+    await assert.rejects(() => activeService.activate(fx.ctx, binding.runId, recoveryAt), /Another conductor service generation is still operational/, "a concurrently live service generation cannot steal the wrapper-bound epoch");
+    await first.detach();
+    let recovered = await activeService.activate(fx.ctx, binding.runId, recoveryAt);
+    assert.equal(recovered.state.owner.ownerEpoch, interruptedState.owner.ownerEpoch + 1, "fresh same-session service CAS-transfers to a new fencing epoch despite the live wrapper PID");
+    assert.equal(launches.length, 1, "service recovery seals F0 and dispatches the ready F1 worker");
+    assert.equal(recovered.state.workItems.commands.stages.F0.state, "passed");
+    assert(Object.values(recovered.state.workerBindings).some((workerBinding) => workerBinding.stageAttemptId === Object.values(recovered.state.stageAttempts).find((attempt) => attempt.stage === "F1")?.stageAttemptId), "recovered F1 launch is durably bound");
+    let rebound = await activeService.binding(fx.ctx);
+    assert.equal(rebound.ownerEpoch, recovered.state.owner.ownerEpoch, "session binding advances atomically to the recovered owner epoch");
+    assert.equal((await activeService.startIdentity(fx.ctx, binding.runId)).runId, binding.runId, "active start identity follows the recovered binding");
+
+    for (const boundary of ["after_owner_transfer", "after_owner_binding", "after_owner_start_identity"]) {
+      await activeService.detach();
+      const crashing = new DagConductorServiceV1({ lifecycle: lifecycle(), ownerResumeFailpoint(point) { if (point === boundary) throw new Error(`owner-resume-crash:${boundary}`); } });
+      recoveryAt = new Date(Date.parse(recovered.state.updatedAt) + 1).toISOString();
+      await assert.rejects(() => crashing.activate(fx.ctx, binding.runId, recoveryAt), new RegExp(`owner-resume-crash:${boundary}`));
+      await crashing.detach();
+      activeService = new DagConductorServiceV1({ lifecycle: lifecycle() });
+      recovered = await activeService.activate(fx.ctx, binding.runId, new Date(Date.parse(recoveryAt) + 1).toISOString());
+      rebound = await activeService.binding(fx.ctx);
+      assert.equal(rebound.ownerEpoch, recovered.state.owner.ownerEpoch, `${boundary} replay repairs the exact binding`);
+      assert.equal((await activeService.startIdentity(fx.ctx, binding.runId)).runId, binding.runId, `${boundary} replay repairs the exact start identity`);
+    }
+
+    for (let generation = 0; generation < 66; generation += 1) {
+      await activeService.detach();
+      activeService = new DagConductorServiceV1({ lifecycle: lifecycle() });
+      recovered = await activeService.activate(fx.ctx, binding.runId, new Date(Date.parse(recovered.state.updatedAt) + 1).toISOString());
+    }
+    assert(recovered.state.owner.ownerEpoch > 64, "bounded ownership hydration supports more than 64 ordinary service generations");
+    assert.equal((await activeService.status(fx.ctx, binding.runId)).state.snapshotHash, recovered.state.snapshotHash);
+
+    await activeService.detach();
+    let enterTerminalRead; let releaseTerminalRead;
+    const terminalReadEntered = new Promise((resolve) => { enterTerminalRead = resolve; });
+    const terminalReadGate = new Promise((resolve) => { releaseTerminalRead = resolve; });
+    const drainingService = new DagConductorServiceV1({ lifecycle: {
+      procedure: createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }),
+      worker: waitingWorkerAdapter(launches, async (count) => { if (count === 1) { enterTerminalRead(); await terminalReadGate; } }),
+    } });
+    const drainingPump = drainingService.activate(fx.ctx, binding.runId, new Date(Date.parse(recovered.state.updatedAt) + 1).toISOString());
+    await terminalReadEntered;
+    const drainingDetach = drainingService.detach();
+    const fencedReplacement = new DagConductorServiceV1({ lifecycle: lifecycle() });
+    await assert.rejects(() => fencedReplacement.activate(fx.ctx, binding.runId), /Another conductor service generation is still operational/, "detach retains the registry fence until its in-flight lifecycle pass drains");
+    releaseTerminalRead();
+    recovered = await drainingPump;
+    await drainingDetach;
+    activeService = fencedReplacement;
+    recovered = await activeService.activate(fx.ctx, binding.runId, new Date(Date.parse(recovered.state.updatedAt) + 1).toISOString());
+
+    await activeService.detach();
+    await rm(join(fx.root, ".ai", "dag-start-intents-v1"), { recursive: true, force: true });
+    activeService = new DagConductorServiceV1({ lifecycle: lifecycle() });
+    await assert.rejects(() => activeService.activate(fx.ctx, binding.runId, new Date(Date.parse(recovered.state.updatedAt) + 1).toISOString()), /missing its exact prepared-start identity/, "current thin-plan runs fail closed if their prepared-start identity is removed");
   } finally { await rm(fx.root, { recursive: true, force: true }); }
 });
 

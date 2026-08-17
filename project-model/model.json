@@ -4191,14 +4191,14 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-07-31T13:29:49.496Z",
+        "acceptedAt": "2026-08-17T02:18:45.029Z",
         "actor": "user",
-        "batchRef": "sha256:1845292beec12b24086e8fa26c1b8ea31c70a0e558e531423de7731a20e9bb82",
-        "contentHash": "sha256:ade3bfde16e20da976a5412976ead78da8485ed02f39f0a9ce45b2bdfc145fa1",
-        "interactionRef": "lavish-feedback:review-revised-node-lifecycle-and-next-frontiers:sha256:0e497961158cfa9c2cb1fb5a8ac58b80b192e49b786e342deb69ae591cb6c622",
-        "mode": "accepted_existing"
+        "batchRef": "sha256:7aca564cb0a527da4b8cad774ec87a79d6c0030ec638d9733eebeb8414bf81b0",
+        "contentHash": "sha256:86337e2192533f66682358cc041e2b00cc9aefa0e08fbfd6558c2a3621065bcb",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1786932584258",
+        "mode": "direct_direction"
       },
-      "body": "Every node uses the same guarded evidence lifecycle, while worker boundaries are chosen by evidence and context needs rather than one launch per state. F0 frame/preflight binds the independent acceptance oracle, risk, baseline, capabilities, and applicable checks. F1 build candidate runs one implementation worker with an internal edit → parse/build/typecheck/lint/static/security/architecture-fitness loop. F2 behavioral evaluation uses a fresh evaluator against the oracle. F3 codifies required behavior and repaired failures. F4 performs accumulated verification. F5 a fresh implementation and architecture review records typed findings. F6 performs risk-selected hardening: production defects return to F1 and then must pass F3/F4; test-sensitivity gaps may return directly to F3; material architecture issues return to F5/replan; equivalent findings and tool limits require disposition. F7 cleanly reruns mandatory checks. F8 emits integration-ready evidence. Failures follow typed back-edges with finite budgets and honest escalation. Node-specific data may add bounded context, acceptance scenarios, risk, and check applicability, but cannot add, remove, reorder, or replace checkpoints. The DAG integration train then rebases or composes parallel branches and verifies exact future combined states before completion.",
+      "body": "Every node uses the same guarded evidence lifecycle, while worker boundaries are chosen by evidence and context needs rather than one launch per state. F0 frame/preflight binds the independent acceptance oracle, risk, baseline, capabilities, and applicable checks. F1 build candidate runs one implementation worker with an internal edit → parse/build/typecheck/lint/static/security/architecture-fitness loop. F2 behavioral evaluation uses a fresh evaluator against the oracle. F3 codifies required behavior and repaired failures. F4 performs accumulated verification. F5 a fresh implementation and architecture review records typed findings. F6 performs risk-selected hardening: production defects return to F1 and then must pass F3/F4; test-sensitivity gaps may return directly to F3; material architecture issues return to F5/replan; equivalent findings and tool limits require disposition. F7 cleanly reruns mandatory checks. F8 emits integration-ready evidence. Failures follow typed back-edges with finite budgets and honest escalation. Node-specific data may add bounded context, acceptance scenarios, risk, and check applicability, but cannot add, remove, reorder, or replace checkpoints. The DAG integration train then rebases or composes parallel branches and verifies exact future combined states before completion. Advancement is a coalesced service-owned pump rather than a one-command pass: session attachment and asynchronous worker-state/completion changes wake reconciliation so durable procedure evidence is sealed and subsequent ready scheduler work is dispatched without another user command.",
       "createdAt": "2026-07-31T04:59:36.244Z",
       "id": "DEC-fixed-evidence-producing-dag-node-lifecycle",
       "introducedBy": "agent",
@@ -4237,7 +4237,7 @@
       ],
       "state": "accepted",
       "title": "Use a fixed evidence-producing lifecycle for every DAG node",
-      "updatedAt": "2026-07-31T13:29:49.496Z"
+      "updatedAt": "2026-08-17T02:18:45.029Z"
     },
     {
       "acceptance": {
@@ -5827,14 +5827,14 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-03T18:56:21.862Z",
+        "acceptedAt": "2026-08-17T02:18:45.028Z",
         "actor": "user",
-        "batchRef": "sha256:487bc1e2f935e79950c3bebec6736390c60f65842613f1df228b97bbf0197b7d",
-        "contentHash": "sha256:3d63bc48e1deb3bc48a92e228ef76d60eff45744af5e427f4d58874112262288",
-        "interactionRef": "lavish-feedback:review-canonical-dag-run-state-v1:sha256:4a5f04002d229855923e1d5ef2686cbcba9d57d30a7e517948804d8029cf3e7e",
-        "mode": "accepted_existing"
+        "batchRef": "sha256:7aca564cb0a527da4b8cad774ec87a79d6c0030ec638d9733eebeb8414bf81b0",
+        "contentHash": "sha256:df9f96af484c53cb505cfbde779db9793b0f3f51af275145b1121164ef2270fa",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1786932584258",
+        "mode": "direct_direction"
       },
-      "body": "Exactly one conductor may mutate a run. The atomic snapshot store acquires a process-shared OS/filesystem exclusive lock, validates snapshot schema/hash, and compares expected revision, previous hash, owner epoch/token, and PID/start identity before invoking the reducer. Successful writes fsync temporary content, atomically rename, and fsync the parent directory before effects become dispatchable. Run conductor ownership is independent from generic worker-session/completion-delivery ownership. An exact direct Pi-session fork may automatically transfer the run only with hash-bound lineage and proof that the source owner is absent/dead or is the same manager; all other attach/takeover requires explicit reattachment plus proven-dead prior ownership. Live, mismatched, concurrent, or ambiguous ownership blocks mutation and exposes read-only diagnostics; lock expiry or stale heartbeat alone never proves death.",
+      "body": "Exactly one conductor may mutate a run. The atomic snapshot store acquires a process-shared OS/filesystem exclusive lock, validates snapshot schema/hash, and compares expected revision, previous hash, owner epoch/token, and PID/start identity before invoking the reducer. Successful writes fsync temporary content, atomically rename, and fsync the parent directory before effects become dispatchable. Run conductor ownership is independent from generic worker-session/completion-delivery ownership. An exact direct Pi-session fork may automatically transfer the run only with hash-bound lineage and proof that the source owner is absent/dead or is the same manager; all other attach/takeover requires explicit reattachment plus proven-dead prior ownership. Live, mismatched, concurrent, or ambiguous ownership blocks mutation and exposes read-only diagnostics; lock expiry or stale heartbeat alone never proves death. Operational liveness must not be inferred solely from a long-lived Pi session-wrapper PID: each attached conductor service holds an in-memory exact owner generation, and a fresh service in the same exact session/process must CAS-transfer to a new same-manager epoch before mutation. That epoch transfer fences any prior command-scoped pump even while the host wrapper remains alive. A different process still requires the existing proven-dead/direct-lineage rules.",
       "createdAt": "2026-08-03T18:34:55.189Z",
       "id": "DEC-process-shared-dag-conductor-ownership-v1",
       "introducedBy": "agent",
@@ -5869,7 +5869,7 @@
       ],
       "state": "accepted",
       "title": "Use process-shared locking, owner epochs, and direct-fork-only automatic transfer",
-      "updatedAt": "2026-08-03T18:56:21.862Z"
+      "updatedAt": "2026-08-17T02:18:45.028Z"
     },
     {
       "acceptance": {
@@ -8058,6 +8058,43 @@
       "state": "integrated",
       "title": "Test codification needs an independent oracle",
       "updatedAt": "2026-07-31T04:34:58.527Z"
+    },
+    {
+      "body": "The preserved run proves that advancement stopped after applied_exact F0 reconciliation and immutable closed evidence publication, but it does not preserve the transient error or lifecycle event that stopped the initial pass. Pre-fix canonical integration did have session_start, one-second interval, and agent_end advancement; those wakes existed only while that extension session remained attached, called raw `advance`, swallowed errors, and had no direct worker-terminal wake. Once the operational extension/timer disappeared, immutable lifecycle facts had no durable service pump even though the zr pane wrapper PID remained alive. `#currentOwnerLock` also reconstructed authority from run-state owner PID/start identity whenever it matched `process.pid`, conflating the long-lived wrapper with a live conductor generation and blocking different-process recovery. The fix addresses the proven recovery/liveness defects without claiming an unsupported exact trigger for the original command interruption.",
+      "createdAt": "2026-08-17T02:46:11.023Z",
+      "id": "DISC-command-scoped-conductor-and-wrapper-pid-created-stall",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "EV-operant-run-64e81c4f-stalled-after-f0-reconcile"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-fixed-evidence-producing-dag-node-lifecycle"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-process-shared-dag-conductor-ownership-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-operant-run-64e81c4f-stalled-after-f0-reconcile",
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/lifecycle-runtime.ts",
+        "extensions/dag-workflow/index.ts",
+        "extensions/dag-workflow/planning/integration.ts"
+      ],
+      "state": "integrated",
+      "title": "Session-scoped pumping and wrapper-PID ownership made the canonical stall unrecoverable",
+      "updatedAt": "2026-08-17T03:54:54.403Z"
     },
     {
       "body": "The focus kickoff instructed the agent to classify the original seed normally, and the seed contains unambiguous direction. However, `dag_model_record_direction` rejected it with “No eligible current user interaction for direct direction” because `/dag brainstorm` clears the interaction reference and delivers the kickoff as extension input. The semantic model says explicit command seeds may be authority-eligible, so transport and policy currently diverge.",
@@ -10543,6 +10580,47 @@
       "updatedAt": "2026-07-28T18:37:08.999Z"
     },
     {
+      "body": "The implementation adds one dirty-generation coalesced `activate` pump per run, exact session-bound activation from the existing canonical session/timer/agent wake points, and a direct worker-terminal ingestion listener that wakes active runs. Pump settlement removes the old pump and synchronously hands dirty generations to a successor, including a wake injected after the final quiescence comparison. `detach()` first fences new activation, drains in-flight pumps while retaining the process-global registry claim, and only then releases the exact service lock so an awaited external lifecycle adapter cannot overlap a successor generation. Raw `advance` no longer reconstructs ownership from run-state PID alone. Each service generation registers its exact run/lock identity process-locally; concurrent live generations cannot steal an epoch. After the prior service detaches, a fresh service in the same exact session/process publishes a chained same_manager ownership fact, CAS-transfers to the next owner epoch, replayably repairs the session binding and active start identity across failpoints after owner, binding, or intent publication, and only then reconciles/schedules. Explicit proven-dead reattachment has the same replay coverage across distinct source and successor sessions: a lineage-less pre-transfer placeholder cannot rewrite start identity, while the durable successor binding and intent are published only after owner CAS. Different-process ownership remains fenced behind exact proven-dead reattachment. Current thin-plan runs fail closed if their required start intent disappears, while historical low-level canonical runs without one remain resumable. Ownership hydration remains finite at 4096 epochs and regression coverage executes more than 64 service generations. Tests reproduce an interrupted post-F0 applied_exact effect with an unsealed running attempt, prove concurrent service theft is blocked, detach the old service, then prove owner epoch advancement, F0 sealing, and exact F1 worker dispatch. One adopted terminal ingestion emits one wake. Focused model, planning, command, prepared-start, runtime, worker, and real-Git integration suites plus source and packed-artifact smoke pass.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T03:38:07.497Z",
+      "id": "EV-canonical-conductor-liveness-regression-fix",
+      "introducedBy": "agent",
+      "kind": "repository",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "EV-operant-run-64e81c4f-stalled-after-f0-reconcile"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-fixed-evidence-producing-dag-node-lifecycle"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-process-shared-dag-conductor-ownership-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-operant-run-64e81c4f-stalled-after-f0-reconcile",
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/integration.ts",
+        "extensions/dag-workflow/worker-runtime/manager.mjs",
+        "scripts/dag-planning-command-test.mjs",
+        "scripts/dag-runtime-test.mjs",
+        "scripts/worker-runtime-test.mjs"
+      ],
+      "state": "current",
+      "title": "Canonical conductor liveness and service-generation regression fix",
+      "updatedAt": "2026-08-17T07:42:43.351Z"
+    },
+    {
       "body": "Read-only analysis of the legacy diagram, canonical plan projection contract, live execution projection, widget, Pi command/TUI constraints, and authority boundaries recommends `/dag show` as one canonical read-only inspection namespace. Planning should automatically preview architecture and static graph before authorization; exact static plan selectors and session-bound live overlays remain distinct, deterministic, hash-labeled projections. Optional Lavish and exports present the same projection without authority. Legacy `dag_diagram` remains explicitly legacy.",
       "createdAt": "2026-08-13T02:44:04.992Z",
       "id": "EV-canonical-dag-inspection-ux-research",
@@ -12039,6 +12117,38 @@
       "state": "current",
       "title": "Pragmatic durability audit for a trusted local workflow",
       "updatedAt": "2026-08-13T19:33:43.270Z"
+    },
+    {
+      "body": "Read-only preservation of run run-64e81c4f-8f54-4a60-9fab-63ff54880941 shows canonical r17 at 2026-08-16T02:22:33.614Z. model-contract F0 is passed and F1 is correctness-ready/admissible with no worker binding. external-readiness F0 stage attempt attempt-88d5643b0477929a44e4219e308d75b3 remains running even though procedure effect procedure-7f203dc9e55fee5d2192cc8efc572fe8 is reconciled/applied_exact and closed check/evidence facts were immutably published. No later snapshot seals that stage. Owner epoch 1 binds PID 3392234 / linux-proc:105399357, a long-lived /home/jordan/bin/zr wrapper that remains alive after the command-scoped conductor pump ended. Exact source artifact hashes and a read-only copy are under ignored .ai/incident-evidence/run-64e81c4f-8f54-4a60-9fab-63ff54880941; source manifest hash sha256:a628b762c91b96d0e213a1524054a4f3e2796bd9343e3ac661660a06bc38ca51.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T02:17:48.858Z",
+      "id": "EV-operant-run-64e81c4f-stalled-after-f0-reconcile",
+      "introducedBy": "agent",
+      "kind": "repository",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-fixed-evidence-producing-dag-node-lifecycle"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-process-shared-dag-conductor-ownership-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "operant:.ai/dag-plans-v1/plans/optd-rename-release.json",
+        "operant:.ai/dag-runs-v1/run-64e81c4f-8f54-4a60-9fab-63ff54880941"
+      ],
+      "state": "current",
+      "title": "Operant canonical run stalled after durable F0 reconciliation",
+      "updatedAt": "2026-08-17T02:17:48.858Z"
     },
     {
       "body": "No single paper, standard, or mature system prescribes the requested exact phase order. A defensible fixed lifecycle composes: NASA/FDA implementation, static analysis, intended-use validation, defect disposition, regression, review, and delivery evidence; Cucumber discovery/formulation/automation; LLVM regression tests, review, and revert-to-green; architecture fitness functions; changed-code mutation testing and OSS-Fuzz bug corpora; fixed agent/repair pipelines with original-revision witnesses, regression filtering, finite budgets, and explicit non-success outcomes. Test passing is plausibility rather than proof, and exact retry counts or mandatory hardening techniques are local risk policy.",
@@ -13583,28 +13693,32 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "The accepted plan/show/run vertical slice is implemented, adversarially reviewed, hardened, and dogfooded over the existing canonical runtime. Planning authority remains in project-model/model.json; one ignored strict plan record carries source-joined architecture, decomposition, exact whole-plan authorization scope, and plan-bound shell-free integration commands. Deterministic projections expose it, approval/authorization remain separate from explicit start, and run preparation fails closed on source, Git repository identity, branch, or baseline drift. Process-shared CAS closes model/focus/plan lost updates without revision ABA, prepared-start intent closes command crash recovery and blocks cross-plan double starts, and blocking plan-affecting findings produce a scheduler-visible whole-run needs_replan hold. The complete real-Git matrix and six-pair/twelve-execution portfolio pass without changing the prior semantic portfolio identity. Remaining release closure is only the ordinary clean-tree source-checkout gate; no new publication transaction is required.",
-      "generatedAt": "2026-08-14T07:20:15.552Z",
+      "body": "The preserved incident proves the exact durable stop boundary and two recovery/liveness design defects, but not the transient trigger that ended the original pass; pre-fix pump errors were swallowed and no durable coordinator diagnostic exists. Canonical integration's session/timer/agent wakes and exact worker-terminal ingestion now enter a dirty-generation coalesced activation loop. Dirty settlement synchronously hands off to a successor pass, while asynchronous detach blocks new wakes and retains the service registry until in-flight external lifecycle work drains. Raw mutation requires the current service generation's in-memory lock, and a process-global registry prevents simultaneous live extension generations in one wrapper from stealing epochs. Same-manager recovery and explicit proven-dead recovery across distinct sessions replayably converge after owner, binding, or start-identity publication; pre-transfer placeholders cannot mutate intent. Current thin runs fail closed on missing intent, historical low-level runs remain compatible, and bounded lineage supports long-lived runs beyond 64 reloads. Focused suites, source and packed smoke, dogfood, evaluation, portfolio, and three independent adversarial audit rounds pass with no remaining blocker. The v0.1.2 candidate is ready for its clean committed release gate.",
+      "generatedAt": "2026-08-17T07:55:00.612Z",
       "sourceObjects": [
         {
-          "id": "DEC-one-artifact-two-phase-dag-planning",
-          "semanticHash": "sha256:b56ca4a3303268b5835c9717cd2f1cd5888440fdbce43fa74cf45026b92eadb9"
+          "id": "EV-operant-run-64e81c4f-stalled-after-f0-reconcile",
+          "semanticHash": "sha256:a6268e41ac324de9c84465daa5c1e954e59d09464ffac84c881f1b67025052a8"
         },
         {
-          "id": "PROP-thin-plan-show-run-vertical-slice",
-          "semanticHash": "sha256:b2c45781a54a16d84b8ac143a57e0463fc9382a657ede7021675737058732f48"
+          "id": "EV-canonical-conductor-liveness-regression-fix",
+          "semanticHash": "sha256:ec36b5b0f585f56856153e0190b72be8f198c865fb3e631b398079a404063bca"
         },
         {
-          "id": "PROP-simple-needs-replan-pause-v1",
-          "semanticHash": "sha256:4b3357bd0d845db98f50a9242fe4d09f93bd54881d95f68b8bc7028d8c9204c5"
+          "id": "DISC-command-scoped-conductor-and-wrapper-pid-created-stall",
+          "semanticHash": "sha256:eaf7d41fedbc18d95623e5999798a75ac21a0d9aa9e3afd37d5b807946e780b5"
         },
         {
-          "id": "EV-plan-show-run-vertical-slice-implementation",
-          "semanticHash": "sha256:eea0d4329e135e61194e20bde7991af9ed2055ea8d051d02b0135f654d8e5ec5"
+          "id": "Q-exact-transient-trigger-for-operant-r17-pump-exit",
+          "semanticHash": "sha256:73f0d536f6d77bae953d4e04030bb149992bf0dae51261dacb3eb1b2c7adf707"
         },
         {
-          "id": "DISC-thin-vertical-slice-reuses-canonical-runtime",
-          "semanticHash": "sha256:d55a559fe15661eec86d2a3522e50885a2dce80d646472cc3fa1f6e0c4528f78"
+          "id": "DEC-process-shared-dag-conductor-ownership-v1",
+          "semanticHash": "sha256:df9f96af484c53cb505cfbde779db9793b0f3f51af275145b1121164ef2270fa"
+        },
+        {
+          "id": "DEC-fixed-evidence-producing-dag-node-lifecycle",
+          "semanticHash": "sha256:86337e2192533f66682358cc041e2b00cc9aefa0e08fbfd6558c2a3621065bcb"
         }
       ]
     },
@@ -13944,9 +14058,9 @@
         }
       ]
     },
-    "revision": 204,
+    "revision": 214,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-14T21:47:43.755Z"
+    "updatedAt": "2026-08-17T07:55:00.612Z"
   },
   "proposals": [
     {
@@ -19360,6 +19474,32 @@
       "state": "answered",
       "title": "Should all positive authority require an exact durable human-interaction receipt?",
       "updatedAt": "2026-08-13T19:25:52.064Z"
+    },
+    {
+      "body": "The immutable run proves the exact stop boundary but the pre-fix canonical timer swallowed advancement errors and no durable conductor diagnostic records whether the initial command was interrupted, the extension session shut down, or a timer pass threw. Keep this trigger unresolved; regression and recovery correctness must not depend on guessing it. Future conductor pump failures should retain bounded diagnostics.",
+      "createdAt": "2026-08-17T03:54:54.403Z",
+      "id": "Q-exact-transient-trigger-for-operant-r17-pump-exit",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "EV-operant-run-64e81c4f-stalled-after-f0-reconcile"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-operant-run-64e81c4f-stalled-after-f0-reconcile"
+      ],
+      "state": "open",
+      "title": "What transient event stopped the original Operant advancement at r17?",
+      "updatedAt": "2026-08-17T03:54:54.403Z"
     },
     {
       "answerObjectIds": [

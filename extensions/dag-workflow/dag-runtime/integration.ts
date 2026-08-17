@@ -21,6 +21,7 @@ export function registerCanonicalDagRuntime(pi: ExtensionAPI, service = new DagC
   let widgetTimer: ReturnType<typeof setInterval> | null = null;
   let conductorTimer: ReturnType<typeof setInterval> | null = null;
   let conductorContext: any = null;
+  let lastConductorDiagnostic: string | null = null;
   let widgetContext: any = null;
   let widgetTui: any = null;
 
@@ -38,7 +39,15 @@ export function registerCanonicalDagRuntime(pi: ExtensionAPI, service = new DagC
     widgetTui?.requestRender?.();
   };
 
-  const advanceConductor = async () => { if (!conductorContext) return; const binding = await service.binding(conductorContext).catch(() => null); if (binding) await service.advance(conductorContext, binding.runId).catch(() => undefined); };
+  const advanceConductor = async () => {
+    if (!conductorContext) return;
+    try { await service.resumeBound(conductorContext); lastConductorDiagnostic = null; }
+    catch (error) {
+      const message = `DAG conductor wake failed: ${String((error as Error).message).slice(0, 512)}`;
+      if (message !== lastConductorDiagnostic) console.error(message);
+      lastConductorDiagnostic = message; widgetDiagnostic = message;
+    }
+  };
 
   pi.on("session_start", async (_event, ctx: any) => {
     if (conductorTimer) clearInterval(conductorTimer); conductorContext = ctx; conductorTimer = setInterval(() => { void advanceConductor(); }, 1000); conductorTimer.unref?.(); await advanceConductor();
@@ -62,7 +71,7 @@ export function registerCanonicalDagRuntime(pi: ExtensionAPI, service = new DagC
   });
   pi.on("agent_end", async () => { await advanceConductor(); await refreshWidget(); });
   pi.on("session_shutdown", async () => {
-    if (conductorTimer) clearInterval(conductorTimer); conductorTimer = null; conductorContext = null;
+    if (conductorTimer) clearInterval(conductorTimer); conductorTimer = null; conductorContext = null; await service.detach();
     if (widgetTimer) clearInterval(widgetTimer); widgetTimer = null;
     widgetContext?.ui?.setWidget("canonical-dag-run", undefined); widgetContext = null; widgetTui = null; widgetProjection = null; widgetDiagnostic = null;
   });

@@ -35,6 +35,8 @@ import {
   type CanonicalDagPlanV1,
 } from "./plan.ts";
 
+export const MAX_OWNERSHIP_LINEAGE_DEPTH_V1 = 4096;
+
 export interface StageEvidenceFactBindingV1 {
   kind: "stage_evidence";
   hash: string;
@@ -2556,7 +2558,7 @@ function validateOwnershipReceiptChain(state: DagRunStateV1, context: DagRunVali
   let receiptHash: string | null = state.owner.ownershipReceipt;
   let expectedEpoch = state.owner.ownerEpoch;
   const visited = new Set<string>();
-  for (let depth = 0; receiptHash !== null && depth < 64; depth += 1) {
+  for (let depth = 0; receiptHash !== null && depth < MAX_OWNERSHIP_LINEAGE_DEPTH_V1; depth += 1) {
     const fact = context.facts[receiptHash] as any;
     const path = `/owner/ownershipReceipt/chain/${expectedEpoch}`;
     if (!fact || fact.kind !== "ownership" || fact.hash !== receiptHash || fact.hash !== hashWithoutField(fact, "hash") || fact.runId !== state.runId || fact.runNonce !== state.runNonce) {
@@ -2585,7 +2587,7 @@ function validateOwnershipReceiptChain(state: DagRunStateV1, context: DagRunVali
     receiptHash = predecessorHash;
     expectedEpoch -= 1;
   }
-  pushIssue(issues, "/owner/ownershipReceipt", receiptHash === null && expectedEpoch === 0, "ownership receipt lineage must terminate exactly at epoch one within 64 epochs");
+  pushIssue(issues, "/owner/ownershipReceipt", receiptHash === null && expectedEpoch === 0, "ownership receipt lineage must terminate exactly at epoch one within the bounded lineage depth");
 }
 
 function isPostTerminalClosureEffect(kind: string): boolean {

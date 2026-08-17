@@ -233,6 +233,7 @@ export default function dagWorkflow(pi: ExtensionAPI) {
     getActiveFocus: modelIntegration.getActiveFocus,
     conductor,
   });
+  workerManager.onTerminalResult(() => conductor.wakeActive().catch((error) => console.error(`DAG worker-completion wake failed: ${error.message}`)));
 
   pi.registerCommand("dag", {
     description: "Model brainstorming, planning, exact inspection, and session-bound DAG execution",

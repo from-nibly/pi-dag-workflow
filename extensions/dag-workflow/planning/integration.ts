@@ -94,7 +94,7 @@ interface ActiveFocus {
 
 interface IntegrationOptions {
   getActiveFocus(ctx: any): ActiveFocus | Promise<ActiveFocus>;
-  conductor: Pick<DagConductorServiceV1, "binding" | "status" | "inspect" | "advance" | "startPrepared" | "startIdentity"> & Partial<Pick<DagConductorServiceV1, "pendingStart">>;
+  conductor: Pick<DagConductorServiceV1, "binding" | "status" | "inspect" | "activate" | "startPrepared" | "startIdentity"> & Partial<Pick<DagConductorServiceV1, "pendingStart">>;
 }
 
 interface ParsedCommandInput {
@@ -337,7 +337,7 @@ export function registerDagPlanningIntegrationV1(pi: ExtensionAPI, options: Inte
         const source = await options.conductor.startIdentity(ctx, binding.runId);
         if (source.sourcePlanningPlanId !== selected.planId || source.sourcePlanningPlanHash !== selected.planHash) throw new Error("Explicit plan selector does not match the exact current-session run source");
       }
-      const advanced = await options.conductor.advance(ctx, binding.runId, new Date().toISOString());
+      const advanced = await options.conductor.activate(ctx, binding.runId, new Date().toISOString());
       const live = await options.conductor.status(ctx, binding.runId);
       ctx.ui.notify(runSummary(binding, advanced.state, live.projection), "info");
       return;
@@ -379,7 +379,7 @@ export function registerDagPlanningIntegrationV1(pi: ExtensionAPI, options: Inte
       sourcePlanningPlanHash: selected.planHash,
     });
     bindPlan(pi, ctx, root, selected);
-    const advanced = await options.conductor.advance(ctx, started.state.runId, occurredAt);
+    const advanced = await options.conductor.activate(ctx, started.state.runId, occurredAt);
     ctx.ui.notify(runSummary(started.binding, advanced.state, null), "info");
   }
 

@@ -27,7 +27,7 @@ Tracked Markdown under `spec/` is a deterministic readable projection of accepte
 ## Install
 
 ```nu
-pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.1.1
+pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.1.2
 ```
 
 ## Model brainstorming commands
@@ -163,7 +163,7 @@ The deterministic scheduler separates correctness readiness from lane/resource/m
 
 Real-Git integration uses core-only repository preflight, immutable private refs, explicit-base `merge-tree`, deterministic one-parent `commit-tree`, plan-hashed executable prefix/final verification profiles, and a guarded ordinary fast-forward in the clean session-bound worktree. Target old/new/third reconciliation and immutable receipts make every failpoint recoverable without reset, stash, force update, or conductor conflict edits.
 
-The reducer-driven F0–F8 lifecycle publishes immutable attempt, launch, worker-result, candidate, check, environment, finding, integration, and cleanup facts before they can advance authority. Owner takeover and prior-session worker reconciliation are process-identity fenced. Detached evaluation observes committed snapshot identities asynchronously, retains privacy-safe bounded accumulators and envelopes, and cannot affect execution. The dogfood portfolio runs six counterbalanced serial/parallel pairs (twelve canonical executions) plus separate recovery drills.
+The reducer-driven F0–F8 lifecycle publishes immutable attempt, launch, worker-result, candidate, check, environment, finding, integration, and cleanup facts before they can advance authority. Session attachment and exact terminal-worker ingestion wake one coalesced service-owned conductor pump, so procedure reconciliation seals stages and dispatches newly ready work without another user command. A fresh conductor service in the same exact session/process CAS-transfers to a new owner epoch before mutation instead of treating a long-lived Pi wrapper PID as proof that the prior pump is still operational; old commands are fenced by epoch/token/revision checks. Different-process takeover still requires exact proven-dead reattachment. Owner takeover and prior-session worker reconciliation remain process-identity fenced. Detached evaluation observes committed snapshot identities asynchronously, retains privacy-safe bounded accumulators and envelopes, and cannot affect execution. The dogfood portfolio runs six counterbalanced serial/parallel pairs (twelve canonical executions) plus separate recovery drills.
 
 Separate `/dag review`, `/dag retro`, and `/dag archive` product workflows are not implemented. `/dag chunk` is intentionally folded into `/dag plan`. GrillMe, promotion, legacy prompt workflows, the dormant `dag_subagent` adapter, the `pi-subagents` dependency, and model-unaware mutating DAG tools are removed.
 

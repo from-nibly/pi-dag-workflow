@@ -2039,19 +2039,22 @@ try {
   } });
   const conductorCtx = { cwd: conductorRoot, sessionManager: { getSessionId: () => "session-conductor", getSessionFile: () => null, getHeader: () => ({ type: "session", id: "session-conductor", cwd: conductorRoot }) } };
 
-  const exerciseCrossProcessAdapterWindow = async (adapterKind) => {
+  const exerciseCrossProcessAdapterWindow = async (adapterKind, ownerResumeBoundary = null, crossSession = false) => {
     const root = await mkdtemp(join(tmpdir(), `pi-dag-owner-${adapterKind}-`)); let identityChild = null;
     try {
       await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
       const artifacts = join(root, ".ai", "start-artifacts"); await mkdir(artifacts, { recursive: true });
       await writeFile(join(artifacts, "plan.json"), canonicalStringify(plan)); await writeFile(join(artifacts, "genesis.json"), canonicalStringify(conductorGenesis)); await writeFile(join(artifacts, "context.json"), canonicalStringify(conductorContext));
       const sessionId = `session-owner-${adapterKind}`; const ctx = { cwd: root, sessionManager: { getSessionId: () => sessionId, getSessionFile: () => null, getHeader: () => ({ type: "session", id: sessionId, cwd: root }) } };
+      const successorSessionId = crossSession ? `${sessionId}-successor` : sessionId;
+      const successorCtx = { cwd: root, sessionManager: { getSessionId: () => successorSessionId, getSessionFile: () => null, getHeader: () => ({ type: "session", id: successorSessionId, cwd: root }) } };
       const baseLifecycle = conductor.lifecycle; let initialCalls = 0; let successorCalls = 0;
       const initialLifecycle = adapterKind === "procedure"
         ? { ...baseLifecycle, procedure: { ...baseLifecycle.procedure, async executeExact() { initialCalls += 1; throw new Error("task113 procedure window"); } } }
         : { ...baseLifecycle, worker: { ...baseLifecycle.worker, async launchExact() { initialCalls += 1; throw new Error("task113 worker window"); } } };
       const starter = new DagConductorServiceV1({ lifecycle: initialLifecycle });
-      await assert.rejects(() => starter.start(ctx, { runId: conductorGenesis.runId, runNonce: conductorGenesis.runNonce, planHash: plan.planHash, planPath: ".ai/start-artifacts/plan.json", genesisPath: ".ai/start-artifacts/genesis.json", contextPath: ".ai/start-artifacts/context.json", maxActiveNodes: 1, occurredAt: NOW }), new RegExp(`task113 ${adapterKind} window`), `${adapterKind} fixture stops after durable dispatch and before external acknowledgement`);
+      await starter.startPrepared(ctx, { runId: conductorGenesis.runId, runNonce: conductorGenesis.runNonce, planHash: plan.planHash, maxActiveNodes: 1, occurredAt: NOW, plan, genesis: conductorGenesis, context: conductorContext, seedFacts: baselineFactValues, sourcePlanningPlanId: `planning-${adapterKind}`, sourcePlanningPlanHash: canonicalHash({ planning: adapterKind }) });
+      await assert.rejects(() => starter.activate(ctx, conductorGenesis.runId, NOW), new RegExp(`task113 ${adapterKind} window`), `${adapterKind} fixture stops after durable dispatch and before external acknowledgement`);
       assert.equal(initialCalls, 1, `${adapterKind} fixture reaches exactly one external adapter call`);
       const binding = await starter.binding(ctx); const store = new DagRunSnapshotStoreV1(join(root, ".ai", "dag-runs-v1"), conductorGenesis.runId); const persistedContext = parseStrictJson(await readFile(join(store.runDirectory, "authority", "context.json"), "utf8")); const state = await store.read(persistedContext);
       const dispatchingEffects = Object.values(state.effects).filter((effect) => effect.state === "dispatching");
@@ -2073,16 +2076,28 @@ try {
       const successorLifecycle = adapterKind === "procedure"
         ? { ...baseLifecycle, procedure: { ...baseLifecycle.procedure, async executeExact() { successorCalls += 1; await writeFile(marker, "procedure\n"); return null; } } }
         : { ...baseLifecycle, worker: { ...baseLifecycle.worker, async launchExact(request, exactState) { successorCalls += 1; await writeFile(marker, "worker\n"); return baseLifecycle.worker.launchExact(request, exactState); } } };
-      const successor = new DagConductorServiceV1({ lifecycle: successorLifecycle });
-      await assert.rejects(() => successor.advance(ctx, transferred.state.runId, NOW), /Current process does not own the exact DAG conductor epoch/, `${adapterKind} successor is fenced before external work`);
+      let ownerResumeFailed = false;
+      let successor = new DagConductorServiceV1({ lifecycle: successorLifecycle, ownerResumeFailpoint(point) { if (!ownerResumeFailed && point === ownerResumeBoundary) { ownerResumeFailed = true; throw new Error(`explicit-owner-resume-crash:${point}`); } } });
+      await assert.rejects(() => successor.advance(successorCtx, transferred.state.runId, NOW), /Current conductor service does not own the exact DAG epoch|No exact current-session binding/, `${adapterKind} successor is fenced before external work`);
       assert.equal(successorCalls, 0, `${adapterKind} adapter is not invoked before current-process ownership proof`); await assert.rejects(() => readFile(marker, "utf8"), /ENOENT/, `${adapterKind} marker is absent before reattach`);
       const guard = { runId: transferred.state.runId, runNonce: transferred.state.runNonce, expectedRevision: transferred.state.revision, expectedSnapshotHash: transferred.state.snapshotHash, ownerEpoch: transferred.state.owner.ownerEpoch, commandId: `owner-${adapterKind}-reattach`, idempotencyKey: `owner-${adapterKind}-reattach`, occurredAt: NOW };
-      const reattached = await successor.reattach(ctx, guard); await successor.advance(ctx, reattached.runId, NOW);
+      let reattached;
+      if (ownerResumeBoundary) {
+        await assert.rejects(() => successor.reattach(successorCtx, guard), new RegExp(`explicit-owner-resume-crash:${ownerResumeBoundary}`));
+        await successor.detach();
+        successor = new DagConductorServiceV1({ lifecycle: successorLifecycle });
+      }
+      reattached = await successor.reattach(successorCtx, guard);
+      const recoveredStartIdentity = await successor.startIdentity(successorCtx, reattached.runId);
+      assert.equal(recoveredStartIdentity.sourcePlanningPlanId, `planning-${adapterKind}`, `${ownerResumeBoundary ?? "ordinary"} explicit reattach preserves the exact active start identity`);
+      await successor.advance(successorCtx, reattached.runId, NOW);
       assert(successorCalls >= 1, `${adapterKind} external recovery runs only after exact dead-owner reattach`); assert.equal((await readFile(marker, "utf8")).trim(), adapterKind);
     } finally { identityChild?.kill("SIGKILL"); await rm(root, { recursive: true, force: true }); }
   };
   await exerciseCrossProcessAdapterWindow("procedure");
   await exerciseCrossProcessAdapterWindow("worker");
+  await exerciseCrossProcessAdapterWindow("procedure", null, true);
+  for (const boundary of ["after_owner_transfer", "after_owner_binding", "after_owner_start_identity"]) await exerciseCrossProcessAdapterWindow("procedure", boundary, true);
 
   const conductorStarted = await conductor.start(conductorCtx, { runId: conductorGenesis.runId, runNonce: conductorGenesis.runNonce, planHash: plan.planHash, planPath: ".ai/start-artifacts/plan.json", genesisPath: ".ai/start-artifacts/genesis.json", contextPath: ".ai/start-artifacts/context.json", maxActiveNodes: 1, occurredAt: NOW });
   assert.equal(conductorStarted.state.owner.ownerEpoch, 1, "conductor emits the fully chained epoch-one ownership receipt");
@@ -2118,7 +2133,7 @@ try {
   const restartedLifecycle = { ...conductor.lifecycle, integration: { async reconcileExact({ reservation }) { assert.equal(reservation.operationKind, "integration"); integrationDelegations += 1; await execFileAsync("git", ["update-ref", integrationMarkerRef, integrationMarkerOid], { cwd: conductorRoot }); } } };
   const restartedConductor = new DagConductorServiceV1({ lifecycle: restartedLifecycle });
   const delegationsBeforeOwnershipProof = integrationDelegations;
-  await assert.rejects(() => restartedConductor.advance(conductorCtx, abandonedTransfer.state.runId, NOW), /Current process does not own the exact DAG conductor epoch/, "same-session successor cannot enter automatic integration work before explicit dead-owner reattach");
+  await assert.rejects(() => restartedConductor.advance(conductorCtx, abandonedTransfer.state.runId, NOW), /Current conductor service does not own the exact DAG epoch/, "same-session successor cannot enter automatic integration work before explicit dead-owner reattach");
   assert.equal(integrationDelegations, delegationsBeforeOwnershipProof, "current ownership proof runs before invoking the integration adapter");
   await assert.rejects(() => execFileAsync("git", ["rev-parse", "--verify", integrationMarkerRef], { cwd: conductorRoot }), "successor cannot change any Git ref before exact reattach");
   const abandonedGuard = { runId: abandonedTransfer.state.runId, runNonce: abandonedTransfer.state.runNonce, expectedRevision: abandonedTransfer.state.revision, expectedSnapshotHash: abandonedTransfer.state.snapshotHash, ownerEpoch: abandonedTransfer.state.owner.ownerEpoch, commandId: "conductor-same-session-reattach", idempotencyKey: "conductor-same-session-reattach", occurredAt: NOW };
@@ -2216,9 +2231,9 @@ try {
   const cancelledAttemptId = cancelledLifecycle.state.workItems["item-api"].stages.F1.currentAttemptId;
   assert.equal(cancelledLifecycle.state.workItems["item-api"].stages.F1.state, "blocked"); assert.equal(cancelledLifecycle.state.workItems["item-api"].stages.F1.lastDisposition, "BLOCKED", "retry-safe cancelled terminal canonically seals BLOCKED");
   assert.equal(cancelledLifecycle.adapters.procedureCalls.get(cancelledAttemptId), 1, "cancelled terminal seals in one lifecycle procedure pass");
-  const revision = cancelledLifecycle.state.revision; const restarted = new DagConductorServiceV1({ lifecycle: cancelledLifecycle.adapters.options });
-  const afterRestart = await restarted.advance(cancelledLifecycle.ctx, cancelledLifecycle.state.runId, NOW);
-  assert.equal(afterRestart.state.revision, revision); assert.equal(cancelledLifecycle.adapters.procedureCalls.get(cancelledAttemptId), 1, "restart observes the sealed cancelled attempt without a retry loop");
+  const revision = cancelledLifecycle.state.revision; await cancelledLifecycle.conductor.detach(); const restarted = new DagConductorServiceV1({ lifecycle: cancelledLifecycle.adapters.options });
+  const afterRestart = await restarted.activate(cancelledLifecycle.ctx, cancelledLifecycle.state.runId, new Date(Date.parse(cancelledLifecycle.state.updatedAt) + 1).toISOString());
+  assert.equal(afterRestart.state.revision, revision + 1); assert.equal(afterRestart.state.owner.ownerEpoch, cancelledLifecycle.state.owner.ownerEpoch + 1, "fresh same-process service fences the prior owner generation"); assert.equal(cancelledLifecycle.adapters.procedureCalls.get(cancelledAttemptId), 1, "restart observes the sealed cancelled attempt without a retry loop");
 } finally {
   await cancelledLifecycle.manager.detach(); await rm(cancelledLifecycle.root, { recursive: true, force: true });
   if (cancelledLifecycle.priorMode === undefined) delete process.env.FAKE_WORKER_RPC_MODE; else process.env.FAKE_WORKER_RPC_MODE = cancelledLifecycle.priorMode;
@@ -2231,14 +2246,14 @@ for (const launchCrash of ["dispatch_recorded", "launch_returned"]) {
     const attemptId = recoveryLifecycle.state.workItems["item-api"].stages.F1.currentAttemptId;
     const attempt = recoveryLifecycle.state.stageAttempts[attemptId]; const launch = recoveryLifecycle.state.launchIntents[attempt.launchIntentId]; const launchEffectBeforeCancellation = recoveryLifecycle.state.effects[launch.effectId];
     assert.equal(launchEffectBeforeCancellation.state, "dispatching"); assert.equal(launchEffectBeforeCancellation.dispatchCount, 1); assert.equal(recoveryLifecycle.state.workerBindings[attemptId], undefined, `${launchCrash} crash leaves durable dispatch authority without a DAG worker binding`);
-    const restarted = new DagConductorServiceV1({ lifecycle: recoveryLifecycle.adapters.options });
+    const restarted = recoveryLifecycle.conductor;
     const guard = { runId: recoveryLifecycle.state.runId, runNonce: recoveryLifecycle.state.runNonce, expectedRevision: recoveryLifecycle.state.revision, expectedSnapshotHash: recoveryLifecycle.state.snapshotHash, ownerEpoch: recoveryLifecycle.state.owner.ownerEpoch, commandId: `cancel-prebind-${launchCrash}`, idempotencyKey: `cancel-prebind-${launchCrash}`, occurredAt: NOW };
     let cancelled = await restarted.control(recoveryLifecycle.ctx, guard, "cancel", `recover ${launchCrash} launch only to cancel its exact worker`);
     const cancellationId = `cancel-${guard.commandId}`;
     assert.equal(cancelled.effects[launch.effectId].state, "ambiguous"); assert.equal(cancelled.blockers[`cancellation-effect-${launch.effectId}`].active, true, "dispatched launch is never inferred absent when cancellation starts");
     for (let pass = 0; pass < 150 && cancelled.cancellations[cancellationId].state !== "closed"; pass += 1) {
       await new Promise((resolveWait) => setTimeout(resolveWait, 20));
-      cancelled = (await restarted.advance(recoveryLifecycle.ctx, cancelled.runId, NOW)).state;
+      cancelled = (await restarted.activate(recoveryLifecycle.ctx, cancelled.runId, new Date(Date.parse(cancelled.updatedAt) + 1).toISOString())).state;
     }
     assert.equal(cancelled.cancellations[cancellationId].state, "closed", `${launchCrash} restart recovers, binds, cancels, and exactly closes the pre-bind worker`);
     assert.equal(cancelled.effects[launch.effectId].reconciliation, "applied_exact", "the original launch effect is reconciled under its unchanged durable identity");
@@ -2302,11 +2317,13 @@ try {
 } finally { await rm(ownedIdentityRoot, { recursive: true, force: true }); }
 
 const conductorPi = { tools: [], handlers: new Map(), registerTool(tool) { this.tools.push(tool); }, on(event, handler) { this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]); } };
-registerCanonicalDagRuntime(conductorPi, { async binding() { return null; } });
+let conductorResumeCalls = 0;
+registerCanonicalDagRuntime(conductorPi, { async binding() { return null; }, async resumeBound() { conductorResumeCalls += 1; return null; }, detach() {} });
 assert.deepEqual(conductorPi.tools.map(({ name }) => name).sort(), ["dag_run_control", "dag_run_diagram", "dag_run_explain", "dag_run_inspect", "dag_run_reattach", "dag_run_retry", "dag_run_start", "dag_run_status", "dag_run_tail"], "conductor exposes exactly five read-only and four guarded mutation tools");
 assert(conductorPi.tools.every(({ parameters }) => parameters.additionalProperties === false), "all nine conductor tools reject unknown fields");
 for (const handler of conductorPi.handlers.get("session_start") ?? []) await handler({}, { hasUI: false, cwd: "/tmp", sessionManager: { getSessionId: () => "headless" }, ui: {} });
+assert(conductorResumeCalls >= 1, "session attachment wakes the coalesced conductor resume path instead of calling raw advancement");
 const tuiCalls = []; const tuiContext = { hasUI: true, mode: "tui", cwd: "/tmp", sessionManager: { getSessionId: () => "tui-session" }, ui: { setWidget(id, value) { tuiCalls.push({ id, value }); } } }; for (const handler of conductorPi.handlers.get("session_start") ?? []) { await handler({}, tuiContext); await handler({}, tuiContext); } assert.equal(tuiCalls.filter(({ value }) => typeof value === "function").length, 2, "unbound TUI sessions install the passive widget and repeated session starts replace it deterministically"); for (const handler of conductorPi.handlers.get("session_start") ?? []) await handler({}, { hasUI: false, mode: "rpc", cwd: "/tmp", sessionManager: { getSessionId: () => "headless-after-tui" }, ui: {} }); assert.equal(tuiCalls.at(-1).value, undefined, "a subsequent headless session start removes the prior TUI widget before returning"); for (const handler of conductorPi.handlers.get("session_shutdown") ?? []) await handler(); assert.equal(tuiCalls.at(-1).value, undefined, "session shutdown tears down the installed widget after clearing the current timer");
-const failClosedPi = { tools: [], handlers: new Map(), registerTool(tool) { this.tools.push(tool); }, on(event, handler) { this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]); } }; let statusReads = 0; registerCanonicalDagRuntime(failClosedPi, { async binding() { return { runId: executionProjection.runId }; }, async advance() {}, async status() { statusReads += 1; if (statusReads > 1) throw new Error("identity mismatch/corrupt projection"); return { projection: executionProjection, stale: null, state: { completion: { state: "open" }, current: { run: "active" } } }; } }); let widgetFactory = null; const failClosedContext = { hasUI: true, mode: "tui", cwd: "/tmp", sessionManager: { getSessionId: () => "fail-closed" }, ui: { setWidget(_id, value) { if (typeof value === "function") widgetFactory = value; } } }; for (const handler of failClosedPi.handlers.get("session_start") ?? []) await handler({}, failClosedContext); const failClosedComponent = widgetFactory({ terminal: { rows: 24 }, requestRender() {} }); assert(failClosedComponent.render(120).some((line) => line.startsWith("DAG ")), "widget renders a valid exact projection before a read error"); for (const handler of failClosedPi.handlers.get("agent_end") ?? []) await handler(); const failedLines = failClosedComponent.render(120); assert(failedLines.some((line) => line.includes("FAIL-CLOSED")) && !failedLines.some((line) => line.includes(" | lanes ") || line.startsWith("read-only;")), "corruption and identity errors suppress the prior graph instead of mixing it with diagnostics"); for (const handler of failClosedPi.handlers.get("session_shutdown") ?? []) await handler();
+const failClosedPi = { tools: [], handlers: new Map(), registerTool(tool) { this.tools.push(tool); }, on(event, handler) { this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]); } }; let statusReads = 0; registerCanonicalDagRuntime(failClosedPi, { async binding() { return { runId: executionProjection.runId }; }, async resumeBound() {}, detach() {}, async status() { statusReads += 1; if (statusReads > 1) throw new Error("identity mismatch/corrupt projection"); return { projection: executionProjection, stale: null, state: { completion: { state: "open" }, current: { run: "active" } } }; } }); let widgetFactory = null; const failClosedContext = { hasUI: true, mode: "tui", cwd: "/tmp", sessionManager: { getSessionId: () => "fail-closed" }, ui: { setWidget(_id, value) { if (typeof value === "function") widgetFactory = value; } } }; for (const handler of failClosedPi.handlers.get("session_start") ?? []) await handler({}, failClosedContext); const failClosedComponent = widgetFactory({ terminal: { rows: 24 }, requestRender() {} }); assert(failClosedComponent.render(120).some((line) => line.startsWith("DAG ")), "widget renders a valid exact projection before a read error"); for (const handler of failClosedPi.handlers.get("agent_end") ?? []) await handler(); const failedLines = failClosedComponent.render(120); assert(failedLines.some((line) => line.includes("FAIL-CLOSED")) && !failedLines.some((line) => line.includes(" | lanes ") || line.startsWith("read-only;")), "corruption and identity errors suppress the prior graph instead of mixing it with diagnostics"); for (const handler of failClosedPi.handlers.get("session_shutdown") ?? []) await handler();
 
 console.log("Canonical DAG plan and run-state schema tests OK; scheduler/store/worker-binding/integration probes and chained conductor ownership receipts pass");
