@@ -5827,18 +5827,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-17T02:18:45.028Z",
+        "acceptedAt": "2026-08-17T18:35:48.362Z",
         "actor": "user",
-        "batchRef": "sha256:7aca564cb0a527da4b8cad774ec87a79d6c0030ec638d9733eebeb8414bf81b0",
-        "contentHash": "sha256:df9f96af484c53cb505cfbde779db9793b0f3f51af275145b1121164ef2270fa",
-        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1786932584258",
+        "batchRef": "sha256:2cdb4cfb2ec44e54358f213ded886b4e8613ab459575106a7642a59971ee16e5",
+        "contentHash": "sha256:868e78611284cff7436e0274a698ad26c973074534181081018b35ed7dfd7942",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1786990409682",
         "mode": "direct_direction"
       },
-      "body": "Exactly one conductor may mutate a run. The atomic snapshot store acquires a process-shared OS/filesystem exclusive lock, validates snapshot schema/hash, and compares expected revision, previous hash, owner epoch/token, and PID/start identity before invoking the reducer. Successful writes fsync temporary content, atomically rename, and fsync the parent directory before effects become dispatchable. Run conductor ownership is independent from generic worker-session/completion-delivery ownership. An exact direct Pi-session fork may automatically transfer the run only with hash-bound lineage and proof that the source owner is absent/dead or is the same manager; all other attach/takeover requires explicit reattachment plus proven-dead prior ownership. Live, mismatched, concurrent, or ambiguous ownership blocks mutation and exposes read-only diagnostics; lock expiry or stale heartbeat alone never proves death. Operational liveness must not be inferred solely from a long-lived Pi session-wrapper PID: each attached conductor service holds an in-memory exact owner generation, and a fresh service in the same exact session/process must CAS-transfer to a new same-manager epoch before mutation. That epoch transfer fences any prior command-scoped pump even while the host wrapper remains alive. A different process still requires the existing proven-dead/direct-lineage rules.",
+      "body": "Exactly one conductor may mutate a run. The atomic snapshot store acquires a process-shared OS/filesystem exclusive lock, validates snapshot schema/hash, and compares expected revision, previous hash, owner epoch/token, and PID/start identity before invoking the reducer. Successful writes fsync temporary content, atomically rename, and fsync the parent directory before effects become dispatchable. Run conductor ownership is independent from generic worker-session/completion-delivery ownership. An exact direct Pi-session fork may automatically transfer the run only with hash-bound lineage and proof that the source owner is absent/dead or is the same manager; all other attach/takeover requires explicit reattachment plus proven-dead prior ownership. Live, mismatched, concurrent, or ambiguous ownership blocks mutation and exposes read-only diagnostics; lock expiry or stale heartbeat alone never proves death. Operational liveness must not be inferred solely from a long-lived Pi session-wrapper PID: each attached conductor service holds an in-memory exact owner generation, and a fresh service in the same exact session/process must CAS-transfer to a new same-manager epoch before mutation. That epoch transfer fences any prior command-scoped pump even while the host wrapper remains alive. A different process still requires the existing proven-dead/direct-lineage rules. A conductor error terminates the current pump immediately: every caller sharing that pump receives the same rejection, and no dirty or background wake may silently create or adopt a successor retry. The error must bubble to the top-level agent for diagnosis and explicit handling; only a later explicit top-level retry may clear the latched fault and start a new attempt.",
       "createdAt": "2026-08-03T18:34:55.189Z",
       "id": "DEC-process-shared-dag-conductor-ownership-v1",
       "introducedBy": "agent",
-      "rationale": "Process-local promise queues and atomic rename cannot prevent two Pi processes from losing updates. Direct-fork continuity remains convenient without allowing ambiguous or arbitrary ownership transfer.",
+      "rationale": "Process-local promise queues and atomic rename cannot prevent two Pi processes from losing updates. Direct-fork continuity remains convenient without allowing ambiguous or arbitrary ownership transfer. Terminal error propagation and explicit fault clearing prevent deterministic authority failures from becoming hidden retry loops that wedge the top-level agent and shutdown.",
       "relationships": [
         {
           "kind": "addresses",
@@ -5863,13 +5863,14 @@
         "PROP-process-shared-dag-conductor-ownership-v1"
       ],
       "sourceRefs": [
+        "DISC-v012-explicit-reattach-requires-settled-agent-wake",
         "DISC-worker-session-serialization-is-only-process-local",
         "EV-dag-run-state-adversarial-review",
         "PROP-process-shared-dag-conductor-ownership-v1"
       ],
       "state": "accepted",
       "title": "Use process-shared locking, owner epochs, and direct-fork-only automatic transfer",
-      "updatedAt": "2026-08-17T02:18:45.028Z"
+      "updatedAt": "2026-08-17T18:35:48.362Z"
     },
     {
       "acceptance": {
@@ -10159,6 +10160,33 @@
       "updatedAt": "2026-08-04T14:40:39.757Z"
     },
     {
+      "body": "Independent adversarial review found that an instance-local fault latch would be lost on conductor service or process replacement, allowing session_start/timer activation to retry without explicit diagnosis. It also found that dirty wakes must preserve their own occurredAt rather than inherit the first pump timestamp. The follow-up patch now publishes a hash-validated durable per-run fault marker before rejecting callers, suppresses background resume across service replacement, removes the marker only through explicit retry, and tracks the latest dirty wake timestamp for successor passes.",
+      "createdAt": "2026-08-17T20:50:09.481Z",
+      "id": "DISC-terminal-conductor-faults-require-durable-latch",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-process-shared-dag-conductor-ownership-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "worker:worker-msxjzpvg-b604841255:attempt:1"
+      ],
+      "state": "integrated",
+      "title": "Terminal conductor faults require durable restart fencing",
+      "updatedAt": "2026-08-17T20:50:09.481Z"
+    },
+    {
       "body": "Pi's structured-output pattern makes the tool call the final action in that Pi agent run and exposes its typed result to the caller/client. In the owned async architecture, the caller is the detached RPC supervisor—not the already-settled top-level agent. Therefore `subagent_report` itself supplies the worker summary and eliminates any extra child assistant response, but it does not replace durable result writing, parent watcher ingestion, serial queueing, or a later `pi.sendMessage(..., { deliverAs: \"followUp\", triggerTurn: true })` to wake the top-level agent. The supervisor should still wait for `agent_settled`, persist the immutable result, and close the child RPC process.",
       "confidence": "high",
       "createdAt": "2026-07-30T18:30:40.475Z",
@@ -10313,6 +10341,36 @@
       "state": "integrated",
       "title": "Useful parallelism is overlap that survives evidence and integration",
       "updatedAt": "2026-08-04T14:40:39.757Z"
+    },
+    {
+      "body": "After v0.1.2 was published/applied, the original Operant Pi hot reload did not re-register `/dag`; the session was cleanly stopped and old PID 3392234 proven dead. A fresh exact session called guarded `dag_run_reattach` once, advancing canonical authority from r17/epoch1 to r18/epoch2 without direct file edits. The same long response continued investigating, and queued reload/run inputs prevented a clean agent-settled boundary; F0 remained unsealed and F1 undispatched. SIGTERM then could not complete because async conductor detach drains the in-flight/queued pump, so the process required SIGKILL and epoch2 is now proven dead. This is operational evidence that recovery verification must isolate reattachment from long/queued agent work and that shutdown drain needs a bounded or cancellable path if a pump cannot settle.",
+      "createdAt": "2026-08-17T15:32:58.580Z",
+      "id": "DISC-v012-explicit-reattach-requires-settled-agent-wake",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "EV-canonical-conductor-liveness-regression-fix"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "EV-operant-run-64e81c4f-stalled-after-f0-reconcile"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-canonical-conductor-liveness-regression-fix",
+        "EV-operant-run-64e81c4f-stalled-after-f0-reconcile"
+      ],
+      "state": "integrated",
+      "title": "Operant proven-dead reattachment advanced ownership but the first recovery turn did not pump",
+      "updatedAt": "2026-08-17T15:32:58.580Z"
     },
     {
       "body": "Scheduler terminology overloaded “downstream.” The protected capacity serves later F2/F4/F5/F6/F7/F8 and integration operations for nodes that already produced candidates. It does not make a separate causally dependent work item ready. Under the accepted rule, a true consumer B remains blocked from F0 onward until producer A has a current accepted integration receipt and reconciled conductor-branch landing. Future-prefix speculation likewise cannot start B early.",
@@ -13693,32 +13751,20 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "The preserved incident proves the exact durable stop boundary and two recovery/liveness design defects, but not the transient trigger that ended the original pass; pre-fix pump errors were swallowed and no durable coordinator diagnostic exists. Canonical integration's session/timer/agent wakes and exact worker-terminal ingestion now enter a dirty-generation coalesced activation loop. Dirty settlement synchronously hands off to a successor pass, while asynchronous detach blocks new wakes and retains the service registry until in-flight external lifecycle work drains. Raw mutation requires the current service generation's in-memory lock, and a process-global registry prevents simultaneous live extension generations in one wrapper from stealing epochs. Same-manager recovery and explicit proven-dead recovery across distinct sessions replayably converge after owner, binding, or start-identity publication; pre-transfer placeholders cannot mutate intent. Current thin runs fail closed on missing intent, historical low-level runs remain compatible, and bounded lineage supports long-lived runs beyond 64 reloads. Focused suites, source and packed smoke, dogfood, evaluation, portfolio, and three independent adversarial audit rounds pass with no remaining blocker. The v0.1.2 candidate is ready for its clean committed release gate.",
-      "generatedAt": "2026-08-17T07:55:00.612Z",
+      "body": "v0.1.2 is released/applied, but real Operant recovery exposed two defects: recovered procedure evidence retained a pre-reconciliation producedAt and failed deterministic seal validation, while the pump rejection branch recursively adopted dirty successor pumps and trapped the top-level agent and shutdown in an error-retry loop. Direct user direction requires every conductor error to terminate the current pump immediately, reject all shared callers with the exact error, surface it to the top-level agent, latch the run fault against background wakes, and permit only an explicit later top-level retry. Independent audit showed that this latch must survive service/process replacement and dirty successor passes must retain the latest wake time; the local release patch now includes both protections plus reconciliation-time evidence closure. The Operant run is safely paused at r21/epoch4 with its recorded owner process dead and must remain stopped until the fixed package is applied.",
+      "generatedAt": "2026-08-17T20:50:09.481Z",
       "sourceObjects": [
         {
           "id": "EV-operant-run-64e81c4f-stalled-after-f0-reconcile",
           "semanticHash": "sha256:a6268e41ac324de9c84465daa5c1e954e59d09464ffac84c881f1b67025052a8"
         },
         {
-          "id": "EV-canonical-conductor-liveness-regression-fix",
-          "semanticHash": "sha256:ec36b5b0f585f56856153e0190b72be8f198c865fb3e631b398079a404063bca"
-        },
-        {
-          "id": "DISC-command-scoped-conductor-and-wrapper-pid-created-stall",
-          "semanticHash": "sha256:eaf7d41fedbc18d95623e5999798a75ac21a0d9aa9e3afd37d5b807946e780b5"
-        },
-        {
-          "id": "Q-exact-transient-trigger-for-operant-r17-pump-exit",
-          "semanticHash": "sha256:73f0d536f6d77bae953d4e04030bb149992bf0dae51261dacb3eb1b2c7adf707"
-        },
-        {
           "id": "DEC-process-shared-dag-conductor-ownership-v1",
-          "semanticHash": "sha256:df9f96af484c53cb505cfbde779db9793b0f3f51af275145b1121164ef2270fa"
+          "semanticHash": "sha256:868e78611284cff7436e0274a698ad26c973074534181081018b35ed7dfd7942"
         },
         {
-          "id": "DEC-fixed-evidence-producing-dag-node-lifecycle",
-          "semanticHash": "sha256:86337e2192533f66682358cc041e2b00cc9aefa0e08fbfd6558c2a3621065bcb"
+          "id": "DISC-terminal-conductor-faults-require-durable-latch",
+          "semanticHash": "sha256:c951900ed65d0800b114fcddf4164d600fb83133073a3a0da639aa102f10459d"
         }
       ]
     },
@@ -14058,9 +14104,9 @@
         }
       ]
     },
-    "revision": 214,
+    "revision": 218,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-17T07:55:00.612Z"
+    "updatedAt": "2026-08-17T20:50:09.481Z"
   },
   "proposals": [
     {

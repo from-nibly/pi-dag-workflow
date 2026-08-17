@@ -599,7 +599,7 @@ export class DagLifecycleRuntimeV1 {
 
     const execution = await this.store.readImmutableFact(effect.executionObservationHash) as any;
     const reconciliation = await this.store.readImmutableFact(effect.observationHash) as any;
-    const output = closeProcedureOutput(execution.result as DagProcedureExecutionResultV1, reconciliation.hash);
+    const output = closeProcedureOutput(execution.result as DagProcedureExecutionResultV1, reconciliation.hash, reconciliation.closedAt);
     const aggregate = await this.publishRef("check_aggregate", `aggregate-${attempt.stageAttemptId}`, output.checkAggregate);
     const evidence = await this.publishRef("stage_evidence", `evidence-${attempt.stageAttemptId}`, output.evidence);
     const oracleAssertions = await Promise.all((output.oracleAssertions ?? []).map((fact: any) => this.publishRef("oracle_assertion", String(fact.assertionId), fact)));
@@ -718,10 +718,10 @@ function assertProcedureOutput(output: DagProcedureExecutionResultV1, state: Dag
   if (DETERMINISTIC_STAGES.has(attempt.stage) && (attempt.producerKind !== "deterministic_runner" || !evidence.readOnly)) throw new Error(`${attempt.stage} must be deterministic and no-edit`);
 }
 
-function closeProcedureOutput(outputValue: DagProcedureExecutionResultV1, reconciliationHash: string): DagProcedureExecutionResultV1 {
+function closeProcedureOutput(outputValue: DagProcedureExecutionResultV1, reconciliationHash: string, reconciliationClosedAt: string): DagProcedureExecutionResultV1 {
   const output = structuredClone(outputValue) as any;
   const evidenceCore = Object.fromEntries(Object.entries(output.evidence ?? {}).filter(([key]) => key !== "hash"));
-  output.evidence = withHash({ ...evidenceCore, effectReconciliationHashes: [reconciliationHash] });
+  output.evidence = withHash({ ...evidenceCore, effectReconciliationHashes: [reconciliationHash], producedAt: reconciliationClosedAt });
   if (output.integrationReady) {
     const readyCore = Object.fromEntries(Object.entries(output.integrationReady).filter(([key]) => key !== "hash"));
     output.integrationReady = withHash({ ...readyCore, f8EvidenceHash: output.evidence.hash, effectsReconciled: true });

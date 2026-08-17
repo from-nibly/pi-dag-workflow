@@ -147,6 +147,14 @@ export default function dagWorkflow(pi: ExtensionAPI) {
     integrationFactory({ store, context, lock }) {
       return new DagReducerGitIntegrationDriverV1({ store, context, lock });
     },
+    onPumpError({ runId, error }) {
+      pi.sendMessage({
+        customType: "dag-conductor-error",
+        content: `Canonical DAG conductor ${runId} stopped on an exact error and will not retry automatically. Diagnose the durable run before explicitly retrying. Error: ${error.message}`,
+        display: true,
+        details: { runId, error: error.message },
+      }, { triggerTurn: true, deliverAs: "followUp" });
+    },
     lifecycle: {
       worker: {
         async launchExact(request) {

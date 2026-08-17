@@ -2253,7 +2253,8 @@ for (const launchCrash of ["dispatch_recorded", "launch_returned"]) {
     assert.equal(cancelled.effects[launch.effectId].state, "ambiguous"); assert.equal(cancelled.blockers[`cancellation-effect-${launch.effectId}`].active, true, "dispatched launch is never inferred absent when cancellation starts");
     for (let pass = 0; pass < 150 && cancelled.cancellations[cancellationId].state !== "closed"; pass += 1) {
       await new Promise((resolveWait) => setTimeout(resolveWait, 20));
-      cancelled = (await restarted.activate(recoveryLifecycle.ctx, cancelled.runId, new Date(Date.parse(cancelled.updatedAt) + 1).toISOString())).state;
+      const recover = pass === 0 ? restarted.retryActivation.bind(restarted) : restarted.activate.bind(restarted);
+      cancelled = (await recover(recoveryLifecycle.ctx, cancelled.runId, new Date(Date.parse(cancelled.updatedAt) + 1).toISOString())).state;
     }
     assert.equal(cancelled.cancellations[cancellationId].state, "closed", `${launchCrash} restart recovers, binds, cancels, and exactly closes the pre-bind worker`);
     assert.equal(cancelled.effects[launch.effectId].reconciliation, "applied_exact", "the original launch effect is reconciled under its unchanged durable identity");

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { canonicalHash } from "../extensions/dag-workflow/dag-runtime/common.ts";
 import { DagConductorServiceV1 } from "../extensions/dag-workflow/dag-runtime/conductor.ts";
+import { DagRunSnapshotStoreV1 } from "../extensions/dag-workflow/dag-runtime/store.ts";
 import { semanticHash } from "../extensions/dag-workflow/project-model/model.ts";
 import { registerDagPlanningIntegrationV1 } from "../extensions/dag-workflow/planning/integration.ts";
 import { createBuiltInLifecycleProcedureAdapterV1 } from "../extensions/dag-workflow/planning/runtime-adapter.ts";
@@ -101,6 +102,7 @@ class FakeConductor {
     if (!this.current || this.current.binding.runId !== runId) throw new Error("no fake binding");
     return { state: this.current.state, decision: { selected: [] } };
   }
+  async retryActivation(ctx, runId) { return this.activate(ctx, runId); }
   async status(_ctx, runId) {
     if (!this.current || this.current.binding.runId !== runId) throw new Error("no fake binding");
     return { state: this.current.state, decision: { selected: [] }, projection: { nodes: Object.keys(this.current.state.workItems).map((workItemId) => ({ workItemId })) }, stale: null };
@@ -271,12 +273,14 @@ test("plan, show, and run reach the real canonical runtime through the prepared 
     let conductor;
     const worker = waitingWorkerAdapter(launches, (count) => { terminalReads = count; });
     let publishedSettlementWake = false;
+    const settlementWakeAt = new Date(Date.now() + 60_000).toISOString(); const observedPumpTimes = [];
     conductor = new DagConductorServiceV1({
       lifecycle: { procedure: createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }), worker },
-      pumpFailpoint(point) {
+      pumpFailpoint(point, detail) {
+        if (point === "after_quiescent_check") observedPumpTimes.push(detail?.occurredAt);
         if (point === "after_quiescent_check" && !publishedSettlementWake) {
           publishedSettlementWake = true;
-          boundaryWake = conductor.wakeActive();
+          boundaryWake = conductor.wakeActive(settlementWakeAt);
         }
       },
     });
@@ -295,7 +299,45 @@ test("plan, show, and run reach the real canonical runtime through the prepared 
     assert.equal(status.state.workItems.commands.currentStage, "F1", "the real runtime reaches the owned implementation boundary");
     assert.equal(launches.length, 1, "post-F0 advancement dispatches the ready F1 worker without another run command");
     assert(terminalReads >= 2, "a wake published after the pump quiescence check hands off to a successor pass");
+    assert.equal(observedPumpTimes.at(-1), settlementWakeAt, "the successor pass preserves the latest dirty wake occurrence time");
     assert(status.state.workerBindings[Object.keys(status.state.stageAttempts).find((id) => status.state.stageAttempts[id].stage === "F1")], "the F1 attempt has an exact worker binding");
+  } finally { await rm(fx.root, { recursive: true, force: true }); }
+});
+
+test("delayed procedure recovery closes evidence at durable reconciliation time", async () => {
+  const fx = await fixture("delayed-procedure-recovery");
+  try {
+    const launches = [];
+    let interrupted = false;
+    const first = new DagConductorServiceV1({ lifecycle: {
+      procedure: createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }),
+      worker: waitingWorkerAdapter(launches),
+      failpoint(point) { if (!interrupted && point === "after_procedure_dispatch") { interrupted = true; throw new Error("simulated delayed procedure execution"); } },
+    } });
+    const integration = registerDagPlanningIntegrationV1(fx.pi, { getActiveFocus: () => ({ id: "focus-delivery", repositoryRoot: fx.root }), conductor: first });
+    await fx.pi.call("dag_plan_save", saveInput(), fx.ctx);
+    await approveAndAuthorize(fx, "delivery");
+    await integration.handleCommand("run", "--plan delivery@3", fx.ctx);
+    assert.match(fx.ui.messages.at(-1).text, /simulated delayed procedure execution/);
+    const binding = await first.binding(fx.ctx);
+    const interruptedState = (await first.status(fx.ctx, binding.runId)).state;
+    assert(Object.values(interruptedState.effects).some((effect) => effect.kind === "run_procedure" && effect.state === "dispatching"));
+    await first.detach();
+
+    const resumed = new DagConductorServiceV1({ lifecycle: {
+      procedure: createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }),
+      worker: waitingWorkerAdapter(launches),
+    } });
+    assert.equal(await resumed.resumeBound(fx.ctx), null, "a restarted service preserves the surfaced fault against background session wakes");
+    const recovered = await resumed.retryActivation(fx.ctx, binding.runId, new Date(Date.parse(interruptedState.updatedAt) + 1_000).toISOString());
+    const sealedF0 = Object.values(recovered.state.stageAttempts).find((attempt) => attempt.stage === "F0" && attempt.state === "sealed");
+    assert(sealedF0, "delayed execution/reconciliation seals F0 instead of retaining pre-closure evidence time");
+    const evidence = await new DagRunSnapshotStoreV1(join(fx.root, ".ai", "dag-runs-v1"), binding.runId).readImmutableFact(sealedF0.evidence.hash);
+    const effect = Object.values(recovered.state.effects).find((candidate) => candidate.boundStageAttemptId === sealedF0.stageAttemptId);
+    const reconciliation = await new DagRunSnapshotStoreV1(join(fx.root, ".ai", "dag-runs-v1"), binding.runId).readImmutableFact(effect.observationHash);
+    assert.equal(evidence.producedAt, reconciliation.closedAt, "closed evidence uses the durable reconciliation closure time");
+    assert.equal(launches.length, 1, "delayed F0 recovery reaches exact F1 dispatch");
+    await resumed.detach();
   } finally { await rm(fx.root, { recursive: true, force: true }); }
 });
 
@@ -326,9 +368,9 @@ test("a fresh conductor service fences the stale wrapper generation and resumes 
     });
     let activeService = new DagConductorServiceV1({ lifecycle: lifecycle() });
     let recoveryAt = new Date(Date.parse(interruptedState.updatedAt) + 1).toISOString();
-    await assert.rejects(() => activeService.activate(fx.ctx, binding.runId, recoveryAt), /Another conductor service generation is still operational/, "a concurrently live service generation cannot steal the wrapper-bound epoch");
+    await assert.rejects(() => activeService.retryActivation(fx.ctx, binding.runId, recoveryAt), /Another conductor service generation is still operational/, "an explicit retry still cannot steal a concurrently live wrapper-bound epoch");
     await first.detach();
-    let recovered = await activeService.activate(fx.ctx, binding.runId, recoveryAt);
+    let recovered = await activeService.retryActivation(fx.ctx, binding.runId, recoveryAt);
     assert.equal(recovered.state.owner.ownerEpoch, interruptedState.owner.ownerEpoch + 1, "fresh same-session service CAS-transfers to a new fencing epoch despite the live wrapper PID");
     assert.equal(launches.length, 1, "service recovery seals F0 and dispatches the ready F1 worker");
     assert.equal(recovered.state.workItems.commands.stages.F0.state, "passed");
@@ -344,7 +386,7 @@ test("a fresh conductor service fences the stale wrapper generation and resumes 
       await assert.rejects(() => crashing.activate(fx.ctx, binding.runId, recoveryAt), new RegExp(`owner-resume-crash:${boundary}`));
       await crashing.detach();
       activeService = new DagConductorServiceV1({ lifecycle: lifecycle() });
-      recovered = await activeService.activate(fx.ctx, binding.runId, new Date(Date.parse(recoveryAt) + 1).toISOString());
+      recovered = await activeService.retryActivation(fx.ctx, binding.runId, new Date(Date.parse(recoveryAt) + 1).toISOString());
       rebound = await activeService.binding(fx.ctx);
       assert.equal(rebound.ownerEpoch, recovered.state.owner.ownerEpoch, `${boundary} replay repairs the exact binding`);
       assert.equal((await activeService.startIdentity(fx.ctx, binding.runId)).runId, binding.runId, `${boundary} replay repairs the exact start identity`);
@@ -375,9 +417,41 @@ test("a fresh conductor service fences the stale wrapper generation and resumes 
     recovered = await drainingPump;
     await drainingDetach;
     activeService = fencedReplacement;
-    recovered = await activeService.activate(fx.ctx, binding.runId, new Date(Date.parse(recovered.state.updatedAt) + 1).toISOString());
+    recovered = await activeService.retryActivation(fx.ctx, binding.runId, new Date(Date.parse(recovered.state.updatedAt) + 1).toISOString());
 
     await activeService.detach();
+    let injectedPumpFailure = false; let sharedWakeResult = null; let failingService; const reportedPumpErrors = [];
+    failingService = new DagConductorServiceV1({
+      lifecycle: lifecycle(),
+      onPumpError(input) { reportedPumpErrors.push(input); },
+      pumpFailpoint(point) {
+        if (point === "after_quiescent_check" && !injectedPumpFailure) {
+          injectedPumpFailure = true;
+          sharedWakeResult = failingService.wakeActive().catch((error) => error);
+          throw new Error("terminal-pump-failure");
+        }
+      },
+    });
+    await assert.rejects(() => failingService.activate(fx.ctx, binding.runId, new Date(Date.parse(recovered.state.updatedAt) + 1).toISOString()), /terminal-pump-failure/, "a dirty wake cannot convert deterministic pump rejection into a successor success");
+    assert.match(String((await sharedWakeResult).message), /terminal-pump-failure/, "all callers sharing the failed pump observe its exact terminal error");
+    assert.equal(reportedPumpErrors.length, 1, "the exact pump error is reported once to the top-level integration");
+    assert.equal(await failingService.resumeBound(fx.ctx), null, "background wakes remain stopped after a surfaced conductor fault");
+    await failingService.detach();
+    let enterExplicitRetry; let releaseExplicitRetry;
+    const explicitRetryEntered = new Promise((resolve) => { enterExplicitRetry = resolve; });
+    const explicitRetryGate = new Promise((resolve) => { releaseExplicitRetry = resolve; });
+    const replacementService = new DagConductorServiceV1({ lifecycle: lifecycle(), async pumpFailpoint(point) { if (point === "after_quiescent_check") { enterExplicitRetry(); await explicitRetryGate; } } });
+    assert.equal(await replacementService.resumeBound(fx.ctx), null, "the durable fault latch survives conductor service replacement");
+    await assert.rejects(() => replacementService.activate(fx.ctx, binding.runId), /durable surfaced fault/, "ordinary activation cannot bypass a durable surfaced fault");
+    const retryPromise = replacementService.retryActivation(fx.ctx, binding.runId, new Date(Date.parse(recovered.state.updatedAt) + 2).toISOString());
+    await explicitRetryEntered;
+    const competingRetry = new DagConductorServiceV1({ lifecycle: lifecycle() });
+    assert.equal(await competingRetry.resumeBound(fx.ctx), null, "the durable fault remains visible throughout an explicit retry");
+    await assert.rejects(() => competingRetry.retryActivation(fx.ctx, binding.runId), /Another conductor service generation is still operational/, "canonical owner fencing still rejects a concurrent explicit retry");
+    releaseExplicitRetry(); recovered = await retryPromise;
+    assert.equal(reportedPumpErrors.length, 1, "an explicit successful retry clears the fault without replaying its report");
+    await competingRetry.detach(); await replacementService.detach();
+
     await rm(join(fx.root, ".ai", "dag-start-intents-v1"), { recursive: true, force: true });
     activeService = new DagConductorServiceV1({ lifecycle: lifecycle() });
     await assert.rejects(() => activeService.activate(fx.ctx, binding.runId, new Date(Date.parse(recovered.state.updatedAt) + 1).toISOString()), /missing its exact prepared-start identity/, "current thin-plan runs fail closed if their prepared-start identity is removed");

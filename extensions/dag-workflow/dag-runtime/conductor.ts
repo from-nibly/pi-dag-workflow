@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { link, mkdir, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { canonicalHash, canonicalStringify, parseStrictJson } from "./common.ts";
@@ -12,6 +13,7 @@ import { DagRunSnapshotStoreV1, createDagRunStoreDeadOwnerProofV1, dagRunStoreLo
 const RUN_ROOT = ".ai/dag-runs-v1";
 const BINDING_ROOT = ".ai/dag-session-bindings-v1";
 const START_INTENT_ROOT = ".ai/dag-start-intents-v1";
+const CONDUCTOR_FAULT_ROOT = ".ai/dag-conductor-faults-v1";
 const HASH_RE = /^sha256:[0-9a-f]{64}$/;
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SERVICE_REGISTRY_KEY = Symbol.for("pi-dag-workflow.canonical-conductor-services-v1");
@@ -113,17 +115,20 @@ export class DagConductorServiceV1 {
   readonly integrationFactory?: (input: { store: DagRunSnapshotStoreV1; context: DagRunValidationContextV1; lock: DagRunStoreLockIdentityV1 }) => DagIntegrationReconciliationAdapterV1;
   readonly startFailpoint?: (point: DagPreparedStartFailpointV1) => Promise<void> | void;
   readonly ownerResumeFailpoint?: (point: DagOwnerResumeFailpointV1) => Promise<void> | void;
-  readonly pumpFailpoint?: (point: DagConductorPumpFailpointV1) => Promise<void> | void;
+  readonly pumpFailpoint?: (point: DagConductorPumpFailpointV1, detail?: { occurredAt: string; wakeGeneration: number }) => Promise<void> | void;
+  readonly onPumpError?: (input: { runId: string; error: Error }) => Promise<void> | void;
   #serviceId = randomUUID();
   #currentLock = new Map<string, DagRunStoreLockIdentityV1>();
   #ownedServiceKeys = new Set<string>();
   #activeContexts = new Map<string, DagConductorContextV1>();
   #wakeGenerations = new Map<string, number>();
+  #wakeTimes = new Map<string, string>();
   #pumps = new Map<string, Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }>>();
+  #faults = new Map<string, Error>();
   #detaching = false;
   #detachPromise: Promise<void> | null = null;
   #lastGood = new Map<string, { state: DagRunStateV1; decision: DagSchedulerDecisionV1; projection: DagExecutionProjectionV1; cachedAt: string }>();
-  constructor(options: { workerProjection?: (bindings: Array<{ workerStorageId: string; launchOwnerSessionId: string; workerId: string; attemptNumber: number; attemptNonce: string; configHash: string; resultHash: string | null; processDisposition: string }>) => Promise<DagWorkerProjectionInputV1 | null>; dispatchEffect?: (effect: { effectId: string; kind: string; requestHash: string }, state: DagRunStateV1) => Promise<void>; lifecycle?: DagLifecycleRuntimeOptionsV1; integrationFactory?: (input: { store: DagRunSnapshotStoreV1; context: DagRunValidationContextV1; lock: DagRunStoreLockIdentityV1 }) => DagIntegrationReconciliationAdapterV1; startFailpoint?: (point: DagPreparedStartFailpointV1) => Promise<void> | void; ownerResumeFailpoint?: (point: DagOwnerResumeFailpointV1) => Promise<void> | void; pumpFailpoint?: (point: DagConductorPumpFailpointV1) => Promise<void> | void } = {}) { this.workerProjection = options.workerProjection; this.dispatchEffect = options.dispatchEffect; this.lifecycle = options.lifecycle ?? {}; this.integrationFactory = options.integrationFactory; this.startFailpoint = options.startFailpoint; this.ownerResumeFailpoint = options.ownerResumeFailpoint; this.pumpFailpoint = options.pumpFailpoint; }
+  constructor(options: { workerProjection?: (bindings: Array<{ workerStorageId: string; launchOwnerSessionId: string; workerId: string; attemptNumber: number; attemptNonce: string; configHash: string; resultHash: string | null; processDisposition: string }>) => Promise<DagWorkerProjectionInputV1 | null>; dispatchEffect?: (effect: { effectId: string; kind: string; requestHash: string }, state: DagRunStateV1) => Promise<void>; lifecycle?: DagLifecycleRuntimeOptionsV1; integrationFactory?: (input: { store: DagRunSnapshotStoreV1; context: DagRunValidationContextV1; lock: DagRunStoreLockIdentityV1 }) => DagIntegrationReconciliationAdapterV1; startFailpoint?: (point: DagPreparedStartFailpointV1) => Promise<void> | void; ownerResumeFailpoint?: (point: DagOwnerResumeFailpointV1) => Promise<void> | void; pumpFailpoint?: (point: DagConductorPumpFailpointV1, detail?: { occurredAt: string; wakeGeneration: number }) => Promise<void> | void; onPumpError?: (input: { runId: string; error: Error }) => Promise<void> | void } = {}) { this.workerProjection = options.workerProjection; this.dispatchEffect = options.dispatchEffect; this.lifecycle = options.lifecycle ?? {}; this.integrationFactory = options.integrationFactory; this.startFailpoint = options.startFailpoint; this.ownerResumeFailpoint = options.ownerResumeFailpoint; this.pumpFailpoint = options.pumpFailpoint; this.onPumpError = options.onPumpError; }
 
   /** Drain this exact service generation before releasing its process-local ownership fence. */
   detach(): Promise<void> {
@@ -133,7 +138,7 @@ export class DagConductorServiceV1 {
     this.#detachPromise = (async () => {
       await Promise.allSettled([...this.#pumps.values()]);
       for (const key of this.#ownedServiceKeys) if (conductorServiceRegistry.get(key)?.serviceId === this.#serviceId) conductorServiceRegistry.delete(key);
-      this.#ownedServiceKeys.clear(); this.#wakeGenerations.clear(); this.#currentLock.clear();
+      this.#ownedServiceKeys.clear(); this.#wakeGenerations.clear(); this.#wakeTimes.clear(); this.#currentLock.clear(); this.#faults.clear();
     })();
     return this.#detachPromise;
   }
@@ -141,26 +146,31 @@ export class DagConductorServiceV1 {
   /** Coalesce one service-owned advancement pump and fence stale same-process service generations first. */
   async activate(ctx: DagConductorContextV1, runId: string, occurredAt = new Date().toISOString()): Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }> {
     if (this.#detaching) throw new Error("DAG conductor service is detaching and cannot accept another wake");
+    const fault = this.#faults.get(runId); if (fault) throw fault;
+    if (!this.#pumps.has(runId) && this.#hasDurableFault(ctx, runId)) throw new Error(`Canonical DAG conductor ${runId} has a durable surfaced fault; diagnose it before explicit retry`);
     this.#activeContexts.set(runId, ctx);
     this.#wakeGenerations.set(runId, (this.#wakeGenerations.get(runId) ?? 0) + 1);
-    return this.#startPump(ctx, runId, occurredAt);
+    this.#wakeTimes.set(runId, occurredAt);
+    return this.#startPump(ctx, runId);
   }
 
-  #startPump(ctx: DagConductorContextV1, runId: string, occurredAt: string): Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }> {
+  #startPump(ctx: DagConductorContextV1, runId: string): Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }> {
     const current = this.#pumps.get(runId);
     if (current) return current;
     let observedWakeGeneration = this.#wakeGenerations.get(runId)!;
+    let observedWakeTime = this.#wakeTimes.get(runId)!;
     const body = (async () => {
       let result: { state: DagRunStateV1; decision: DagSchedulerDecisionV1 };
       for (;;) {
         observedWakeGeneration = this.#wakeGenerations.get(runId)!;
-        await this.#ensureOperationalOwner(ctx, runId, occurredAt);
-        result = await this.advance(ctx, runId, occurredAt);
+        observedWakeTime = this.#wakeTimes.get(runId)!;
+        await this.#ensureOperationalOwner(ctx, runId, observedWakeTime);
+        result = await this.advance(ctx, runId, observedWakeTime);
         // Give terminal-result microtasks queued at the waiting boundary a chance
         // to mark this run dirty before this pass settles.
         await Promise.resolve();
         if (this.#wakeGenerations.get(runId) === observedWakeGeneration) {
-          await this.pumpFailpoint?.("after_quiescent_check");
+          await this.pumpFailpoint?.("after_quiescent_check", { occurredAt: observedWakeTime, wakeGeneration: observedWakeGeneration });
           return { result, settledWakeGeneration: observedWakeGeneration };
         }
       }
@@ -170,23 +180,53 @@ export class DagConductorServiceV1 {
       ({ result, settledWakeGeneration }) => {
         if (this.#pumps.get(runId) === pump) this.#pumps.delete(runId);
         if (["completed", "cancelled", "superseded"].includes(result.state.current.run)) this.#activeContexts.delete(runId);
-        if (!this.#detaching && this.#activeContexts.has(runId) && this.#wakeGenerations.get(runId) !== settledWakeGeneration) return this.#startPump(ctx, runId, occurredAt);
+        if (!this.#detaching && this.#activeContexts.has(runId) && this.#wakeGenerations.get(runId) !== settledWakeGeneration) return this.#startPump(ctx, runId);
         return result;
       },
-      (error) => {
+      async (error) => {
         if (this.#pumps.get(runId) === pump) this.#pumps.delete(runId);
-        if (!this.#detaching && this.#activeContexts.has(runId) && this.#wakeGenerations.get(runId) !== observedWakeGeneration) return this.#startPump(ctx, runId, occurredAt);
-        throw error;
+        const exact = error instanceof Error ? error : new Error(String(error));
+        this.#activeContexts.delete(runId); this.#faults.set(runId, exact);
+        try { this.#persistDurableFault(ctx, runId, exact, observedWakeTime); } catch { /* the first conductor error remains exact even if fault-marker I/O fails */ }
+        try { void Promise.resolve(this.onPumpError?.({ runId, error: exact })).catch(() => undefined); } catch { /* error propagation must not be replaced by reporting failure */ }
+        throw exact;
       },
     );
     this.#pumps.set(runId, pump);
     return pump;
   }
 
+  #hasDurableFault(ctx: DagConductorContextV1, runId: string): boolean {
+    try { readDurableConductorFault(conductorFaultPath(realpathSync(ctx.cwd), runId), runId); return true; }
+    catch (error: any) { if (error?.code === "ENOENT") return false; throw error; }
+  }
+
+  #persistDurableFault(ctx: DagConductorContextV1, runId: string, error: Error, faultedAt: string): void {
+    const core = { schemaVersion: 1, kind: "DagConductorFaultV1", runId, errorMessage: error.message, faultedAt };
+    publishImmutableJsonSync(conductorFaultPath(realpathSync(ctx.cwd), runId), { ...core, hash: canonicalHash(core) });
+  }
+
+  #clearDurableFault(ctx: DagConductorContextV1, runId: string): void {
+    const path = conductorFaultPath(realpathSync(ctx.cwd), runId);
+    try { readDurableConductorFault(path, runId); unlinkSync(path); syncDirectorySync(dirname(path)); }
+    catch (error: any) { if (error?.code !== "ENOENT") throw error; }
+  }
+
+  /** Explicit top-level retry keeps the durable fault visible until the retry succeeds. */
+  async retryActivation(ctx: DagConductorContextV1, runId: string, occurredAt = new Date().toISOString()): Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }> {
+    if (this.#detaching) throw new Error("DAG conductor service is detaching and cannot start an explicit retry");
+    if (!this.#hasDurableFault(ctx, runId)) { this.#faults.delete(runId); return this.activate(ctx, runId, occurredAt); }
+    this.#faults.delete(runId);
+    this.#activeContexts.set(runId, ctx); this.#wakeGenerations.set(runId, (this.#wakeGenerations.get(runId) ?? 0) + 1); this.#wakeTimes.set(runId, occurredAt);
+    const result = await this.#startPump(ctx, runId);
+    this.#clearDurableFault(ctx, runId);
+    return result;
+  }
+
   /** Resume the exact bound run when a session/agent lifecycle event wakes the extension. */
   async resumeBound(ctx: DagConductorContextV1, occurredAt = new Date().toISOString()): Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 } | null> {
     const binding = await this.binding(ctx);
-    return binding ? this.activate(ctx, binding.runId, occurredAt) : null;
+    return binding && !this.#faults.has(binding.runId) && !this.#hasDurableFault(ctx, binding.runId) ? this.activate(ctx, binding.runId, occurredAt) : null;
   }
 
   /** Wake all runs attached to this exact service instance after asynchronous worker state changes. */
@@ -722,6 +762,28 @@ async function requiresPreparedStartIntent(root: string, storeRoot: string, runI
   return plan.generator.name === "thin-plan-runtime-adapter";
 }
 function bindingPath(root: string, sessionId: string): string { return join(root, BINDING_ROOT, `${createHash("sha256").update(sessionId).digest("hex")}.json`); }
+function conductorFaultPath(root: string, runId: string): string { if (!ID_RE.test(runId)) throw new Error("Invalid conductor fault run identity"); return join(root, CONDUCTOR_FAULT_ROOT, `${runId}.json`); }
+function readDurableConductorFault(path: string, runId: string): any {
+  const text = readFileSync(path, "utf8"); const value = parseStrictJson(text) as any;
+  if (canonicalStringify(value) !== text || value?.schemaVersion !== 1 || value?.kind !== "DagConductorFaultV1" || value?.runId !== runId || !HASH_RE.test(value?.hash ?? "")) throw new Error(`Invalid durable conductor fault marker for ${runId}`);
+  const core = Object.fromEntries(Object.entries(value).filter(([key]) => key !== "hash"));
+  if (canonicalHash(core) !== value.hash) throw new Error(`Durable conductor fault marker hash mismatch for ${runId}`);
+  return value;
+}
+function publishImmutableJsonSync(path: string, value: unknown): void {
+  const text = canonicalStringify(value); mkdirSync(dirname(path), { recursive: true });
+  try { readDurableConductorFault(path, (value as any).runId); return; } catch (error: any) { if (error?.code !== "ENOENT") throw error; }
+  const temporary = `${path}.tmp-${process.pid}-${randomUUID()}`; let handle: number | null = null;
+  try {
+    handle = openSync(temporary, "wx", 0o600); writeFileSync(handle, text); fsyncSync(handle); closeSync(handle); handle = null;
+    try { linkSync(temporary, path); } catch (error: any) { if (error?.code !== "EEXIST") throw error; readDurableConductorFault(path, (value as any).runId); }
+  } finally {
+    if (handle !== null) closeSync(handle);
+    try { unlinkSync(temporary); } catch (error: any) { if (error?.code !== "ENOENT") throw error; }
+  }
+  syncDirectorySync(dirname(path));
+}
+function syncDirectorySync(path: string): void { const handle = openSync(path, "r"); try { fsyncSync(handle); } finally { closeSync(handle); } }
 function startIntentPath(root: string, sessionId: string, runId: string): string { return join(root, START_INTENT_ROOT, createHash("sha256").update(sessionId).digest("hex"), `${runId}.json`); }
 
 async function readStartIntent(path: string, sessionId: string, runId: string): Promise<DagRunStartIntentV1 | null> {
