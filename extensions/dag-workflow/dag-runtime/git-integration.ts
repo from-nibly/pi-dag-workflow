@@ -546,7 +546,7 @@ async function assertCleanWorkspace(binding: RepositoryBindingV1, workspace: str
 
 async function assertNoGitOperationInProgress(root: string): Promise<void> {
   for (const marker of ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"]) {
-    const path = (await git(root, ["rev-parse", "--git-path", marker])).trim();
+    const path = (await git(root, ["rev-parse", "--path-format=absolute", "--git-path", marker])).trim();
     if (await exists(path)) throw new GitIntegrationBlockedError("GIT_OPERATION_IN_PROGRESS", `Bound session worktree has active Git operation marker ${marker}`);
   }
   const gitDir = (await git(root, ["rev-parse", "--path-format=absolute", "--git-dir"])).trim();
