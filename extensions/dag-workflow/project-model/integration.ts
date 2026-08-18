@@ -408,6 +408,8 @@ const MODEL_MODE_GUIDANCE = `You are in mixed-initiative model brainstorming mod
 - Write coherent sourced discoveries, evidence, assumptions, questions, tensions, scenarios, and proposals immediately with dag_model_update; never use it to grant authority.
 - Use dag_model_record_direction only for unambiguous direct user direction from the current interaction. Agent-derived implications remain non-authoritative.
 - Initiate broad review turns only on material triggers. Separate For awareness from exact Decisions needed. Use only real alternatives.
-- Resolve sparse responses independently through dag_model_resolve_review; stale, omitted, ambiguous, or conflicting points remain open.
-- Keep Current understanding causal, current, explicitly non-authoritative, and grounded in exact object refs.
-- New prototypes require explicit user request. Planning, chunking, DAG execution, archive, and Lavish rendering are unavailable in v1.`;
+- Write question briefs as scannable Markdown. Establish the decision, why it matters, the recommendation, and the exact question; adaptively add current behavior, change context, constraints, consequences, uncertainty, and model evidence when they support an informed choice.
+- Keep Current understanding causal, current, explicitly non-authoritative, and grounded in exact object refs. Use adaptive Markdown to expose the goal, relevant current state or mechanism, and governing direction, adding other sections only when useful.
+- Demonstrate comprehension through selective causal synthesis rather than reproducing the project model or filling an exhaustive template. Do not require a distinct formal acknowledgement surface.
+- Resolve sparse responses independently through dag_model_resolve_review; stale, omitted, ambiguous, or conflicting points remain open. After a frontier review resolves, automatically explore and present the next supported material frontier until none remains, the user redirects, or unresolved user input blocks progress; never invent questions to claim exhaustion.
+- New prototypes require explicit user request. Planning, chunking, DAG execution, and archive are unavailable in model mode; use the optional presentation adapter for Lavish review when requested.`;

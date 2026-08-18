@@ -130,21 +130,21 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-07-29T00:02:20.714Z",
+        "acceptedAt": "2026-08-17T22:19:46.554Z",
         "actor": "user",
-        "batchRef": "sha256:81aacadf72cbb0bc418ae7f885076fb5662e8b3defe4e6412ca4d88051ae1f00",
-        "contentHash": "sha256:aa6fb5d8839955c65d7c40d8fd485a06db9c1ed82f173ee3e936c04a2ce07d53",
-        "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
-        "mode": "migration_cutover"
+        "batchRef": "sha256:203d9065be2e3b37fcf9506a9cd4588bca72f436690dd24c409de032fdaf9887",
+        "contentHash": "sha256:dbf9c157584fb66f39300cf8780e5aebb1e2ecb94c13cbba19090d4eca4c3de9",
+        "interactionRef": "pi-input:01a011bc-e798-791a-99ab-dff79b163623:1787005165905",
+        "mode": "direct_direction"
       },
-      "body": "Explore autonomously within the selected focus and initiate a materiality-based review turn when a coherent cluster needs product judgment, evidence changes framing, a preference blocks progress, continuing risks drift, or the user requests review. Use no fixed tool, time, object, or token quota.",
+      "body": "Explore autonomously within the selected focus and initiate a materiality-based review turn when a coherent cluster needs product judgment, evidence changes framing, a preference blocks progress, continuing risks drift, or the user requests review. After a frontier review is resolved, automatically research and present the next material frontier without waiting for another chat prompt. Continue until no supported material frontier remains, the user pauses or redirects, or progress is blocked on unresolved user input. Use no fixed tool, time, object, or token quota, and do not invent questions merely to claim exhaustion.",
       "createdAt": "2026-07-28T18:37:09.007Z",
       "id": "COM-bounded-autonomous-bursts",
       "introducedBy": "migration",
       "legacyIds": [
         "D26-bounded-autonomous-bursts"
       ],
-      "rationale": "Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.",
+      "rationale": "The user wants a continuous formal brainstorming loop rather than manually requesting each next frontier, while preserving the existing prohibition on fabricated exhaustion sweeps.",
       "relationships": [],
       "scope": {
         "kind": "workstreams",
@@ -154,11 +154,12 @@
         ]
       },
       "sourceRefs": [
+        "COM-no-forced-exhaustion-sweep",
         "legacy-brainstorm:D26-bounded-autonomous-bursts"
       ],
       "state": "accepted",
-      "title": "Explore autonomously in bounded coherent bursts",
-      "updatedAt": "2026-07-29T00:02:20.714Z"
+      "title": "Explore autonomously through the selected focus frontier",
+      "updatedAt": "2026-08-17T22:19:46.554Z"
     },
     {
       "acceptance": {
@@ -787,31 +788,32 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-07-29T00:02:20.715Z",
+        "acceptedAt": "2026-08-17T22:25:51.161Z",
         "actor": "user",
-        "batchRef": "sha256:81aacadf72cbb0bc418ae7f885076fb5662e8b3defe4e6412ca4d88051ae1f00",
-        "contentHash": "sha256:b2bbd75a5c8906975c408c3e8c3a60963de5ecbc3c3d89129302704d5978f454",
-        "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
-        "mode": "migration_cutover"
+        "batchRef": "sha256:03d948b8025542e47693b92feca1559814bafe22eda7c256ced7aff32ee22f31",
+        "contentHash": "sha256:7f9f98531c1bb32ad60c6470924a60cc888eff2de75a2d8d7f1d013dbe173af0",
+        "interactionRef": "lavish-feedback:review-post-resolution-acknowledgement-frontier:sha256:010d6487f8addf1650fa47ea70dbfcc858ece66eceec9729141d8f516f6fa673",
+        "mode": "accepted_existing"
       },
-      "body": "Replace Current understanding after a material model change, accepted correction, contradiction resolution, or research reframing—not for acknowledgments, navigation, or unchanged conversation. Retain only the latest non-authoritative synthesis and its source object IDs/hashes.",
+      "body": "Replace Current understanding after a material model change, accepted correction, contradiction resolution, or research reframing—not for navigation or unchanged conversation. Retain only the latest non-authoritative synthesis and its source object IDs/hashes. After resolving user direction, do not produce a distinct acknowledgement; continue to the next formal review, whose Current understanding and Model delta communicate the result.",
       "createdAt": "2026-07-28T18:37:09.014Z",
       "id": "COM-meaningful-semantic-refresh",
       "introducedBy": "migration",
       "legacyIds": [
         "D-meaningful-semantic-refresh"
       ],
-      "rationale": "Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.",
+      "rationale": "The next formal review already contains the persistent synthesis and delta, so a separate acknowledgement would duplicate presentation.",
       "relationships": [],
       "scope": {
         "kind": "repository"
       },
       "sourceRefs": [
+        "PROP-no-distinct-resolution-acknowledgement",
         "legacy-brainstorm:D-meaningful-semantic-refresh"
       ],
       "state": "accepted",
-      "title": "Refresh after meaningful semantic change, not every turn",
-      "updatedAt": "2026-07-29T00:02:20.715Z"
+      "title": "Use formal review projections instead of separate acknowledgements",
+      "updatedAt": "2026-08-17T22:25:51.161Z"
     },
     {
       "acceptance": {
@@ -1250,35 +1252,38 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-13T14:05:12.077Z",
+        "acceptedAt": "2026-08-17T22:10:14.159Z",
         "actor": "user",
-        "batchRef": "sha256:96565f26af94085795ea6d31fd5131ae0c72ce973c82c9018e8f5a580e0f5bca",
-        "contentHash": "sha256:217d4f078a7aa9fa2046460d15143128aa0f5aa2af12c45d18b7d71a67bfbded",
-        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1786629882330",
-        "mode": "direct_direction"
+        "batchRef": "sha256:8a54d4bf40d12734eada3a4fe688360bf05b87c5edb11e656628af5023d015ed",
+        "contentHash": "sha256:b69bcdbd50803297bddc27483afe1f3233fdbd28262a35775ec48b627fda52d9",
+        "interactionRef": "pi-input:01a011bc-e798-791a-99ab-dff79b163623:1787004480866",
+        "mode": "accepted_existing"
       },
-      "body": "Every Decisions-needed point must give enough background for an informed choice. Before presenting options, explain the current mechanism in concrete terms, the observed insufficiency or trigger, a realistic failure or consequence it protects against, why the issue must be decided now, what remains uncertain, and how each materially different answer changes implementation or authority. Define specialized terms in plain language and distinguish correctness protection from optional hardening. Do not rely on terse summaries or assume the user remembers earlier research.",
+      "body": "Every Decisions-needed point uses a mandatory context core plus adaptively selected supporting context. It must establish what needs to be decided, why the decision exists or matters now, the agent's recommendation and rationale, and the exact input needed from the user. Prompts actively encourage the agent to add relevant current behavior, the observed insufficiency or trigger, what would change and remain unchanged, constraints or prior decisions, realistic consequences, remaining uncertainty, and materially different option effects whenever those details help the user make an informed choice. Define specialized terms in plain language and distinguish correctness protection from optional hardening. Do not mechanically render every possible section, but do not present only a description of the recommended option or assume the user remembers earlier research.",
       "createdAt": "2026-07-28T18:37:09.014Z",
       "id": "COM-question-context",
       "introducedBy": "migration",
       "legacyIds": [
         "D-question-context"
       ],
-      "rationale": "The user needs visibility into what each decision protects against and what choosing an option would commit, especially for dense authority, compiler, recovery, and release contracts.",
+      "rationale": "The user needs a reliable floor of decision context and visibility into the relevant project model without replacing dense prose with an equally rigid, exhaustive template.",
       "relationships": [],
       "scope": {
         "kind": "workstreams",
         "workstreamIds": [
           "WS-agent-workflow",
-          "WS-artifacts-lavish"
+          "WS-artifacts-lavish",
+          "WS-surface-interaction"
         ]
       },
       "sourceRefs": [
+        "DISC-brainstorm-surfaces-are-project-model-projections",
+        "PROP-layered-question-brief",
         "legacy-brainstorm:D-question-context"
       ],
       "state": "accepted",
       "title": "Explain the decision background before asking for a choice",
-      "updatedAt": "2026-08-13T14:05:12.077Z"
+      "updatedAt": "2026-08-17T22:10:14.159Z"
     },
     {
       "acceptance": {
@@ -1640,21 +1645,21 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-07-29T00:02:20.717Z",
+        "acceptedAt": "2026-08-17T22:17:42.399Z",
         "actor": "user",
-        "batchRef": "sha256:81aacadf72cbb0bc418ae7f885076fb5662e8b3defe4e6412ca4d88051ae1f00",
-        "contentHash": "sha256:852925c9eecdfa569a7394c69d17ebc0028a36a042cbfb0b1e0c9d95e4b828c5",
-        "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
-        "mode": "migration_cutover"
+        "batchRef": "sha256:accf988c25ce16e92a7908b703444b0eedb2bd99412b19f9e3db7622ddbda537",
+        "contentHash": "sha256:8130f33c6f5c4ec8f15ab6dba7abf233c41c3d7b4b3fc08fbd67cefd8e2bbf33",
+        "interactionRef": "lavish-feedback:review-current-understanding-structure-frontier:sha256:aca10cb0cb338e4848f241cb4dc91ea2c94aebacd794a3e63ee2da34ff74f438",
+        "mode": "accepted_existing"
       },
-      "body": "Keep one latest project-level Current understanding synthesis in tracked metadata. It is agent-authored, non-authoritative, carries source object IDs/hashes, and is replaced rather than accumulated as review history.",
+      "body": "Keep one latest project-level Current understanding synthesis in tracked metadata. It is agent-authored, non-authoritative, carries source object IDs/hashes, and is replaced rather than accumulated as review history. Its Markdown must make the goal, relevant current state or mechanism, and governing accepted direction easy to find. Add unresolved frontier, boundaries, constraints, evidence, risks, or other sections when they materially help the user verify alignment. Headings may adapt to the subject; Current understanding describes present state rather than duplicating the separate model-delta or acknowledgement receipt.",
       "createdAt": "2026-07-28T18:37:09.014Z",
       "id": "COM-single-current-proof",
       "introducedBy": "migration",
       "legacyIds": [
         "D-single-current-proof"
       ],
-      "rationale": "Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.",
+      "rationale": "A mandatory semantic core makes the synthesis auditable, while adaptive headings preserve useful judgment and avoid template noise.",
       "relationships": [],
       "scope": {
         "kind": "workstreams",
@@ -1664,11 +1669,13 @@
         ]
       },
       "sourceRefs": [
+        "EV-current-understanding-renderer-and-delta-separation",
+        "PROP-current-understanding-mandatory-core-adaptive-structure",
         "legacy-brainstorm:D-single-current-proof"
       ],
       "state": "accepted",
-      "title": "Keep one mutable current proof",
-      "updatedAt": "2026-07-29T00:02:20.717Z"
+      "title": "Keep one structured mutable current proof",
+      "updatedAt": "2026-08-17T22:17:42.399Z"
     },
     {
       "acceptance": {
@@ -1703,35 +1710,39 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-07-29T00:02:20.717Z",
+        "acceptedAt": "2026-08-17T22:30:39.828Z",
         "actor": "user",
-        "batchRef": "sha256:81aacadf72cbb0bc418ae7f885076fb5662e8b3defe4e6412ca4d88051ae1f00",
-        "contentHash": "sha256:3775f64888a9d6952dca9901b75749010ce7881579b010425d110773ff1a3a0f",
-        "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
-        "mode": "migration_cutover"
+        "batchRef": "sha256:5d45b500616d77c1ef911221b02b6885847c8304aa9fea1f071eba112c18ffce",
+        "contentHash": "sha256:82aa207b5511d6ad5ec86ca1b0f8598943bb5df6a91850f251fee734ebf5ee43",
+        "interactionRef": "lavish-feedback:review-markdown-enforcement-boundary-frontier:sha256:144479a5766cfe3caea2065f0673ba92e38f7e98f73b0683de90c80caf2c4cca",
+        "mode": "accepted_existing"
       },
-      "body": "Validate that Current understanding is nonempty when present and that its source object IDs/hashes are valid/current. Agent guidance and later field-based evaluation assess synthesis quality; deterministic tools do not claim to judge comprehension.",
+      "body": "Require agent guidance to produce scannable Markdown and contextual synthesis for question briefs and Current understanding. Deterministic tools and tests validate that this guidance is delivered, Current understanding is nonempty when present, source object IDs/hashes are valid and current, and headings, lists, emphasis, and other supported Markdown render safely. Do not reject semantic output based on fixed section names, heading counts, or checklist completeness, and do not claim that structural conformance proves comprehension. Agent judgment and later field-grounded evaluation assess whether the synthesis selected, connected, and explained the facts that matter.",
       "createdAt": "2026-07-28T18:37:09.022Z",
       "id": "COM-structural-proof-validation",
       "introducedBy": "migration",
       "legacyIds": [
         "D-structural-proof-validation"
       ],
-      "rationale": "Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.",
+      "rationale": "This catches delivery and rendering regressions while preserving the agent-authored synthesis that serves as the actual alignment proof.",
       "relationships": [],
       "scope": {
         "kind": "workstreams",
         "workstreamIds": [
           "WS-agent-workflow",
-          "WS-lifecycle-authority"
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
         ]
       },
       "sourceRefs": [
+        "DISC-template-compliance-is-not-understanding-proof",
+        "EV-existing-synthesis-and-validation-boundaries",
+        "PROP-prompt-guided-structure-with-smoke-tests",
         "legacy-brainstorm:D-structural-proof-validation"
       ],
       "state": "accepted",
-      "title": "Tools validate freshness and references; evaluations assess comprehension",
-      "updatedAt": "2026-07-29T00:02:20.717Z"
+      "title": "Mechanically validate delivery and provenance, not comprehension",
+      "updatedAt": "2026-08-17T22:30:39.827Z"
     },
     {
       "acceptance": {
@@ -7738,6 +7749,7 @@
       "legacyIds": [
         "T-agent-prompt-evaluation"
       ],
+      "proposedFollowup": "Keep deferred until sustained field use yields a real corpus of question-brief and Current-understanding successes and failures; deterministic structural smoke tests do not replace this evaluation.",
       "relationships": [],
       "scope": {
         "kind": "workstreams",
@@ -7751,7 +7763,7 @@
       ],
       "state": "deferred",
       "title": "Agent prompt evaluation after field use",
-      "updatedAt": "2026-07-28T18:37:09.025Z"
+      "updatedAt": "2026-08-17T22:31:54.445Z"
     },
     {
       "body": "RPC workers inherit the same extension and tools as the top-level Pi session. Without explicit runtime role metadata, a child `session_start` could attach its own completion dispatcher, widget, and worker-session manager or mistake itself for a top-level receiver. A parent-supplied worker-role environment marker and parent/worker/attempt identity can keep UI and completion attachment scoped to the parent while still leaving ambient tools registered and relying on instructions rather than a security denylist.",
@@ -10614,6 +10626,141 @@
       "state": "integrated",
       "title": "Worktree isolation does not prove semantic independence",
       "updatedAt": "2026-07-31T04:32:22.981Z"
+    },
+    {
+      "body": "Structured Markdown is already preserved by both chat and Lavish review renderers, while model delta is rendered separately. The next design frontier is deciding which semantic facts a Current understanding must make easy to verify and which headings may adapt to the focus.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:14:24.701Z",
+      "id": "DISC-current-understanding-needs-content-contract-not-renderer",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-current-understanding-renderer-and-delta-separation"
+      ],
+      "state": "integrated",
+      "title": "Current understanding needs a content contract rather than new rendering capability",
+      "updatedAt": "2026-08-17T22:17:42.400Z"
+    },
+    {
+      "body": "No further product choice is required to identify the implementation surface. The compact mode-guidance block should state the semantic core and adaptive synthesis rules, while deterministic tests should assert guidance delivery and safe structured Markdown rendering. Runtime validators remain limited to nonempty/current provenance checks, and semantic transcript scoring remains deferred.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:31:54.444Z",
+      "id": "DISC-prompt-and-regression-impact-is-derivable",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-question-context",
+        "COM-semantic-evaluation",
+        "COM-single-current-proof",
+        "COM-structural-proof-validation",
+        "EV-single-model-mode-guidance-injection-point"
+      ],
+      "state": "integrated",
+      "title": "The prompt and deterministic regression impact follows from accepted direction",
+      "updatedAt": "2026-08-17T23:34:16.562Z"
+    },
+    {
+      "body": "Question briefs and Current understanding now have adaptive semantic contracts, and existing authority already distinguishes causal synthesis from documentation recitation. The unresolved implementation-policy choice is whether meaningful Markdown should be prompt-guided and smoke-tested or mechanically rejected by runtime shape validation.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:26:34.928Z",
+      "id": "DISC-format-enforcement-boundary-is-remaining-risk",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-existing-synthesis-and-validation-boundaries",
+        "TEN-scannable-structure-vs-performative-template-compliance"
+      ],
+      "state": "integrated",
+      "title": "The remaining structure risk is enforcement, not information architecture",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
+      "body": "The user experiences dense question briefs and Current understanding prose as a loss of visibility into the underlying project model. The issue is not formatting alone: visible brainstorming artifacts need to carry enough relevant context to demonstrate why a decision exists, how the affected behavior works today, what would change, and whether the agent's understanding matches the user's intent.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:04:30.774Z",
+      "id": "DISC-brainstorm-surfaces-are-project-model-projections",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "integrated",
+      "title": "Brainstorm surfaces need to serve as project-model projections",
+      "updatedAt": "2026-08-17T22:31:54.445Z"
+    },
+    {
+      "body": "Current understanding is now defined as the persistent present-state proof, while the resolver already emits a low-level transaction receipt. The missing acknowledgement layer should translate the user's input and resulting model mutation into a short human-readable semantic delta, then identify what remains open or where exploration continues. It should not repeat the full question brief or Current understanding.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:20:22.216Z",
+      "id": "DISC-acknowledgement-is-semantic-delta-handoff",
+      "introducedBy": "agent",
+      "proposedFollowup": "Superseded by direct user feedback that no separate acknowledgement surface should be required.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-bounded-autonomous-bursts",
+        "COM-single-current-proof",
+        "EV-review-resolution-receipt-is-mechanical"
+      ],
+      "state": "dismissed",
+      "title": "A brainstorm acknowledgement is a semantic-delta handoff",
+      "updatedAt": "2026-08-17T22:25:51.161Z"
+    },
+    {
+      "body": "The desired proof is an agent-authored explanation that selects and connects the relevant project facts, analogous to asking someone to describe the problem back in their own words. Forcing an acknowledgement surface or documentation-like exhaustive template can prove access to project information without proving comprehension, and can suppress the judgment the user wants to inspect.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:25:51.161Z",
+      "id": "DISC-template-compliance-is-not-understanding-proof",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "review-post-resolution-acknowledgement-frontier:user-feedback"
+      ],
+      "state": "integrated",
+      "title": "Template compliance can conceal whether the agent understands the project",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
     }
   ],
   "evidence": [
@@ -13598,6 +13745,101 @@
       "state": "current",
       "title": "v0.1.3 terminal-conductor patch is released and applied",
       "updatedAt": "2026-08-18T02:10:19.707Z"
+    },
+    {
+      "body": "`dag_model_resolve_review` returns changed object IDs, generated paths, and applied or unresolved point IDs. The mode guidance requires semantic resolution and Current understanding refreshes but does not define what the assistant should visibly acknowledge after applying user direction. This leaves the conversational handoff dependent on ad hoc prose.",
+      "createdAt": "2026-08-17T22:20:22.215Z",
+      "id": "EV-review-resolution-receipt-is-mechanical",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/domain.ts:366-416",
+        "extensions/dag-workflow/project-model/integration.ts:185-202",
+        "extensions/dag-workflow/project-model/integration.ts:405-414"
+      ],
+      "state": "current",
+      "title": "Review resolution returns a mechanical receipt but does not define a human acknowledgement",
+      "updatedAt": "2026-08-17T22:20:22.215Z"
+    },
+    {
+      "body": "The structured-brainstorm workflow says Current understanding explains deeper reasoning and the causal model, is neither an answer recap nor a request for confirmation, and gives the agent a flexible context slot. Existing validation commitments permit deterministic checks for prompt delivery, Markdown rendering, freshness, and source references while explicitly deferring claims about comprehension quality to later field-grounded evaluation.",
+      "createdAt": "2026-08-17T22:26:34.928Z",
+      "id": "EV-existing-synthesis-and-validation-boundaries",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-semantic-evaluation",
+        "COM-structural-proof-validation",
+        "scripts/project-model-test.mjs:69-72",
+        "spec/structured-brainstorming/production-validation.md:21-27",
+        "spec/structured-brainstorming/workflow.md:91-115"
+      ],
+      "state": "current",
+      "title": "Existing contracts already separate causal synthesis from mechanical validation",
+      "updatedAt": "2026-08-17T22:26:34.928Z"
+    },
+    {
+      "body": "The formal review renderer passes Current understanding through its Markdown formatter and renders Model delta as a distinct section. The review Markdown projection also inserts Current understanding verbatim beneath its own heading. Therefore the immediate gap is the semantic generation contract for the synthesis, not a missing Markdown renderer; Current understanding can remain a present-state proof while delta/acknowledgement surfaces explain what just changed.",
+      "createdAt": "2026-08-17T22:14:24.701Z",
+      "id": "EV-current-understanding-renderer-and-delta-separation",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-meaningful-semantic-refresh",
+        "COM-single-current-proof",
+        "extensions/dag-workflow/project-model/domain.ts:763-776",
+        "extensions/dag-workflow/project-model/review-renderer.ts:41-73"
+      ],
+      "state": "current",
+      "title": "Current review rendering already supports structured Markdown and a separate model delta",
+      "updatedAt": "2026-08-17T22:14:24.701Z"
+    },
+    {
+      "body": "`MODEL_MODE_GUIDANCE` in `extensions/dag-workflow/project-model/integration.ts` is appended to the system prompt whenever a focus is active. It currently instructs the agent to keep Current understanding causal and grounded, but does not state the new question-brief context core, adaptive Markdown expectations, synthesis-versus-documentation boundary, or automatic frontier continuation. Existing renderer tests already cover safe headings, lists, emphasis, and inline code.",
+      "createdAt": "2026-08-17T22:31:54.444Z",
+      "id": "EV-single-model-mode-guidance-injection-point",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/integration.ts:234-238",
+        "extensions/dag-workflow/project-model/integration.ts:406-414",
+        "scripts/project-model-test.mjs:69-72"
+      ],
+      "state": "current",
+      "title": "Brainstorm behavior is currently controlled by one compact mode-guidance block",
+      "updatedAt": "2026-08-17T22:31:54.444Z"
     }
   ],
   "intents": [
@@ -13781,8 +14023,8 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "v0.1.3 is released and applied at commit aa1c95a684275744dd3b07656fa46b9061e33d98. It closes recovered procedure evidence at durable reconciliation time, makes the first conductor error terminal and top-level-agent-visible, persists a background-wake fault latch across service/process replacement until an explicit retry succeeds, and preserves the latest dirty-wake time. Clean-tree release readiness passed smoke, evaluation, dogfood, the full paired portfolio, generated-spec, and packed-artifact gates. The Operant run remains intentionally paused at r21/epoch4 with its recorded owner PID 3707432 dead; it must not be resumed or reattached without explicit user direction.",
-      "generatedAt": "2026-08-18T02:10:19.708Z",
+      "body": "# Released baseline\n\nv0.1.3 is released and applied at commit aa1c95a684275744dd3b07656fa46b9061e33d98. It closes recovered procedure evidence at durable reconciliation time, makes the first conductor error terminal and top-level-agent-visible, persists a background-wake fault latch across service/process replacement until an explicit retry succeeds, and preserves the latest dirty-wake time. Clean-tree release readiness passed smoke, evaluation, dogfood, the full paired portfolio, generated-spec, and packed-artifact gates. The Operant run remains intentionally paused at r21/epoch4 with its recorded owner PID 3707432 dead; it must not be resumed or reattached without explicit user direction.\n\n# Goal\n\nMake brainstorming a **readable window into the agent's working model of the project**, so the user can verify comprehension without reading the full project model.\n\n# Accepted interaction behavior\n\n## Question briefs\n\nEvery decision brief establishes the decision, why it matters, the recommendation, and the exact question. The agent adaptively adds current behavior, change context, constraints, consequences, uncertainty, and model evidence when they support an informed choice.\n\n## Current understanding\n\nThe latest non-authoritative synthesis uses adaptive Markdown to expose the goal, relevant current state or mechanism, and governing direction. It adds frontier, boundaries, constraints, evidence, or risks only when useful.\n\n## Acknowledgements\n\nNo distinct formal acknowledgement surface is required. Ordinary acknowledgements remain conversational.\n\n## Frontier progression\n\nAfter a review resolves, the agent automatically explores and presents the next supported material frontier until none remains, the user pauses or redirects, or progress requires unresolved user input. It does not invent questions to claim exhaustion.\n\n# Quality and enforcement boundary\n\nThe alignment proof is **selective causal synthesis**, not documentation reproduction. Guidance requires scannable Markdown and contextual synthesis. Deterministic tests verify guidance delivery, safe rendering, and source provenance, but runtime tools do not enforce fixed headings or claim to validate comprehension.\n\n# Bounded implementation impact\n\nThe accepted direction maps to one compact active-focus mode-guidance block plus focused deterministic regressions. Representative scenarios cover decision-origin context, selective Current understanding synthesis, and concise valid output without a rigid template. Later semantic prompt evaluation remains deferred until sustained field use yields a real corpus.\n\n# Frontier status\n\nNo further supported material product tradeoff remains in this focus. The direction is ready to move into implementation without a formal execution DAG.",
+      "generatedAt": "2026-08-18T02:59:10.822Z",
       "sourceObjects": [
         {
           "id": "DEC-process-shared-dag-conductor-ownership-v1",
@@ -13795,6 +14037,46 @@
         {
           "id": "EV-v013-release-ready-and-applied",
           "semanticHash": "sha256:4f4a0e3f56655363075fe2ca0a99d66b1b5610baacaafef676b6d31aed9b360a"
+        },
+        {
+          "id": "COM-question-context",
+          "semanticHash": "sha256:b69bcdbd50803297bddc27483afe1f3233fdbd28262a35775ec48b627fda52d9"
+        },
+        {
+          "id": "COM-single-current-proof",
+          "semanticHash": "sha256:8130f33c6f5c4ec8f15ab6dba7abf233c41c3d7b4b3fc08fbd67cefd8e2bbf33"
+        },
+        {
+          "id": "COM-meaningful-semantic-refresh",
+          "semanticHash": "sha256:7f9f98531c1bb32ad60c6470924a60cc888eff2de75a2d8d7f1d013dbe173af0"
+        },
+        {
+          "id": "COM-structural-proof-validation",
+          "semanticHash": "sha256:82aa207b5511d6ad5ec86ca1b0f8598943bb5df6a91850f251fee734ebf5ee43"
+        },
+        {
+          "id": "COM-bounded-autonomous-bursts",
+          "semanticHash": "sha256:dbf9c157584fb66f39300cf8780e5aebb1e2ecb94c13cbba19090d4eca4c3de9"
+        },
+        {
+          "id": "PROP-implement-brainstorm-synthesis-guidance-regressions",
+          "semanticHash": "sha256:259003b5b2b65beacbf545df3c022de580f4ad20e579c682d2fc2c67e42cbabb"
+        },
+        {
+          "id": "SCN-question-brief-explains-decision-origin",
+          "semanticHash": "sha256:6d33937699c8a2bd56eebdf52ce2f3ce37560c2934a2a3e03a18a23d9a9beaa1"
+        },
+        {
+          "id": "SCN-current-understanding-demonstrates-selective-synthesis",
+          "semanticHash": "sha256:032e657e461e2c318c610e722d7938b06fc6208c5d50ad67d3d46d62d307e389"
+        },
+        {
+          "id": "SCN-concise-synthesis-is-not-rejected-for-shape",
+          "semanticHash": "sha256:e4565d89efe2f8d129ef2126d1dc686be8e0968cd140536973ef2e4bee39a055"
+        },
+        {
+          "id": "DISC-agent-prompt-evaluation",
+          "semanticHash": "sha256:8ab79f0a460c4a22daa9da8adf4a41ff60e465658caa145415c56f48440edb14"
         }
       ]
     },
@@ -14134,9 +14416,9 @@
         }
       ]
     },
-    "revision": 219,
+    "revision": 230,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-18T02:10:19.708Z"
+    "updatedAt": "2026-08-18T02:59:10.822Z"
   },
   "proposals": [
     {
@@ -18765,6 +19047,289 @@
         "Environment metadata must be validated with the RPC launch configuration."
       ],
       "updatedAt": "2026-07-30T15:38:45.351Z"
+    },
+    {
+      "body": "Use a mandatory context core plus adaptively selected supporting sections. Every decision brief establishes the decision, why it matters, the recommendation, and the exact question. Prompts encourage relevant current behavior, change context, constraints, consequences, and model evidence whenever they help explain why the decision exists. The goal is not to render every possible section every time, but to prevent briefs from collapsing into only a description of the recommended option.",
+      "createdAt": "2026-08-17T22:04:30.774Z",
+      "id": "PROP-layered-question-brief",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "selected",
+      "title": "Use layered question briefs with decision context before recommendation",
+      "updatedAt": "2026-08-17T22:10:14.159Z"
+    },
+    {
+      "body": "After resolution, report the selected option, changed object IDs, generated paths, and unresolved review points, followed by the next action. This is highly auditable but requires the user to interpret model internals.",
+      "createdAt": "2026-08-17T22:20:22.216Z",
+      "id": "PROP-mechanical-resolution-acknowledgement",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-review-resolution-receipt-is-mechanical"
+      ],
+      "state": "rejected",
+      "title": "Expose a concise model transaction receipt",
+      "updatedAt": "2026-08-17T22:25:51.161Z"
+    },
+    {
+      "body": "Describe the desired presentation in guidance but add no deterministic checks for prompt delivery or Markdown rendering beyond existing generic behavior.",
+      "createdAt": "2026-08-17T22:26:34.928Z",
+      "id": "PROP-unvalidated-formatting-guidance",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "PROP-synthesis-quality-over-template-completeness"
+      ],
+      "state": "rejected",
+      "title": "Rely entirely on agent formatting judgment",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
+      "body": "Always render Goal, Current behavior, Accepted direction, Open questions, and Boundaries in a stable order, allowing explicit none entries when a category is empty.",
+      "createdAt": "2026-08-17T22:14:24.702Z",
+      "id": "PROP-current-understanding-fixed-snapshot-template",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-single-current-proof"
+      ],
+      "state": "rejected",
+      "title": "Use a fixed snapshot template for every Current understanding",
+      "updatedAt": "2026-08-17T22:17:42.399Z"
+    },
+    {
+      "body": "After resolving user input, produce a short structured Markdown acknowledgement that states what was understood, what materially changed in the model or governing behavior, what remains unresolved, and what happens next. Omit sections that add no information and avoid restating the full Current understanding.",
+      "createdAt": "2026-08-17T22:20:22.216Z",
+      "id": "PROP-semantic-delta-acknowledgement",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-acknowledgement-is-semantic-delta-handoff"
+      ],
+      "state": "rejected",
+      "title": "Acknowledge the accepted direction, semantic effect, and next frontier",
+      "updatedAt": "2026-08-17T22:25:51.161Z"
+    },
+    {
+      "body": "Use Markdown and semantic coverage as scaffolding, but evaluate whether the agent selected, connected, and explained the facts that matter. Avoid fixed documentation-like forms whose completeness can mask shallow retrieval or copied model prose.",
+      "createdAt": "2026-08-17T22:25:51.161Z",
+      "id": "PROP-synthesis-quality-over-template-completeness",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-template-compliance-is-not-understanding-proof"
+      ],
+      "state": "selected",
+      "title": "Prompt for contextual synthesis rather than template completeness",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
+      "body": "Require the synthesis to make the goal, relevant current mechanism or state, and governing accepted direction easy to find. Add open frontier, constraints, boundaries, evidence, or risks when they materially affect alignment. Let headings adapt to the subject, and leave turn-by-turn changes to the separate delta and acknowledgement surfaces.",
+      "createdAt": "2026-08-17T22:14:24.702Z",
+      "id": "PROP-current-understanding-mandatory-core-adaptive-structure",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-current-understanding-renderer-and-delta-separation"
+      ],
+      "state": "selected",
+      "title": "Use a mandatory semantic core with adaptive Markdown headings for Current understanding",
+      "updatedAt": "2026-08-17T22:17:42.399Z"
+    },
+    {
+      "body": "Lead with a compact alignment summary, then expand current behavior, governing direction, frontier, and evidence in adaptive sections. This optimizes scanning but intentionally repeats some facts at two levels.",
+      "createdAt": "2026-08-17T22:14:24.702Z",
+      "id": "PROP-current-understanding-summary-plus-details",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-current-understanding-renderer-and-delta-separation"
+      ],
+      "state": "rejected",
+      "title": "Use an at-a-glance summary followed by adaptive supporting detail",
+      "updatedAt": "2026-08-17T22:17:42.399Z"
+    },
+    {
+      "body": "Require a minimum Markdown shape such as headings plus multiple blocks for question context and Current understanding, rejecting writes or reviews that do not satisfy it.",
+      "createdAt": "2026-08-17T22:26:34.928Z",
+      "id": "PROP-runtime-validated-markdown-shape",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "PROP-structured-brainstorm-surface-contract"
+      ],
+      "state": "rejected",
+      "title": "Mechanically reject unstructured brainstorm prose",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
+      "body": "Current understanding should act as an agent-authored synthesis of goals, relevant current behavior, governing direction, open questions, and boundaries. It should reveal what the agent judges relevant rather than reproduce project documentation. Do not force a separate acknowledgement surface; ordinary acknowledgements may remain conversational.",
+      "createdAt": "2026-08-17T22:04:30.774Z",
+      "id": "PROP-model-grounded-acknowledgement-and-understanding",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "selected",
+      "title": "Make Current understanding an evidence-bearing synthesis",
+      "updatedAt": "2026-08-17T22:31:54.445Z"
+    },
+    {
+      "body": "Do not add a dedicated post-resolution acknowledgement. Let the next formal review's Current understanding and model delta demonstrate the result.",
+      "createdAt": "2026-08-17T22:20:22.216Z",
+      "id": "PROP-no-distinct-resolution-acknowledgement",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-single-current-proof",
+        "DEC-model-delta-oversight-loop"
+      ],
+      "state": "selected",
+      "title": "Rely on updated Current understanding and the next review",
+      "updatedAt": "2026-08-17T22:25:51.161Z"
+    },
+    {
+      "body": "Strengthen mode guidance to require scannable Markdown and contextual synthesis. Deterministic tests verify that the guidance is injected, Markdown headings/lists render safely, and required source references remain fresh. Runtime tools do not reject prose based on heading counts or claim to validate comprehension.",
+      "createdAt": "2026-08-17T22:26:34.928Z",
+      "id": "PROP-prompt-guided-structure-with-smoke-tests",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-existing-synthesis-and-validation-boundaries"
+      ],
+      "state": "selected",
+      "title": "Require structured synthesis in guidance and test delivery, not prose quality",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
+      "body": "Revise the active-focus mode guidance to cover contextual question briefs, adaptive Markdown Current understanding, selective synthesis rather than model reproduction, no mandatory acknowledgement surface, and automatic next-frontier continuation. Add deterministic tests for guidance injection and structured Markdown rendering without adding a runtime prose-shape validator or semantic quality gate.",
+      "createdAt": "2026-08-17T22:31:54.445Z",
+      "id": "PROP-implement-brainstorm-synthesis-guidance-regressions",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-prompt-and-regression-impact-is-derivable",
+        "SCN-concise-synthesis-is-not-rejected-for-shape",
+        "SCN-current-understanding-demonstrates-selective-synthesis",
+        "SCN-question-brief-explains-decision-origin"
+      ],
+      "state": "selected",
+      "title": "Update mode guidance and targeted structural regressions",
+      "updatedAt": "2026-08-17T23:34:16.562Z"
+    },
+    {
+      "body": "Superseded as a rigid cross-surface contract. Question briefs and Current understanding still require scannable Markdown and semantic coverage through agent guidance, but no fixed acknowledgement surface or runtime heading-count validator is required.",
+      "createdAt": "2026-08-17T22:04:30.774Z",
+      "id": "PROP-structured-brainstorm-surface-contract",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "superseded",
+      "title": "Define a structured Markdown contract for brainstorm surfaces",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
     }
   ],
   "questions": [
@@ -21843,6 +22408,143 @@
       "state": "answered",
       "title": "Which Pi session owns live workers after fork, new-session, or switch?",
       "updatedAt": "2026-07-30T15:32:17.430Z"
+    },
+    {
+      "answerObjectIds": [
+        "COM-structural-proof-validation"
+      ],
+      "body": "Choose whether the workflow should guide and smoke-test structured synthesis, mechanically reject outputs that lack headings or lists, or leave formatting entirely to agent judgment.",
+      "createdAt": "2026-08-17T22:26:34.928Z",
+      "id": "Q-brainstorm-markdown-enforcement-boundary",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "PROP-prompt-guided-structure-with-smoke-tests"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-runtime-validated-markdown-shape"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-unvalidated-formatting-guidance"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-format-enforcement-boundary-is-remaining-risk"
+      ],
+      "state": "answered",
+      "title": "How strongly should meaningful Markdown structure be enforced?",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
+      "answerObjectIds": [
+        "COM-meaningful-semantic-refresh"
+      ],
+      "body": "Choose how the assistant should visibly confirm user direction, resulting semantic model changes, governing effect, unresolved points, and automatic next-frontier handoff after a review resolution.",
+      "createdAt": "2026-08-17T22:20:22.216Z",
+      "id": "Q-post-resolution-acknowledgement-contract",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "PROP-mechanical-resolution-acknowledgement"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-no-distinct-resolution-acknowledgement"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-semantic-delta-acknowledgement"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-acknowledgement-is-semantic-delta-handoff"
+      ],
+      "state": "answered",
+      "title": "What should a post-resolution acknowledgement prove?",
+      "updatedAt": "2026-08-17T22:25:51.161Z"
+    },
+    {
+      "answerObjectIds": [
+        "COM-question-context"
+      ],
+      "body": "Determine the default depth, progressive-disclosure behavior, and relevance rules for projecting project-model context into question briefs and Current understanding.",
+      "createdAt": "2026-08-17T22:04:30.775Z",
+      "id": "Q-brainstorm-context-budget-and-disclosure",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "answered",
+      "title": "How should brainstorm surfaces balance model visibility against reading burden?",
+      "updatedAt": "2026-08-17T22:10:14.159Z"
+    },
+    {
+      "answerObjectIds": [
+        "COM-single-current-proof"
+      ],
+      "body": "Choose how the latest non-authoritative synthesis should expose goals, relevant current behavior, accepted direction, boundaries, and unresolved frontier without duplicating the separate model-delta receipt or becoming a rigid wall of headings.",
+      "createdAt": "2026-08-17T22:14:24.702Z",
+      "id": "Q-current-understanding-information-architecture",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "PROP-current-understanding-fixed-snapshot-template"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-current-understanding-mandatory-core-adaptive-structure"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-current-understanding-summary-plus-details"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-meaningful-semantic-refresh",
+        "COM-single-current-proof",
+        "DISC-current-understanding-needs-content-contract-not-renderer"
+      ],
+      "state": "answered",
+      "title": "What information architecture should govern Current understanding?",
+      "updatedAt": "2026-08-17T22:17:42.399Z"
     }
   ],
   "scenarios": [
@@ -22637,6 +23339,70 @@
       "state": "proposed",
       "title": "A worker settles without calling the report tool",
       "updatedAt": "2026-07-30T18:22:44.810Z"
+    },
+    {
+      "body": "After a material decision, Current understanding uses scannable adaptive Markdown to connect the user's goal, relevant current mechanism, and governing direction. It omits unrelated model facts and does not reproduce a fixed project-documentation template.",
+      "createdAt": "2026-08-17T22:31:54.445Z",
+      "id": "SCN-current-understanding-demonstrates-selective-synthesis",
+      "introducedBy": "agent",
+      "kind": "ordinary",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-single-current-proof",
+        "DISC-template-compliance-is-not-understanding-proof"
+      ],
+      "state": "proposed",
+      "title": "Current understanding demonstrates selective synthesis",
+      "updatedAt": "2026-08-17T22:31:54.445Z"
+    },
+    {
+      "body": "A simple focus can produce a short structured synthesis with only the headings needed for comprehension. Runtime validation accepts it when content and source references are valid; tests do not require empty sections or a minimum heading count.",
+      "createdAt": "2026-08-17T22:31:54.445Z",
+      "id": "SCN-concise-synthesis-is-not-rejected-for-shape",
+      "introducedBy": "agent",
+      "kind": "boundary",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "COM-structural-proof-validation"
+      ],
+      "state": "proposed",
+      "title": "A concise but meaningful synthesis is not rejected for shape",
+      "updatedAt": "2026-08-17T22:31:54.445Z"
+    },
+    {
+      "body": "When asking the user to choose how existing behavior should change, the brief explains the relevant current mechanism, the insufficiency or trigger, what materially changes across options, the recommendation, and the exact requested judgment. It does not begin and end with a description of the recommended option.",
+      "createdAt": "2026-08-17T22:31:54.445Z",
+      "id": "SCN-question-brief-explains-decision-origin",
+      "introducedBy": "agent",
+      "kind": "ordinary",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-question-context"
+      ],
+      "state": "proposed",
+      "title": "A modification question explains why the decision exists",
+      "updatedAt": "2026-08-17T22:31:54.445Z"
     }
   ],
   "schemaVersion": 1,
@@ -23001,6 +23767,52 @@
       "state": "resolved",
       "title": "Session-scoped workers versus daemon durability",
       "updatedAt": "2026-07-30T03:41:37.138Z"
+    },
+    {
+      "body": "Question briefs and Current understanding need enough Markdown structure and contextual coverage to be readable project-model windows, but a rigid or exhaustive schema can turn the output into project documentation and obscure whether the agent can synthesize what actually matters.",
+      "createdAt": "2026-08-17T22:25:51.161Z",
+      "id": "TEN-scannable-structure-vs-performative-template-compliance",
+      "introducedBy": "agent",
+      "poleObjectIds": [
+        "PROP-structured-brainstorm-surface-contract",
+        "PROP-synthesis-quality-over-template-completeness"
+      ],
+      "relationships": [
+        {
+          "kind": "affects",
+          "targetId": "COM-question-context"
+        },
+        {
+          "kind": "affects",
+          "targetId": "COM-single-current-proof"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-structured-brainstorm-surface-contract"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-synthesis-quality-over-template-completeness"
+        }
+      ],
+      "resolutionObjectIds": [
+        "COM-structural-proof-validation",
+        "COM-question-context",
+        "COM-single-current-proof"
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-template-compliance-is-not-understanding-proof"
+      ],
+      "state": "resolved",
+      "title": "Scannable structure versus performative template compliance",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
     }
   ],
   "workstreams": [

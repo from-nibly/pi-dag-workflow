@@ -470,6 +470,11 @@ async function testPiIntegration() {
     const ctx = pi.context(root);
     await pi.runCommand("dag", "brainstorm new Schema focus", ctx);
     assert(pi.activeTools.has("dag_model_context"), "brainstorm command activates model tools");
+    const [promptUpdate] = (await pi.emit("before_agent_start", { systemPrompt: "Base prompt" }, ctx)).filter(Boolean);
+    assertIncludes(promptUpdate.systemPrompt, "Write question briefs as scannable Markdown", "brainstorm mode injects structured question-brief guidance");
+    assertIncludes(promptUpdate.systemPrompt, "selective causal synthesis", "brainstorm mode distinguishes comprehension from template completion");
+    assertIncludes(promptUpdate.systemPrompt, "automatically explore and present the next supported material frontier", "brainstorm mode continues through supported frontiers");
+    assertIncludes(promptUpdate.systemPrompt, "Do not require a distinct formal acknowledgement surface", "brainstorm mode leaves acknowledgements conversational");
     assert(["subagent", "subagent_status", "subagent_inspect", "subagent_tail", "subagent_cancel", "subagent_retry"].every((name) => pi.tools.has(name)), "generic owned-worker tools are registered independently of DAG mode");
     assert(pi.commands.has("workers"), "generic /workers command is registered");
     assert(!pi.tools.has("dag_init") && !pi.tools.has("dag_start_node"), "mutating legacy DAG tools are not registered");
@@ -526,7 +531,11 @@ class FakePi {
   setActiveTools(names) { if (this.loading) throw new Error("Extension runtime not initialized"); this.activeTools = new Set(names); }
   appendEntry(customType, data) { this.entries.push({ type: "custom", customType, data }); }
   sendMessage(message) { this.messages.push(message); }
-  async emit(event, payload, ctx) { for (const handler of this.handlers.get(event) ?? []) await handler(payload, ctx); }
+  async emit(event, payload, ctx) {
+    const results = [];
+    for (const handler of this.handlers.get(event) ?? []) results.push(await handler(payload, ctx));
+    return results;
+  }
   async runCommand(name, args, ctx) { return this.commands.get(name).handler(args, ctx); }
   async callTool(name, params, ctx) {
     if (!this.activeTools.has(name)) throw new Error(`inactive tool ${name}`);

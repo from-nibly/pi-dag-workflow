@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-structured-brainstorming; contract: 1; input: sha256:e129921f373d234cecd07c7be74002f10c4dd48da114cb0a32f3e9f6bc45dd1b -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-structured-brainstorming; contract: 1; input: sha256:c416254464fd769dc08f760e4c548e72fde875286a4b474f2972a67c711fe842 -->
 
 # Structured brainstorming behavior
 
@@ -120,11 +120,11 @@ Operate model brainstorming as Explore → Consolidate → Stress-test → Commi
 
 <a id="obj-com-bounded-autonomous-bursts"></a>
 
-### Explore autonomously in bounded coherent bursts
+### Explore autonomously through the selected focus frontier
 
-Explore autonomously within the selected focus and initiate a materiality-based review turn when a coherent cluster needs product judgment, evidence changes framing, a preference blocks progress, continuing risks drift, or the user requests review. Use no fixed tool, time, object, or token quota.
+Explore autonomously within the selected focus and initiate a materiality-based review turn when a coherent cluster needs product judgment, evidence changes framing, a preference blocks progress, continuing risks drift, or the user requests review. After a frontier review is resolved, automatically research and present the next material frontier without waiting for another chat prompt. Continue until no supported material frontier remains, the user pauses or redirects, or progress is blocked on unresolved user input. Use no fixed tool, time, object, or token quota, and do not invent questions merely to claim exhaustion.
 
-**Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
+**Rationale.** The user wants a continuous formal brainstorming loop rather than manually requesting each next frontier, while preserving the existing prohibition on fabricated exhaustion sweeps.
 
 <a id="obj-com-user-selects-tangents"></a>
 
@@ -378,9 +378,9 @@ Before asking, exhaust relevant repository evidence and perform web research whe
 
 ### Explain the decision background before asking for a choice
 
-Every Decisions-needed point must give enough background for an informed choice. Before presenting options, explain the current mechanism in concrete terms, the observed insufficiency or trigger, a realistic failure or consequence it protects against, why the issue must be decided now, what remains uncertain, and how each materially different answer changes implementation or authority. Define specialized terms in plain language and distinguish correctness protection from optional hardening. Do not rely on terse summaries or assume the user remembers earlier research.
+Every Decisions-needed point uses a mandatory context core plus adaptively selected supporting context. It must establish what needs to be decided, why the decision exists or matters now, the agent's recommendation and rationale, and the exact input needed from the user. Prompts actively encourage the agent to add relevant current behavior, the observed insufficiency or trigger, what would change and remain unchanged, constraints or prior decisions, realistic consequences, remaining uncertainty, and materially different option effects whenever those details help the user make an informed choice. Define specialized terms in plain language and distinguish correctness protection from optional hardening. Do not mechanically render every possible section, but do not present only a description of the recommended option or assume the user remembers earlier research.
 
-**Rationale.** The user needs visibility into what each decision protects against and what choosing an option would commit, especially for dense authority, compiler, recovery, and release contracts.
+**Rationale.** The user needs a reliable floor of decision context and visibility into the relevant project model without replacing dense prose with an equally rigid, exhaustive template.
 
 <a id="obj-com-real-options-only"></a>
 
@@ -408,11 +408,11 @@ When resolved review outcomes materially change the model, atomically replace Cu
 
 <a id="obj-com-meaningful-semantic-refresh"></a>
 
-### Refresh after meaningful semantic change, not every turn
+### Use formal review projections instead of separate acknowledgements
 
-Replace Current understanding after a material model change, accepted correction, contradiction resolution, or research reframing—not for acknowledgments, navigation, or unchanged conversation. Retain only the latest non-authoritative synthesis and its source object IDs/hashes.
+Replace Current understanding after a material model change, accepted correction, contradiction resolution, or research reframing—not for navigation or unchanged conversation. Retain only the latest non-authoritative synthesis and its source object IDs/hashes. After resolving user direction, do not produce a distinct acknowledgement; continue to the next formal review, whose Current understanding and Model delta communicate the result.
 
-**Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
+**Rationale.** The next formal review already contains the persistent synthesis and delta, so a separate acknowledgement would duplicate presentation.
 
 <a id="obj-com-initial-orientation-proof"></a>
 
@@ -424,19 +424,19 @@ Before the first decisions-needed review, present an Initial understanding synth
 
 <a id="obj-com-single-current-proof"></a>
 
-### Keep one mutable current proof
+### Keep one structured mutable current proof
 
-Keep one latest project-level Current understanding synthesis in tracked metadata. It is agent-authored, non-authoritative, carries source object IDs/hashes, and is replaced rather than accumulated as review history.
+Keep one latest project-level Current understanding synthesis in tracked metadata. It is agent-authored, non-authoritative, carries source object IDs/hashes, and is replaced rather than accumulated as review history. Its Markdown must make the goal, relevant current state or mechanism, and governing accepted direction easy to find. Add unresolved frontier, boundaries, constraints, evidence, risks, or other sections when they materially help the user verify alignment. Headings may adapt to the subject; Current understanding describes present state rather than duplicating the separate model-delta or acknowledgement receipt.
 
-**Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
+**Rationale.** A mandatory semantic core makes the synthesis auditable, while adaptive headings preserve useful judgment and avoid template noise.
 
 <a id="obj-com-structural-proof-validation"></a>
 
-### Tools validate freshness and references; evaluations assess comprehension
+### Mechanically validate delivery and provenance, not comprehension
 
-Validate that Current understanding is nonempty when present and that its source object IDs/hashes are valid/current. Agent guidance and later field-based evaluation assess synthesis quality; deterministic tools do not claim to judge comprehension.
+Require agent guidance to produce scannable Markdown and contextual synthesis for question briefs and Current understanding. Deterministic tools and tests validate that this guidance is delivered, Current understanding is nonempty when present, source object IDs/hashes are valid and current, and headings, lists, emphasis, and other supported Markdown render safely. Do not reject semantic output based on fixed section names, heading counts, or checklist completeness, and do not claim that structural conformance proves comprehension. Agent judgment and later field-grounded evaluation assess whether the synthesis selected, connected, and explained the facts that matter.
 
-**Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
+**Rationale.** This catches delivery and rendering regressions while preserving the agent-authored synthesis that serves as the actual alignment proof.
 
 <a id="obj-com-mode-system-prompt-plus-kickoff"></a>
 
