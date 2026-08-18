@@ -13568,6 +13568,36 @@
       "state": "current",
       "title": "Unified planning compiler adversarial review",
       "updatedAt": "2026-08-13T02:45:24.437Z"
+    },
+    {
+      "body": "Commit aa1c95a684275744dd3b07656fa46b9061e33d98 passed the clean-tree release readiness gate, including smoke, 60 evaluation checks, canonical dogfood, the 12-execution paired portfolio, generated-spec drift checks, and packed-artifact smoke. Tag v0.1.3 was pushed, the GitHub release was published, and Home Manager applied the managed checkout at the exact commit with package version 0.1.3. The Operant run remains intentionally paused at r21/epoch4 with recorded owner PID 3707432 proven dead.",
+      "createdAt": "2026-08-18T02:10:19.707Z",
+      "id": "EV-v013-release-ready-and-applied",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-process-shared-dag-conductor-ownership-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "command:home-manager-switch",
+        "command:npm-run-release-ready",
+        "git:aa1c95a684275744dd3b07656fa46b9061e33d98",
+        "github-release:v0.1.3"
+      ],
+      "state": "current",
+      "title": "v0.1.3 terminal-conductor patch is released and applied",
+      "updatedAt": "2026-08-18T02:10:19.707Z"
     }
   ],
   "intents": [
@@ -13751,13 +13781,9 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "v0.1.2 is released/applied, but real Operant recovery exposed two defects: recovered procedure evidence retained a pre-reconciliation producedAt and failed deterministic seal validation, while the pump rejection branch recursively adopted dirty successor pumps and trapped the top-level agent and shutdown in an error-retry loop. Direct user direction requires every conductor error to terminate the current pump immediately, reject all shared callers with the exact error, surface it to the top-level agent, latch the run fault against background wakes, and permit only an explicit later top-level retry. Independent audit showed that this latch must survive service/process replacement and dirty successor passes must retain the latest wake time; the local release patch now includes both protections plus reconciliation-time evidence closure. The Operant run is safely paused at r21/epoch4 with its recorded owner process dead and must remain stopped until the fixed package is applied.",
-      "generatedAt": "2026-08-17T20:50:09.481Z",
+      "body": "v0.1.3 is released and applied at commit aa1c95a684275744dd3b07656fa46b9061e33d98. It closes recovered procedure evidence at durable reconciliation time, makes the first conductor error terminal and top-level-agent-visible, persists a background-wake fault latch across service/process replacement until an explicit retry succeeds, and preserves the latest dirty-wake time. Clean-tree release readiness passed smoke, evaluation, dogfood, the full paired portfolio, generated-spec, and packed-artifact gates. The Operant run remains intentionally paused at r21/epoch4 with its recorded owner PID 3707432 dead; it must not be resumed or reattached without explicit user direction.",
+      "generatedAt": "2026-08-18T02:10:19.708Z",
       "sourceObjects": [
-        {
-          "id": "EV-operant-run-64e81c4f-stalled-after-f0-reconcile",
-          "semanticHash": "sha256:a6268e41ac324de9c84465daa5c1e954e59d09464ffac84c881f1b67025052a8"
-        },
         {
           "id": "DEC-process-shared-dag-conductor-ownership-v1",
           "semanticHash": "sha256:868e78611284cff7436e0274a698ad26c973074534181081018b35ed7dfd7942"
@@ -13765,6 +13791,10 @@
         {
           "id": "DISC-terminal-conductor-faults-require-durable-latch",
           "semanticHash": "sha256:c951900ed65d0800b114fcddf4164d600fb83133073a3a0da639aa102f10459d"
+        },
+        {
+          "id": "EV-v013-release-ready-and-applied",
+          "semanticHash": "sha256:4f4a0e3f56655363075fe2ca0a99d66b1b5610baacaafef676b6d31aed9b360a"
         }
       ]
     },
@@ -14104,9 +14134,9 @@
         }
       ]
     },
-    "revision": 218,
+    "revision": 219,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-17T20:50:09.481Z"
+    "updatedAt": "2026-08-18T02:10:19.708Z"
   },
   "proposals": [
     {
