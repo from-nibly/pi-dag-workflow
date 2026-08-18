@@ -144,6 +144,27 @@ export interface DagExecutionProjectionV1 {
   projectionHash: string;
 }
 
+export type DagExecutionStageStateV2 = DagRunStateV1["workItems"][string]["stages"][typeof PLAN_STAGE_IDS[number]]["state"];
+
+export interface DagExecutionStageV2 {
+  stage: typeof PLAN_STAGE_IDS[number];
+  state: DagExecutionStageStateV2;
+}
+
+export interface DagExecutionNodeV2 extends Omit<DagExecutionNodeV1, "worker"> {
+  candidateGeneration: number;
+  stages: DagExecutionStageV2[];
+  worker: null | { workerId: string; attemptNumber: number; terminalStatus: string | null; processDisposition: string; retrySafe: boolean };
+}
+
+export interface DagExecutionProjectionV2 extends Omit<DagExecutionProjectionV1, "schemaVersion" | "kind" | "projectionVersion" | "nodes" | "projectionHash"> {
+  schemaVersion: 2;
+  kind: "DagExecutionProjectionV2";
+  projectionVersion: "2";
+  nodes: DagExecutionNodeV2[];
+  projectionHash: string;
+}
+
 export function buildSchedulerPlanIndexV1(plan: CanonicalDagPlanV1): { schemaVersion: 1; kind: "SchedulerPlanIndexV1"; planHash: string; policyHash: string; workItems: unknown[]; precedence: unknown[]; trains: unknown[]; indexHash: string } {
   const core = {
     schemaVersion: 1 as const, kind: "SchedulerPlanIndexV1" as const, planHash: plan.planHash, policyHash: DAG_SCHEDULER_POLICY_HASH_V1,
@@ -257,6 +278,42 @@ export function projectDagExecutionV1(plan: CanonicalDagPlanV1, state: DagRunSta
     precedence: plan.constraints.precedence.map((edge) => ({ precedenceId: edge.precedenceId, from: edge.predecessorWorkItemId, to: edge.successorWorkItemId, state: state.precedence[edge.precedenceId]?.state ?? "waiting" })).sort((a, b) => a.precedenceId.localeCompare(b.precedenceId)),
     trainHeads: Object.values(state.integrationTrains).map((train) => { const entryId = train.entryOrder.find((id) => train.entries[id]?.state !== "integrated") ?? null; return { repositoryId: train.repositoryId, entryId, workItemId: entryId ? train.entries[entryId]?.workItemId ?? null : null, acceptedPrefixOrdinal: train.acceptedPrefixOrdinal }; }).sort((a, b) => a.repositoryId.localeCompare(b.repositoryId)),
     summary: { ready: nodes.filter(({ correctnessReady }) => correctnessReady).length, activeLanes: nodes.filter(({ activeLane }) => activeLane).length, attention: nodes.filter(({ glyph }) => glyph === "!" || glyph === "?").length, integrationReady: nodes.filter(({ glyph }) => glyph === "+").length, complete: nodes.filter(({ glyph }) => glyph === "#").length, omittedWorkers },
+  };
+  return { ...core, projectionHash: canonicalHash(core) };
+}
+
+export function projectDagExecutionV2(plan: CanonicalDagPlanV1, state: DagRunStateV1, decision: DagSchedulerDecisionV1, workerInput: DagWorkerProjectionInputV1 | null = null): DagExecutionProjectionV2 {
+  const v1 = projectDagExecutionV1(plan, state, decision, workerInput);
+  const nodes = v1.nodes.map((node): DagExecutionNodeV2 => {
+    const item = state.workItems[node.workItemId];
+    const currentAttempt = item.currentStage ? state.stageAttempts[item.stages[item.currentStage].currentAttemptId ?? ""] : undefined;
+    const binding = currentAttempt ? state.workerBindings[currentAttempt.stageAttemptId] : undefined;
+    return {
+      ...node,
+      candidateGeneration: item.candidateGeneration,
+      stages: PLAN_STAGE_IDS.map((stage) => ({ stage, state: item.stages[stage].state })),
+      worker: node.worker && binding ? { ...node.worker, processDisposition: binding.processDisposition } : null,
+    };
+  });
+  const core = {
+    schemaVersion: 2 as const,
+    kind: "DagExecutionProjectionV2" as const,
+    projectionVersion: "2" as const,
+    planHash: v1.planHash,
+    runId: v1.runId,
+    runRevision: v1.runRevision,
+    runSnapshotHash: v1.runSnapshotHash,
+    workerProjectionHash: v1.workerProjectionHash,
+    repositoryProjectionHash: v1.repositoryProjectionHash,
+    schedulerDecisionHash: v1.schedulerDecisionHash,
+    desired: v1.desired,
+    current: v1.current,
+    completion: v1.completion,
+    staleReadOnly: v1.staleReadOnly,
+    nodes,
+    precedence: v1.precedence,
+    trainHeads: v1.trainHeads,
+    summary: v1.summary,
   };
   return { ...core, projectionHash: canonicalHash(core) };
 }

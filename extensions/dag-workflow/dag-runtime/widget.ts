@@ -1,6 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { canonicalHash } from "./common.ts";
-import type { DagExecutionNodeV1, DagExecutionProjectionV1 } from "./scheduler.ts";
+import type { DagExecutionNodeV1, DagExecutionNodeV2, DagExecutionProjectionV1, DagExecutionProjectionV2 } from "./scheduler.ts";
 
 export interface DagWidgetLayoutV1 {
   schemaVersion: 1;
@@ -43,6 +43,186 @@ export function renderDagWidgetV1(projection: DagExecutionProjectionV1, width: n
   };
   return { ...core, layoutHash: canonicalHash(core) };
 }
+
+export interface DagWidgetRenderStateV2 {
+  animationFrame: number;
+  diagnostic?: string | null;
+  freshLiveAliases: readonly string[];
+}
+
+export interface DagWidgetLayoutV2 {
+  schemaVersion: 2;
+  kind: "DagWidgetLayoutV2";
+  projectionHash: string;
+  width: number;
+  terminalRows: number;
+  rowBudget: number;
+  activityAliases: string[];
+  selectedAliases: string[];
+  omittedAliases: string[];
+  omittedEdges: number;
+  lines: string[];
+  layoutHash: string;
+}
+
+const SPINNER_FRAMES_V2 = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+
+export function renderDagWidgetV2(projection: DagExecutionProjectionV2, width: number, terminalRows: number, observationTime: string, view: DagWidgetRenderStateV2 = { animationFrame: 0, freshLiveAliases: [] }): DagWidgetLayoutV2 {
+  if (!Number.isInteger(width) || width < 1 || !Number.isInteger(terminalRows) || terminalRows < 4) throw new TypeError("DAG widget requires integer width >=1 and terminalRows >=4");
+  if (!Number.isFinite(Date.parse(observationTime))) throw new TypeError("DAG widget observationTime must be an explicit timestamp");
+  const rowBudget = Math.max(4, Math.min(12, Math.floor(terminalRows / 3)));
+  const freshLive = new Set(view.freshLiveAliases);
+  const byId = new Map(projection.nodes.map((node) => [node.workItemId, node]));
+  const anchors = selectAnchorsV2(projection);
+  const lines: string[] = [];
+  const activity = new Set<string>();
+  const selected = new Set<string>();
+  let shownEdges = 0;
+  const stale = projection.staleReadOnly || view.diagnostic ? " | STALE" : "";
+  lines.push(crop(`DAG ${projection.runId} r${projection.runRevision} | ${projection.current}/${projection.completion} | active ${projection.summary.activeLanes}/${projection.nodes.length} ready ${projection.summary.ready} attention ${projection.summary.attention}${stale}`, width));
+
+  const contentBudget = rowBudget - 2;
+  if (width < 20) {
+    for (const node of anchors.slice(0, contentBudget)) {
+      selected.add(node.alias);
+      lines.push(crop(`${node.glyph}${node.alias} ${node.stage ?? "-"}`, width));
+    }
+  } else {
+    let used = 0;
+    for (const anchor of anchors) {
+      const dependents = outgoingDependentsV2(projection, anchor, byId);
+      const block = renderGraphBranchV2(anchor, dependents, width, view.animationFrame, freshLive);
+      if (used + block.lines.length > contentBudget) {
+        if (used === 0) {
+          activity.add(anchor.alias);
+          selected.add(anchor.alias);
+          lines.push(renderAnchorV2(anchor, width, view.animationFrame, freshLive));
+          used += 1;
+          if (used < contentBudget && dependents.length) {
+            const compact = renderDependentRowV2(dependents, width);
+            lines.push(compact.line);
+            compact.visible.forEach(({ alias }) => selected.add(alias));
+            shownEdges += compact.visible.length;
+            used += 1;
+          }
+        }
+        break;
+      }
+      activity.add(anchor.alias);
+      selected.add(anchor.alias);
+      block.visibleDependents.forEach(({ alias }) => selected.add(alias));
+      shownEdges += block.visibleDependents.length;
+      lines.push(...block.lines);
+      used += block.lines.length;
+    }
+  }
+
+  const omittedAliases = projection.nodes.map(({ alias }) => alias).filter((alias) => !selected.has(alias)).sort();
+  const omittedEdges = Math.max(0, projection.precedence.length - shownEdges);
+  const omission = omittedAliases.length || omittedEdges ? `+${omittedAliases.length} nodes · +${omittedEdges} edges omitted` : null;
+  const staleDiagnostic = view.diagnostic ?? (projection.staleReadOnly ? "STALE READ-ONLY" : null);
+  const footer = staleDiagnostic
+    ? `${staleDiagnostic}${omission ? ` | ${omission}` : ""} | read-only`
+    : omission
+      ? `${omission} | read-only`
+      : "read-only; inspect/control through the conductor";
+  while (lines.length > rowBudget - 1) lines.pop();
+  lines.push(crop(footer, width));
+  const core = {
+    schemaVersion: 2 as const,
+    kind: "DagWidgetLayoutV2" as const,
+    projectionHash: projection.projectionHash,
+    width,
+    terminalRows,
+    rowBudget,
+    activityAliases: [...activity].sort(),
+    selectedAliases: [...selected].sort(),
+    omittedAliases,
+    omittedEdges,
+    lines,
+  };
+  return { ...core, layoutHash: canonicalHash(core) };
+}
+
+function selectAnchorsV2(projection: DagExecutionProjectionV2): DagExecutionNodeV2[] {
+  const selected = new Map<string, DagExecutionNodeV2>();
+  const add = (node: DagExecutionNodeV2 | undefined) => { if (node) selected.set(node.workItemId, node); };
+  projection.nodes.filter(({ glyph }) => glyph === "!" || glyph === "?").sort(attentionOrderV2).forEach(add);
+  projection.nodes.filter(({ activeLane }) => activeLane).sort(laneOrderV2).forEach(add);
+  if (selected.size === 0) {
+    const byId = new Map(projection.nodes.map((node) => [node.workItemId, node]));
+    projection.trainHeads.forEach(({ workItemId }) => add(workItemId ? byId.get(workItemId) : undefined));
+    projection.nodes.filter(({ correctnessReady }) => correctnessReady).sort(schedulerOrderV2).forEach(add);
+  }
+  if (selected.size === 0) add(projection.nodes.filter(({ glyph }) => !["#", "x"].includes(glyph)).sort((a, b) => a.alias.localeCompare(b.alias))[0]);
+  return [...selected.values()];
+}
+
+function outgoingDependentsV2(projection: DagExecutionProjectionV2, anchor: DagExecutionNodeV2, byId: Map<string, DagExecutionNodeV2>): DagExecutionNodeV2[] {
+  return projection.precedence
+    .filter(({ from }) => from === anchor.workItemId)
+    .map(({ to }) => byId.get(to))
+    .filter((node): node is DagExecutionNodeV2 => Boolean(node))
+    .sort(dependentOrderV2);
+}
+
+function renderGraphBranchV2(anchor: DagExecutionNodeV2, dependents: DagExecutionNodeV2[], width: number, frame: number, freshLive: Set<string>): { lines: string[]; visibleDependents: DagExecutionNodeV2[] } {
+  const anchorLine = renderAnchorV2(anchor, width, frame, freshLive);
+  if (dependents.length === 0) return { lines: [anchorLine], visibleDependents: [] };
+  const dependentRow = renderDependentRowV2(dependents, width);
+  if (dependentRow.visible.length === 0) return { lines: [anchorLine], visibleDependents: [] };
+  const sourceColumn = Math.min(width - 1, 3);
+  const connector = Array(width).fill(" ");
+  connector[sourceColumn] = "└";
+  const lastPosition = dependentRow.positions.at(-1)!;
+  for (let column = sourceColumn + 1; column <= lastPosition; column += 1) connector[column] = "─";
+  dependentRow.positions.forEach((column, index) => { connector[column] = index === dependentRow.positions.length - 1 ? "┐" : "┬"; });
+  return { lines: [anchorLine, connector.join("").trimEnd(), dependentRow.line], visibleDependents: dependentRow.visible };
+}
+
+function renderAnchorV2(node: DagExecutionNodeV2, width: number, frame: number, freshLive: Set<string>): string {
+  const motion = freshLive.has(node.alias) ? SPINNER_FRAMES_V2[frame % SPINNER_FRAMES_V2.length] : node.worker?.processDisposition === "live" ? "·" : " ";
+  const progress = renderProgressV2(node, width);
+  const prefix = `${motion} ${node.glyph}${node.alias} ${progress}`;
+  const available = Math.max(0, width - visibleWidth(prefix) - 1);
+  return crop(available > 0 ? `${prefix} ${shortTitle(node.title, available)}` : prefix, width);
+}
+
+function renderProgressV2(node: DagExecutionNodeV2, width: number): string {
+  const passed = node.stages.filter(({ state }) => state === "passed").length;
+  if (width < 60) return `${node.stage ?? "-"} ${passed}/9`;
+  const cells = node.stages.map(({ stage, state }) => state === "passed" ? "■" : stage === node.stage ? "▶" : "·").join("");
+  return `${node.stage ?? "-"} [${cells}]`;
+}
+
+function renderDependentRowV2(dependents: DagExecutionNodeV2[], width: number): { line: string; positions: number[]; visible: DagExecutionNodeV2[] } {
+  const visible: DagExecutionNodeV2[] = [];
+  let labelsWidth = 0;
+  for (const node of dependents) {
+    const labelWidth = visibleWidth(`▶ ${node.alias}`);
+    const nextWidth = labelsWidth + (visible.length ? 1 : 0) + labelWidth;
+    if (nextWidth > Math.max(0, width - 4)) break;
+    visible.push(node);
+    labelsWidth = nextWidth;
+  }
+  if (visible.length === 0) return { line: "", positions: [], visible };
+  const labelWidths = visible.map(({ alias }) => visibleWidth(`▶ ${alias}`));
+  const lastColumn = width - labelWidths.at(-1)!;
+  const packedFirstColumn = lastColumn - labelWidths.slice(0, -1).reduce((sum, labelWidth) => sum + labelWidth + 1, 0);
+  const desiredFirstColumn = Math.max(4, Math.floor(width * 0.38));
+  const firstColumn = Math.max(4, Math.min(desiredFirstColumn, packedFirstColumn));
+  const positions = visible.map((_, index) => visible.length === 1 ? lastColumn : Math.round(firstColumn + (lastColumn - firstColumn) * index / (visible.length - 1)));
+  const row = Array(width).fill(" ");
+  visible.forEach((node, index) => Array.from(`▶ ${node.alias}`).forEach((character, offset) => { if (positions[index] + offset < width) row[positions[index] + offset] = character; }));
+  return { line: row.join("").trimEnd(), positions, visible };
+}
+
+function laneOrderV2(a: DagExecutionNodeV2, b: DagExecutionNodeV2): number {
+  return (a.laneAdmissionSequence ?? Number.MAX_SAFE_INTEGER) - (b.laneAdmissionSequence ?? Number.MAX_SAFE_INTEGER) || a.alias.localeCompare(b.alias);
+}
+function attentionOrderV2(a: DagExecutionNodeV2, b: DagExecutionNodeV2): number { return Number(b.glyph === "!") - Number(a.glyph === "!") || laneOrderV2(a, b); }
+function schedulerOrderV2(a: DagExecutionNodeV2, b: DagExecutionNodeV2): number { return (a.schedulerOrder ?? Number.MAX_SAFE_INTEGER) - (b.schedulerOrder ?? Number.MAX_SAFE_INTEGER) || a.alias.localeCompare(b.alias); }
+function dependentOrderV2(a: DagExecutionNodeV2, b: DagExecutionNodeV2): number { return Number(b.glyph === "!" || b.glyph === "?") - Number(a.glyph === "!" || a.glyph === "?") || Number(b.activeLane) - Number(a.activeLane) || schedulerOrderV2(a, b); }
 
 function selectNodes(projection: DagExecutionProjectionV1, limit: number): DagExecutionNodeV1[] {
   const byId = new Map(projection.nodes.map((node) => [node.workItemId, node]));

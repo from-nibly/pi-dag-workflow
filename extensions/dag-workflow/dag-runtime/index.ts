@@ -85,10 +85,15 @@ export {
   DAG_SCHEDULER_POLICY_V1,
   buildSchedulerPlanIndexV1,
   projectDagExecutionV1,
+  projectDagExecutionV2,
   requireSchedulerDispatchIntentV1,
   scheduleDagRunV1,
   type DagExecutionNodeV1,
+  type DagExecutionNodeV2,
   type DagExecutionProjectionV1,
+  type DagExecutionProjectionV2,
+  type DagExecutionStageStateV2,
+  type DagExecutionStageV2,
   type DagSchedulerAdmissionCodeV1,
   type DagSchedulerBlockerCodeV1,
   type DagSchedulerDecisionV1,
@@ -127,8 +132,20 @@ export {
 } from "./integration.ts";
 export {
   renderDagWidgetV1,
+  renderDagWidgetV2,
   type DagWidgetLayoutV1,
+  type DagWidgetLayoutV2,
+  type DagWidgetRenderStateV2,
 } from "./widget.ts";
+export {
+  DAG_WIDGET_ANIMATION_INTERVAL_MS_V2,
+  DAG_WIDGET_LIVENESS_FRESHNESS_MS_V2,
+  DAG_WIDGET_REFRESH_INTERVAL_MS_V2,
+  DagWidgetControllerV2,
+  type DagWidgetControllerOptionsV2,
+  type DagWidgetControllerReadResultV2,
+  type DagWidgetViewStateV2,
+} from "./widget-controller.ts";
 export {
   DurableGitIntegrationRuntimeV1,
   ExactGitIntegrationV1,

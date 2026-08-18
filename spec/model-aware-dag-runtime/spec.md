@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:b49ce13a8c714344a09e8b5a73f14da8ec62b02831fd929b3731232cd21ffeed -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:d7d3a3e6d77c331c44db3fed77677ea28a29f8b6471bd4d1b5af6800aa6b1abc -->
 
 # Model-aware DAG planning and execution
 
@@ -495,6 +495,70 @@ When exact evidence discovers a new runtime-narrowing incompatibility between ac
 Executable plans and runs bind an exact `schedulerPolicyVersion` and canonical policy hash through the lifecycle/projection catalog, normalized scheduler index, reservations, and operation intents. The atomic snapshot persists exact current reservations, leases, decision sequence, adaptive/circuit/fairness counters, and launch/effect identities needed for guards and recovery. Deterministic projections expose the correctness frontier, admission reasons, priority components, wait-for graph, and current policy inputs. Routine non-authoritative batch explanations are not immutable artifacts or event sourcing. Only human/authority overrides, cross-session policy/capacity facts, deadlock/starvation/replan attention, or scheduler facts promoted as evidence cross the immutable artifact boundary.
 
 **Rationale.** Correctness comes from atomic reservations and intents; disposable deterministic explanations satisfy observability without violating the accepted bounded-artifact policy or accumulating a scheduler event log.
+
+<a id="obj-dec-activity-centered-topology-widget-v2"></a>
+
+### Center the persistent DAG widget on live activity and immediate dependents
+
+The bounded passive DAG widget renders an activity-centered topology spotlight rather than the whole graph: mandatory attention nodes first, then sticky active lanes, then their immediate causal dependents and required one-hop context. It uses horizontal space for parallel activity lanes and summarizes every omitted region explicitly. Each selected node may show compact stage and activity detail. Spinner motion appears only while an exact joined worker observation proves that node's bound process is live and fresh; otherwise the active mark is static or frozen. The persistent renderer is purpose-built and responsive; general graph renderers are reserved for explicit full-DAG inspection.
+
+**Rationale.** This keeps topology legible, makes current work continuously visible, and prevents animation from claiming activity that canonical worker evidence does not prove.
+
+<a id="obj-dec-canonical-stage-progress-widget-v1"></a>
+
+### Measure node progress by canonical F0–F8 stage completion
+
+A node progress bar has nine canonical segments for F0 through F8. Passed stages in the current valid candidate generation render complete, the current stage renders active, and later stages render pending. When repair, retry, or a successor candidate invalidates later stage results, the bar may regress. The UI does not infer percentages from tool events, elapsed time, tokens, or worker output.
+
+**Rationale.** Stage completion is already authoritative, understandable, and intentionally non-monotonic under iteration.
+
+<a id="obj-dec-versioned-widget-projection-serialized-controller-v1"></a>
+
+### Use a versioned widget projection and serialized disposable controller
+
+Implement the activity-centered DAG widget through two explicit layers. DagExecutionProjectionV2 preserves the exact plan/run/scheduler/worker join and adds each node's ordered F0–F8 stage states, candidate generation, and exact joined worker process disposition; V1 is not silently widened. A session-scoped disposable controller owns at most one status read, coalesced successor refreshes, the last successful liveness-observation time, animation frames, stable render state, generation-fenced publication, and idempotent teardown. The pure renderer consumes semantic projection plus ephemeral view state, honors the exact supplied width, and never treats animation ticks as semantic progress.
+
+**Rationale.** The accepted progress and motion semantics require omitted canonical fields, while the observed corruption requires lifecycle and concurrency control outside the pure projection.
+
+<a id="obj-dec-orthogonal-widget-activity-cell-v1"></a>
+
+### Render live-worker motion in a separate activity cell
+
+Each selected node lane reserves a leading activity cell distinct from the stable ten-state primary glyph. The cell animates only while the serialized controller holds a recent successful exact observation that the node's bound worker process disposition is live. When that observation becomes stale or non-live, the cell freezes to a static mark or blank according to the responsive width policy. The primary glyph continues to represent canonical node state and never changes merely to animate. The activity cell may be omitted only in the subminimum fallback, where no motion claim is shown.
+
+**Rationale.** Worker liveness, freshness, and canonical node state are orthogonal facts with different clocks.
+
+<a id="obj-dec-responsive-nine-stage-progress-encoding-v1"></a>
+
+### Render nine-stage progress with deterministic width fallbacks
+
+At wide and medium widths, each selected node lane renders nine ordered F0–F8 cells with passed, current, and pending states distinguishable without color-only meaning. Titles and dependent labels truncate before semantic cells are removed. At narrow widths, the full bar becomes the current stage plus `passed/9`. At subminimum widths, the renderer keeps only alias, primary mark, and current stage and makes no progress-bar claim. Rework regression redraws fewer passed cells without animation that implies failure.
+
+**Rationale.** This keeps canonical stage progress visually useful while preserving exact-width and topology obligations at every breakpoint.
+
+<a id="obj-dec-responsive-horizontal-graph-branches-v1"></a>
+
+### Render selected activity anchors as responsive horizontal graph branches
+
+Each selected activity or attention anchor renders its activity cell, stable primary glyph, alias, responsive F0–F8 progress encoding, and truncated title on one semantic row. A connector rail below that row routes to the anchor's visible immediate dependents on one shared dependent row. Each dependent edge uses a right-pointing arrow followed directly by the stable dependent alias, without a redundant `>` prefix. The same graph topology grammar applies at 50-, 80-, and 120-column layouts; only the already accepted progress encoding changes at narrow width. When all immediate dependents cannot fit, the renderer preserves deterministic priority and states the omitted count rather than silently dropping edges or switching to a different topology grammar.
+
+**Rationale.** The iterated prototype made causal topology substantially easier to read than a flat list while retaining horizontal efficiency and predictable responsive behavior.
+
+<a id="obj-dec-dag-widget-balanced-motion-timing-v1"></a>
+
+### Use a 2.5-second liveness window and 120 ms active-only animation
+
+An exact successful observation of a bound worker with processDisposition=live authorizes activity-cell motion for 2.5 seconds from the controller observation time. Spinner frames advance every 120 ms only while at least one selected node remains freshly live; otherwise the animation timer is stopped. A successful non-live observation freezes immediately. Failed, stale, or cancelled refreshes never extend freshness, and animation frames never mutate semantic projection state.
+
+**Rationale.** This tolerates one delayed one-second safety scan without preserving a cached live claim for many seconds.
+
+<a id="obj-dec-dag-widget-nonblocking-incident-reproduction-v1"></a>
+
+### Do not gate widget replacement on reproducing the exact historical incident
+
+Proceed with Projection V2, the serialized disposable controller, exact-width Graph branches renderer, and regression harness while the exact historical editor-scrambling transition remains open diagnostic research. Capture PI_TUI_WRITE_LOG, terminal dimensions, projection revisions, and controller generation if the incident recurs; add any newly proven transition to the regression suite. The implementation must already cover exact-width resize, overlapping refresh, variable-height breakpoint changes, stale liveness, and publication after disposal.
+
+**Rationale.** A definite width-contract violation is already actionable and the accepted safety architecture prevents every currently plausible corruption class.
 
 ## Accepted representative failure scenarios
 

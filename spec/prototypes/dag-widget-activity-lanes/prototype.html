@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DAG widget activity-lane prototypes</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #090b10;
+      --panel: #11151d;
+      --panel-2: #171c26;
+      --terminal: #07090d;
+      --line: #2b3443;
+      --text: #e6edf3;
+      --muted: #8b98aa;
+      --accent: #7dd3fc;
+      --green: #86efac;
+      --amber: #fcd34d;
+      --red: #fca5a5;
+      --shadow: 0 18px 55px rgba(0,0,0,.38);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at 20% -10%, #172036 0, transparent 34rem), var(--page); color: var(--text); font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; }
+    button, select, textarea, input { font: inherit; }
+    main { width: min(1500px, 100%); margin: 0 auto; padding: 28px; }
+    header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: end; margin-bottom: 22px; }
+    .eyebrow { color: var(--accent); font: 700 12px/1.2 ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { margin: 7px 0 8px; font-size: clamp(28px, 4vw, 46px); line-height: 1.06; letter-spacing: -.035em; }
+    .lede { max-width: 75ch; margin: 0; color: var(--muted); }
+    .prototype-badge { border: 1px solid #795f20; background: #2b220d; color: var(--amber); border-radius: 999px; padding: 7px 11px; white-space: nowrap; font: 700 12px ui-monospace, monospace; }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; padding: 14px; border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 92%, transparent); border-radius: 14px; box-shadow: var(--shadow); position: sticky; top: 10px; z-index: 3; backdrop-filter: blur(14px); }
+    label.control { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 700; }
+    select, .toggle-button, .queue-button { color: var(--text); background: var(--panel-2); border: 1px solid #3a4659; border-radius: 9px; padding: 9px 11px; }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    .toggle-button[aria-pressed="false"] { color: var(--muted); }
+    .budget { margin-left: auto; color: var(--muted); font: 12px ui-monospace, monospace; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+    .variant { min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); background: var(--panel); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); }
+    .variant.recommended { border-color: #376d7e; }
+    .variant-head { display: flex; gap: 10px; justify-content: space-between; align-items: start; padding: 15px 16px 12px; }
+    .variant h2 { margin: 0; font-size: 18px; }
+    .variant p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .tag { color: var(--green); border: 1px solid #285a3b; background: #10251a; border-radius: 999px; padding: 3px 7px; white-space: nowrap; font: 700 10px ui-monospace, monospace; }
+    .terminal-shell { margin: 0 12px 12px; padding: 12px; background: var(--terminal); border: 1px solid #252d39; border-radius: 11px; overflow: auto; min-height: 240px; }
+    .terminal-toolbar { display: flex; gap: 5px; margin-bottom: 10px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #394252; }
+    pre { margin: 0; width: max-content; min-width: 100%; color: #d6e0ec; font: 13px/1.68 "Cascadia Mono", "SFMono-Regular", Consolas, monospace; white-space: pre; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; border-top: 1px solid var(--line); background: var(--line); margin-top: auto; }
+    .metric { padding: 10px 12px; background: var(--panel-2); }
+    .metric strong { display: block; font: 700 13px ui-monospace, monospace; }
+    .metric span { color: var(--muted); font-size: 11px; }
+    .notes { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px; margin-top: 18px; }
+    .note, .feedback { border: 1px solid var(--line); background: var(--panel); border-radius: 16px; padding: 18px; }
+    .note h2, .feedback h2 { margin: 0 0 8px; font-size: 18px; }
+    .note ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); }
+    fieldset { border: 0; margin: 0; padding: 0; }
+    legend { font-weight: 800; margin-bottom: 8px; }
+    .choice { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px; align-items: start; padding: 9px; border: 1px solid transparent; border-radius: 9px; }
+    .choice:has(input:checked) { border-color: #376d7e; background: #11232b; }
+    .choice small { display: block; color: var(--muted); }
+    textarea { width: 100%; min-height: 86px; resize: vertical; margin-top: 12px; color: var(--text); background: var(--terminal); border: 1px solid #3a4659; border-radius: 9px; padding: 10px; }
+    .queue-button { margin-top: 10px; background: #123141; border-color: #34728b; font-weight: 800; }
+    .queued { min-height: 1.5em; margin: 8px 0 0; color: var(--green); font-size: 12px; }
+    code { color: #bae6fd; }
+    @media (max-width: 1080px) { .grid { grid-template-columns: 1fr; } .terminal-shell { min-height: auto; } }
+    @media (max-width: 760px) { main { padding: 16px; } header, .notes { grid-template-columns: 1fr; } .budget { width: 100%; margin-left: 0; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="eyebrow">Pi DAG workflow · visual frontier</div>
+      <h1>Activity-lane rendering prototypes</h1>
+      <p class="lede">A disposable comparison of four terminal-native grammars. Change viewport and run scenario, watch only exact-live workers move, and judge which layout preserves topology, stage progress, and attention under a twelve-row ceiling.</p>
+    </div>
+    <div class="prototype-badge">PROTOTYPE · NON-AUTHORITATIVE</div>
+  </header>
+
+  <section class="controls" aria-label="Prototype controls">
+    <label class="control">Terminal width
+      <select id="width">
+        <option value="50">50 columns · narrow</option>
+        <option value="80" selected>80 columns · normal</option>
+        <option value="120">120 columns · wide</option>
+      </select>
+    </label>
+    <label class="control">Run scenario
+      <select id="scenario">
+        <option value="parallel">Two active lanes</option>
+        <option value="fanout">Wide fan-out</option>
+        <option value="attention">Attention plus live work</option>
+        <option value="stale">Stale liveness</option>
+      </select>
+    </label>
+    <button id="motion" class="toggle-button" type="button" aria-pressed="true">Motion on</button>
+    <div id="budget" class="budget">budget 12 rows</div>
+  </section>
+
+  <section class="grid" aria-label="Rendering variants">
+    <article class="variant" data-variant="flow">
+      <div class="variant-head"><div><h2>A · Flow lanes</h2><p>One semantic row per activity anchor.</p></div></div>
+      <div class="terminal-shell"><div class="terminal-toolbar"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div><pre></pre></div>
+      <div class="metrics"><div class="metric"><strong>Low</strong><span>row cost</span></div><div class="metric"><strong>High</strong><span>scan speed</span></div><div class="metric"><strong>High</strong><span>topology fit</span></div></div>
+    </article>
+    <article class="variant recommended" data-variant="graph">
+      <div class="variant-head"><div><h2>B · Graph branches</h2><p>At every width, dependents share one row with right-pointing arrows.</p></div><span class="tag">selected direction</span></div>
+      <div class="terminal-shell"><div class="terminal-toolbar"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div><pre></pre></div>
+      <div class="metrics"><div class="metric"><strong>Medium</strong><span>row cost</span></div><div class="metric"><strong>High</strong><span>graph legibility</span></div><div class="metric"><strong>Medium</strong><span>dense DAG fit</span></div></div>
+    </article>
+    <article class="variant" data-variant="rail">
+      <div class="variant-head"><div><h2>C · Split rail</h2><p>Topology row with activity detail below.</p></div></div>
+      <div class="terminal-shell"><div class="terminal-toolbar"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div><pre></pre></div>
+      <div class="metrics"><div class="metric"><strong>Medium</strong><span>row cost</span></div><div class="metric"><strong>High</strong><span>detail clarity</span></div><div class="metric"><strong>Medium</strong><span>parallel scale</span></div></div>
+    </article>
+    <article class="variant" data-variant="cards">
+      <div class="variant-head"><div><h2>D · Mini-cards</h2><p>Boxed nodes, side by side when wide.</p></div></div>
+      <div class="terminal-shell"><div class="terminal-toolbar"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div><pre></pre></div>
+      <div class="metrics"><div class="metric"><strong>High</strong><span>row cost</span></div><div class="metric"><strong>High</strong><span>node separation</span></div><div class="metric"><strong>Low</strong><span>dense DAG fit</span></div></div>
+    </article>
+  </section>
+
+  <section class="notes">
+    <article class="note">
+      <h2>What to inspect</h2>
+      <ul>
+        <li>The spinner is a separate activity cell; the primary glyph remains stable.</li>
+        <li>At 50 columns, the nine-cell bar becomes <code>Fcurrent passed/9</code>.</li>
+        <li>Dependents collapse to aliases plus an explicit overflow count.</li>
+        <li>The stale scenario freezes motion without inventing worker death.</li>
+        <li>All variants are capped at twelve rows; overflow is stated, never hidden.</li>
+      </ul>
+    </article>
+    <form class="feedback" id="feedback" data-lavish-question="dag-widget-prototype-direction">
+      <h2>Choose the direction to refine</h2>
+      <fieldset>
+        <legend>Preferred rendering grammar</legend>
+        <label class="choice"><input type="radio" name="variant" value="Flow lanes"><span><strong>Flow lanes</strong><small>Compact, topology-first, and closest to the accepted spotlight.</small></span></label>
+        <label class="choice"><input type="radio" name="variant" value="Graph branches" checked><span><strong>Graph branches</strong><small>Use routed branch glyphs so immediate dependents read as an actual graph.</small></span></label>
+        <label class="choice"><input type="radio" name="variant" value="Split rail"><span><strong>Split rail</strong><small>More breathing room for activity and progress, at twice the row cost.</small></span></label>
+        <label class="choice"><input type="radio" name="variant" value="Mini-cards"><span><strong>Mini-cards</strong><small>Strong visual grouping, but expensive under fan-out and narrow widths.</small></span></label>
+      </fieldset>
+      <textarea name="notes" placeholder="What should change? Mention width and scenario if relevant."></textarea>
+      <button class="queue-button" type="submit">Queue prototype feedback</button>
+      <p class="queued" aria-live="polite"></p>
+    </form>
+  </section>
+</main>
+<script>
+  const fixtures = {
+    parallel: { run: "run-64e81c4f · r21 · active 2/7 · ready 0 · attention 0", omitted: "+2 nodes outside activity neighborhood", nodes: [
+      { alias: "N01", glyph: "*", stage: "F3", passed: 3, title: "Verify domain changes", live: true, deps: ["N06"] },
+      { alias: "N02", glyph: ":", stage: "F1", passed: 1, title: "Migrate authority model", live: false, deps: ["N03", "N04", "N05"] },
+    ]},
+    fanout: { run: "run-fanout · r38 · active 1/12 · ready 4 · attention 0", omitted: "+6 nodes · +2 downstream edges omitted", nodes: [
+      { alias: "N02", glyph: "*", stage: "F5", passed: 5, title: "Migrate authorization boundary", live: true, deps: ["N03", "N04", "N05", "N08", "N09"] },
+    ]},
+    attention: { run: "run-attention · r52 · active 2/9 · ready 1 · attention 1", omitted: "+4 pending · 1 integration head", nodes: [
+      { alias: "N05", glyph: "!", stage: "F6", passed: 5, title: "Prove compatibility contract", live: false, deps: ["N07"], detail: "retry exhausted · conductor direction needed" },
+      { alias: "N03", glyph: "*", stage: "F2", passed: 2, title: "Validate runtime rename", live: true, deps: ["N06"] },
+    ]},
+    stale: { run: "run-stale · r17 · STALE READ-ONLY · active 1/6", omitted: "worker liveness last observed 8s ago · motion frozen", nodes: [
+      { alias: "N04", glyph: "*", stage: "F4", passed: 4, title: "Run deterministic checks", live: false, frozen: true, deps: ["N06"] },
+    ]},
+  };
+  const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  const clip = (text, size) => Array.from(text).length <= size ? text : size <= 1 ? "…" : `${Array.from(text).slice(0, size - 1).join("")}…`;
+  const pad = (text, size) => { const value = clip(text, size); return value + " ".repeat(Math.max(0, size - Array.from(value).length)); };
+  const activity = (node, frame) => node.live ? spinner[frame % spinner.length] : node.frozen ? "·" : " ";
+  const progress = (node, columns) => columns < 60 ? `${node.stage} ${node.passed}/9` : `${node.stage} [${Array.from({ length: 9 }, (_, index) => index < node.passed ? "■" : index === Number(node.stage.slice(1)) ? "▶" : "·").join("")}]`;
+  function flowRows(fixture, columns, frame) {
+    return fixture.nodes.flatMap((node) => {
+      const prefix = `${activity(node, frame)} ${node.glyph}${node.alias} ${progress(node, columns)} `;
+      const deps = ` → ${node.deps.join(" ")}`;
+      const title = clip(node.title, Math.max(3, columns - Array.from(prefix + deps).length));
+      return [clip(prefix + title + deps, columns), ...(node.detail ? [clip(`  └ ! ${node.detail}`, columns)] : [])];
+    });
+  }
+  function graphRows(fixture, columns, frame) {
+    return fixture.nodes.flatMap((node) => {
+      const rawSemantic = `${activity(node, frame)} ${node.glyph}${node.alias} ${progress(node, columns)} ${node.title}${node.detail ? ` ! ${node.detail}` : ""}`;
+      const sourceColumn = 3;
+      const lastColumn = columns - 6;
+      const desiredFirstColumn = Math.max(4, Math.floor(columns * 0.38));
+      const packedFirstColumn = lastColumn - (node.deps.length - 1) * 7;
+      const firstColumn = Math.max(4, Math.min(desiredFirstColumn, packedFirstColumn));
+      const positions = node.deps.map((_, index) => node.deps.length === 1 ? lastColumn : Math.round(firstColumn + (lastColumn - firstColumn) * index / (node.deps.length - 1)));
+      const connector = Array(columns).fill(" ");
+      connector[sourceColumn] = "└";
+      for (let column = sourceColumn + 1; column <= lastColumn; column += 1) connector[column] = "─";
+      positions.forEach((column, index) => { connector[column] = index === positions.length - 1 ? "┐" : "┬"; });
+      const dependentRow = Array(columns).fill(" ");
+      positions.forEach((column, index) => {
+        Array.from(`▶ ${node.deps[index]}`).forEach((character, offset) => { if (column + offset < columns) dependentRow[column + offset] = character; });
+      });
+      return [clip(rawSemantic, columns), connector.join("").trimEnd(), dependentRow.join("").trimEnd()];
+    });
+  }
+  function railRows(fixture, columns, frame) {
+    return fixture.nodes.flatMap((node) => [
+      clip(`${node.glyph}${node.alias} ${node.title} → ${node.deps.join(" ")}`, columns),
+      clip(`  ${activity(node, frame)} ${progress(node, columns)}${node.detail ? ` · ${node.detail}` : ""}`, columns),
+    ]);
+  }
+  function cardRows(fixture, columns, frame) {
+    const perRow = columns >= 96 ? Math.min(2, fixture.nodes.length) : 1;
+    const cardWidth = Math.max(18, Math.floor((columns - 2 * (perRow - 1)) / perRow));
+    const rows = [];
+    for (let offset = 0; offset < fixture.nodes.length; offset += perRow) {
+      const cards = fixture.nodes.slice(offset, offset + perRow).map((node) => [
+        `┌${"─".repeat(cardWidth - 2)}┐`,
+        `│${pad(`${activity(node, frame)} ${node.glyph}${node.alias} ${progress(node, cardWidth)}`, cardWidth - 2)}│`,
+        `│${pad(node.title, cardWidth - 2)}│`,
+        `│${pad(`→ ${node.deps.join(" ")}`, cardWidth - 2)}│`,
+        `└${"─".repeat(cardWidth - 2)}┘`,
+      ]);
+      for (let row = 0; row < 5; row += 1) rows.push(clip(cards.map((card) => card[row]).join("  "), columns));
+    }
+    return rows;
+  }
+  function renderPrototype({ variant, scenario, width: columns, frame }) {
+    const fixture = fixtures[scenario];
+    const content = variant === "flow" ? flowRows(fixture, columns, frame) : variant === "graph" ? graphRows(fixture, columns, frame) : variant === "rail" ? railRows(fixture, columns, frame) : cardRows(fixture, columns, frame);
+    const visible = content.slice(0, 10);
+    if (content.length > 10) visible[9] = clip(`… ${content.length - 9} prototype rows omitted`, columns);
+    return [clip(`DAG ${fixture.run}`, columns), ...visible, clip(fixture.omitted, columns)];
+  }
+
+  const width = document.querySelector("#width");
+  const scenario = document.querySelector("#scenario");
+  const motion = document.querySelector("#motion");
+  const budget = document.querySelector("#budget");
+  let frame = 0;
+  let moving = true;
+
+  function paint() {
+    const columns = Number(width.value);
+    for (const article of document.querySelectorAll("[data-variant]")) {
+      const lines = renderPrototype({ variant: article.dataset.variant, scenario: scenario.value, width: columns, frame });
+      article.querySelector("pre").textContent = lines.join("\n");
+      article.querySelector(".terminal-shell").style.maxWidth = `${columns + 4}ch`;
+    }
+    budget.textContent = `${columns} columns · budget 12 rows · ${scenario.selectedOptions[0].textContent}`;
+  }
+
+  width.addEventListener("change", paint);
+  scenario.addEventListener("change", paint);
+  motion.addEventListener("click", () => {
+    moving = !moving;
+    motion.setAttribute("aria-pressed", String(moving));
+    motion.textContent = moving ? "Motion on" : "Motion paused";
+  });
+  setInterval(() => { if (moving) { frame += 1; paint(); } }, 120);
+
+  document.querySelector("#feedback").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const variant = data.get("variant");
+    const notes = String(data.get("notes") || "").trim();
+    const prompt = `Prototype feedback: refine ${variant}.${notes ? ` Notes: ${notes}` : ""}`;
+    if (window.lavish?.queuePrompt) {
+      window.lavish.queuePrompt(prompt, {
+        tag: "dag-widget-prototype",
+        text: `Prototype: ${variant}`,
+        element: event.currentTarget,
+        queueKey: "dag-widget-prototype-direction",
+        data: { variant, notes, width: Number(width.value), scenario: scenario.value },
+      });
+      event.currentTarget.querySelector(".queued").textContent = `${variant} feedback queued. Use Send to Agent when ready.`;
+    } else {
+      event.currentTarget.querySelector(".queued").textContent = "Open through Lavish to send feedback.";
+    }
+  });
+  paint();
+</script>
+</body>
+</html>

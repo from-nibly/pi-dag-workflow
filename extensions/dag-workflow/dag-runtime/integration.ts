@@ -1,7 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { DagConductorServiceV1, type DagMutationGuardV1 } from "./conductor.ts";
-import { renderDagWidgetV1 } from "./widget.ts";
+import { renderDagWidgetV2 } from "./widget.ts";
+import { DagWidgetControllerV2 } from "./widget-controller.ts";
 
 const Id = Type.String({ minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$" });
 const RunId = Type.String({ minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" });
@@ -16,64 +18,104 @@ const MutationGuard = {
 
 export function registerCanonicalDagRuntime(pi: ExtensionAPI, service = new DagConductorServiceV1()): DagConductorServiceV1 {
   const ok = (text: string, details: Record<string, unknown>) => ({ content: [{ type: "text" as const, text }], details });
-  let widgetProjection: Awaited<ReturnType<typeof service.status>>["projection"] | null = null;
-  let widgetDiagnostic: string | null = null;
-  let widgetTimer: ReturnType<typeof setInterval> | null = null;
   let conductorTimer: ReturnType<typeof setInterval> | null = null;
   let conductorContext: any = null;
+  let conductorGeneration = 0;
   let lastConductorDiagnostic: string | null = null;
   let widgetContext: any = null;
   let widgetTui: any = null;
+  let widgetController: DagWidgetControllerV2 | null = null;
 
-  const refreshWidget = async () => {
-    if (!widgetContext?.hasUI || typeof widgetContext.ui?.setWidget !== "function") return;
-    const binding = await service.binding(widgetContext).catch(() => null);
-    if (!binding) { widgetProjection = null; widgetDiagnostic = null; widgetTui?.requestRender?.(); return; }
-    try {
-      const status = await service.status(widgetContext, binding.runId);
-      if (status.state.completion.state !== "open" && ["completed", "cancelled", "superseded"].includes(status.state.current.run)) {
-        widgetProjection = null; widgetDiagnostic = null; widgetContext.ui.setWidget("canonical-dag-run", undefined); return;
-      }
-      widgetProjection = status.projection; widgetDiagnostic = status.stale ? `STALE READ-ONLY | source r${status.stale.sourceRevision} ${status.stale.sourceSnapshotHash.slice(0, 18)} | observed r${status.stale.newerObservedRevision} | cached ${status.stale.cachedAt}` : null;
-    } catch (error) { widgetProjection = null; widgetDiagnostic = `DAG ${binding.runId} | projection unavailable: ${String((error as Error).message).slice(0, 160)}`; }
-    widgetTui?.requestRender?.();
+  const refreshWidget = async () => { await widgetController?.refresh(); };
+  const disposeWidget = () => {
+    const context = widgetContext;
+    widgetController?.dispose();
+    widgetController = null;
+    widgetContext = null;
+    widgetTui = null;
+    context?.ui?.setWidget?.("canonical-dag-run", undefined);
   };
 
-  const advanceConductor = async () => {
-    if (!conductorContext) return;
-    try { await service.resumeBound(conductorContext); lastConductorDiagnostic = null; }
-    catch (error) {
+  const advanceConductor = async (generation = conductorGeneration) => {
+    const context = conductorContext;
+    if (!context) return;
+    try {
+      await service.resumeBound(context);
+      if (generation === conductorGeneration) lastConductorDiagnostic = null;
+    } catch (error) {
+      if (generation !== conductorGeneration) return;
       const message = `DAG conductor wake failed: ${String((error as Error).message).slice(0, 512)}`;
       if (message !== lastConductorDiagnostic) console.error(message);
-      lastConductorDiagnostic = message; widgetDiagnostic = message;
+      lastConductorDiagnostic = message;
+      widgetController?.failClosed(message);
     }
   };
 
   pi.on("session_start", async (_event, ctx: any) => {
-    if (conductorTimer) clearInterval(conductorTimer); conductorContext = ctx; conductorTimer = setInterval(() => { void advanceConductor(); }, 1000); conductorTimer.unref?.(); await advanceConductor();
-    if (widgetTimer) clearInterval(widgetTimer); widgetTimer = null; widgetContext?.ui?.setWidget?.("canonical-dag-run", undefined); widgetContext = null; widgetTui = null; widgetProjection = null; widgetDiagnostic = null;
+    if (conductorTimer) clearInterval(conductorTimer);
+    disposeWidget();
+    conductorGeneration += 1;
+    const generation = conductorGeneration;
+    conductorContext = ctx;
+    conductorTimer = setInterval(() => { void advanceConductor(generation); }, 1000);
+    conductorTimer.unref?.();
+    await advanceConductor(generation);
+    if (generation !== conductorGeneration) return;
     if (!ctx.hasUI || (ctx.mode && ctx.mode !== "tui") || typeof ctx.ui?.setWidget !== "function") return;
     widgetContext = ctx;
+    let controller!: DagWidgetControllerV2;
+    controller = new DagWidgetControllerV2({
+      read: async () => {
+        const binding = await service.binding(ctx).catch(() => null);
+        if (!binding) return { kind: "empty" };
+        const status = await service.status(ctx, binding.runId);
+        if (status.state.completion.state !== "open" && ["completed", "cancelled", "superseded"].includes(status.state.current.run)) return { kind: "terminal" };
+        const diagnostic = status.stale ? `STALE READ-ONLY | source r${status.stale.sourceRevision} ${status.stale.sourceSnapshotHash.slice(0, 18)} | observed r${status.stale.newerObservedRevision} | cached ${status.stale.cachedAt}` : null;
+        return { kind: "projection", projection: status.projection, fresh: status.stale === null, diagnostic };
+      },
+      requestRender: () => widgetTui?.requestRender?.(),
+      onTerminal: () => {
+        if (widgetController !== controller) return;
+        controller.dispose();
+        widgetController = null;
+        widgetContext = null;
+        widgetTui = null;
+        ctx.ui.setWidget("canonical-dag-run", undefined);
+      },
+    });
+    widgetController = controller;
     ctx.ui.setWidget("canonical-dag-run", (tui: any) => {
       widgetTui = tui;
       return {
         render(width: number) {
-          if (widgetDiagnostic && !widgetProjection) return [clip(widgetDiagnostic, width), clip("FAIL-CLOSED; inspect or reattach the exact run", width)];
-          if (!widgetProjection) return [];
-          const lines = renderDagWidgetV1(widgetProjection, Math.max(20, width), Math.max(4, tui.terminal?.rows ?? 24), new Date().toISOString()).lines;
-          return widgetDiagnostic ? [clip(widgetDiagnostic, width), ...lines].slice(0, Math.max(4, Math.min(12, Math.floor((tui.terminal?.rows ?? 24) / 3)))) : lines;
+          if (!Number.isInteger(width) || width <= 0) return [];
+          const safeWidth = width;
+          const terminalRows = Math.max(4, tui.terminal?.rows ?? 24);
+          const snapshot = controller.snapshot();
+          if (snapshot.diagnostic && !snapshot.projection) return [clip(snapshot.diagnostic, safeWidth), clip("FAIL-CLOSED; inspect or reattach the exact run", safeWidth)];
+          if (!snapshot.projection) return [];
+          try {
+            const layout = renderDagWidgetV2(snapshot.projection, safeWidth, terminalRows, new Date().toISOString(), snapshot);
+            controller.noteSelectedAliases(layout.activityAliases);
+            return layout.lines;
+          } catch (error) {
+            return [clip(`DAG widget render failed: ${String((error as Error).message).slice(0, 160)}`, safeWidth), clip("FAIL-CLOSED; inspect the exact run", safeWidth)];
+          }
         },
         invalidate() {},
       };
     });
-    widgetTimer = setInterval(() => { void refreshWidget(); }, 1000); widgetTimer.unref?.();
-    await refreshWidget();
+    controller.start();
+    await controller.refresh();
   });
   pi.on("agent_end", async () => { await advanceConductor(); await refreshWidget(); });
   pi.on("session_shutdown", async () => {
-    if (conductorTimer) clearInterval(conductorTimer); conductorTimer = null; conductorContext = null; await service.detach();
-    if (widgetTimer) clearInterval(widgetTimer); widgetTimer = null;
-    widgetContext?.ui?.setWidget("canonical-dag-run", undefined); widgetContext = null; widgetTui = null; widgetProjection = null; widgetDiagnostic = null;
+    if (conductorTimer) clearInterval(conductorTimer);
+    conductorTimer = null;
+    conductorGeneration += 1;
+    conductorContext = null;
+    disposeWidget();
+    await service.detach();
   });
 
   pi.registerTool({
@@ -87,7 +129,7 @@ export function registerCanonicalDagRuntime(pi: ExtensionAPI, service = new DagC
   pi.registerTool({
     name: "dag_run_diagram", label: "Canonical DAG Run Diagram", description: "Render a bounded read-only diagram from one exact canonical execution projection.", parameters: strict({ runId: RunId, width: Type.Optional(Type.Integer({ minimum: 20, maximum: 400 })), terminalRows: Type.Optional(Type.Integer({ minimum: 4, maximum: 300 })), observedAt: Timestamp }),
     async execute(_id, params, _signal, _update, ctx) {
-      const result = await service.status(ctx, params.runId); const layout = renderDagWidgetV1(result.projection, params.width ?? 100, params.terminalRows ?? 36, params.observedAt);
+      const result = await service.status(ctx, params.runId); const layout = renderDagWidgetV2(result.projection, params.width ?? 100, params.terminalRows ?? 36, params.observedAt);
       return ok(layout.lines.join("\n"), { layout, projectionHash: result.projection.projectionHash });
     },
   });
@@ -134,4 +176,7 @@ export function registerCanonicalDagRuntime(pi: ExtensionAPI, service = new DagC
   return service;
 }
 
-function clip(value: string, width: number): string { return value.length <= width ? value : `${value.slice(0, Math.max(0, width - 1))}…`; }
+function clip(value: string, width: number): string {
+  if (width <= 0) return "";
+  return visibleWidth(value) <= width ? value : truncateToWidth(value, width, "…");
+}

@@ -7,7 +7,7 @@ import { DagLifecycleRuntimeV1, type DagIntegrationReconciliationAdapterV1, type
 import { parseCanonicalDagPlanV1, type CanonicalDagPlanV1 } from "./plan.ts";
 import { type DagRunInputV1 } from "./reducer.ts";
 import { ownershipChainHashV1, parseDagRunStateV1, type DagRunStateV1, type DagRunValidationContextV1 } from "./run-state.ts";
-import { buildSchedulerPlanIndexV1, DAG_SCHEDULER_POLICY_HASH_V1, projectDagExecutionV1, scheduleDagRunV1, type DagExecutionProjectionV1, type DagSchedulerDecisionV1, type DagWorkerProjectionInputV1 } from "./scheduler.ts";
+import { buildSchedulerPlanIndexV1, DAG_SCHEDULER_POLICY_HASH_V1, projectDagExecutionV2, scheduleDagRunV1, type DagExecutionProjectionV2, type DagSchedulerDecisionV1, type DagWorkerProjectionInputV1 } from "./scheduler.ts";
 import { DagRunSnapshotStoreV1, createDagRunStoreDeadOwnerProofV1, dagRunStoreLockIdentityFromOwner, type DagRunStoreLockIdentityV1 } from "./store.ts";
 
 const RUN_ROOT = ".ai/dag-runs-v1";
@@ -127,7 +127,7 @@ export class DagConductorServiceV1 {
   #faults = new Map<string, Error>();
   #detaching = false;
   #detachPromise: Promise<void> | null = null;
-  #lastGood = new Map<string, { state: DagRunStateV1; decision: DagSchedulerDecisionV1; projection: DagExecutionProjectionV1; cachedAt: string }>();
+  #lastGood = new Map<string, { state: DagRunStateV1; decision: DagSchedulerDecisionV1; projection: DagExecutionProjectionV2; cachedAt: string }>();
   constructor(options: { workerProjection?: (bindings: Array<{ workerStorageId: string; launchOwnerSessionId: string; workerId: string; attemptNumber: number; attemptNonce: string; configHash: string; resultHash: string | null; processDisposition: string }>) => Promise<DagWorkerProjectionInputV1 | null>; dispatchEffect?: (effect: { effectId: string; kind: string; requestHash: string }, state: DagRunStateV1) => Promise<void>; lifecycle?: DagLifecycleRuntimeOptionsV1; integrationFactory?: (input: { store: DagRunSnapshotStoreV1; context: DagRunValidationContextV1; lock: DagRunStoreLockIdentityV1 }) => DagIntegrationReconciliationAdapterV1; startFailpoint?: (point: DagPreparedStartFailpointV1) => Promise<void> | void; ownerResumeFailpoint?: (point: DagOwnerResumeFailpointV1) => Promise<void> | void; pumpFailpoint?: (point: DagConductorPumpFailpointV1, detail?: { occurredAt: string; wakeGeneration: number }) => Promise<void> | void; onPumpError?: (input: { runId: string; error: Error }) => Promise<void> | void } = {}) { this.workerProjection = options.workerProjection; this.dispatchEffect = options.dispatchEffect; this.lifecycle = options.lifecycle ?? {}; this.integrationFactory = options.integrationFactory; this.startFailpoint = options.startFailpoint; this.ownerResumeFailpoint = options.ownerResumeFailpoint; this.pumpFailpoint = options.pumpFailpoint; this.onPumpError = options.onPumpError; }
 
   /** Drain this exact service generation before releasing its process-local ownership fence. */
@@ -381,14 +381,14 @@ export class DagConductorServiceV1 {
     return { state, decision: scheduleDagRunV1(loaded.plan, state) };
   }
 
-  async status(ctx: DagConductorContextV1, runId: string): Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1; projection: DagExecutionProjectionV1; stale: null | { sourceRevision: number; sourceSnapshotHash: string; newerObservedRevision: number; cachedAt: string } }> {
+  async status(ctx: DagConductorContextV1, runId: string): Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1; projection: DagExecutionProjectionV2; stale: null | { sourceRevision: number; sourceSnapshotHash: string; newerObservedRevision: number; cachedAt: string } }> {
     const loaded = await this.#loadBound(ctx, runId); const cacheKey = canonicalHash({ repositoryRootHash: loaded.binding.repositoryRootHash, sessionId: loaded.binding.sessionId, bindingHash: loaded.binding.bindingHash, runId: loaded.state.runId, runNonceHash: loaded.binding.runNonceHash, planHash: loaded.plan.planHash }); let newerObservedRevision = loaded.state.revision;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const first = await loaded.store.read(loaded.context);
       const exactBindings = Object.values(first.workerBindings).map(({ workerStorageId, launchOwnerSessionId, workerId, attemptNumber, attemptNonce, configHash, resultHash, processDisposition }) => ({ workerStorageId, launchOwnerSessionId, workerId, attemptNumber, attemptNonce, configHash, resultHash, processDisposition })).sort((a, b) => a.workerStorageId.localeCompare(b.workerStorageId) || a.workerId.localeCompare(b.workerId) || a.attemptNumber - b.attemptNumber);
       const workers = await this.workerProjection?.(exactBindings) ?? null;
       const decision = scheduleDagRunV1(loaded.plan, first);
-      const projection = projectDagExecutionV1(loaded.plan, first, decision, workers);
+      const projection = projectDagExecutionV2(loaded.plan, first, decision, workers);
       const second = await loaded.store.read(loaded.context); newerObservedRevision = Math.max(newerObservedRevision, first.revision, second.revision);
       if (first.revision === second.revision && first.snapshotHash === second.snapshotHash) { const cachedAt = new Date().toISOString(); this.#lastGood.set(cacheKey, { state: first, decision, projection, cachedAt }); return { state: first, decision, projection, stale: null }; }
     }
