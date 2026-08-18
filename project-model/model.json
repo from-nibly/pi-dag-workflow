@@ -6761,18 +6761,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-14T21:47:43.755Z",
+        "acceptedAt": "2026-08-18T15:31:50.419Z",
         "actor": "user",
-        "batchRef": "sha256:18f980aa90881a4f941b990372cdc39570a4ed273c171d2cad23ecece3000f15",
-        "contentHash": "sha256:c0204769061c9cb41adab3a0966a13f4895df5168020d663c089d65d9cbc0f03",
-        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1786743933615",
+        "batchRef": "sha256:47b072db20e39e659501685dd6aadca199395579606bdc843d6119dd7e2245a5",
+        "contentHash": "sha256:d564d90b91692bb194345d555974c1c74763b0d79e303d6f346723901e8dc710",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1787067081490",
         "mode": "direct_direction"
       },
-      "body": "Each terminal subagent completion is durably enqueued. When no completion follow-up is in flight, the runtime delivers exactly one completion message to the top-level agent. After the agent finishes reacting to that completion and settles, the runtime delivers the next queued completion, continuing one by one until the queue is drained. Stable completion IDs prevent duplicate enqueue or delivery across reload. Every asynchronous subagent launch response explicitly reminds the parent agent that completion will be delivered automatically through this queue; it should not poll status or sleep while waiting, and should instead continue independent work or end its turn to await the update.",
+      "body": "Each terminal subagent completion is durably enqueued. When no completion follow-up is in flight, the runtime delivers exactly one completion message to the top-level agent. After the agent finishes reacting to that completion and settles, the runtime delivers the next queued completion, continuing one by one until the queue is drained. Stable completion IDs prevent duplicate enqueue or delivery across reload. Every asynchronous launch response states an imperative dependency-barrier rule: continue only work independent of the worker; as soon as remaining work depends on its result, keep the parent task in progress, end and settle the turn immediately, and rely on the completion follow-up to start the next turn automatically without user action. The parent must not poll, sleep, call status, or inspect to cross that barrier. Status, inspection, and diagnostic tails remain available for diagnosis and recovery, not completion waiting.",
       "createdAt": "2026-07-30T03:31:28.441Z",
       "id": "DEC-serial-worker-completion-queue",
       "introducedBy": "user",
-      "rationale": "Serial delivery lets the top-level agent fully process each worker outcome without simultaneous completion turns, while preserving every completion independently rather than collapsing a burst into one summary.",
+      "rationale": "Serial delivery lets the top-level agent fully process each worker outcome without simultaneous completion turns, while preserving every completion independently rather than collapsing a burst into one summary. Explicit dependency-barrier wording prevents one-turn completion bias from turning diagnostic tools into polling.",
       "relationships": [
         {
           "kind": "addresses",
@@ -6797,7 +6797,7 @@
       ],
       "state": "accepted",
       "title": "Drain worker completions through a serial follow-up queue",
-      "updatedAt": "2026-08-14T21:47:43.754Z"
+      "updatedAt": "2026-08-18T15:31:50.419Z"
     },
     {
       "acceptance": {
@@ -8151,6 +8151,31 @@
       "state": "deferred",
       "title": "Arbitrary worker-session transfer is deferred until observed need",
       "updatedAt": "2026-07-30T15:32:17.430Z"
+    },
+    {
+      "body": "The top-level agent inspected workers synchronously because it had made their audit results release-blocking and incorrectly treated ending the current turn as incompatible with completing the user request. In fact, normal completion delivery already provides the suspension boundary: the agent should end/settle the turn with the task still pending, then the queued `pi.sendMessage(..., { deliverAs: \"followUp\", triggerTurn: true })` completion starts the next turn in the same session and resumes the work. The runtime does not need a separate suspend primitive for this case. Inspection exposed results early but did not acknowledge queued delivery, causing redundant later follow-ups. The root cause is therefore agent policy and one-turn completion bias, not missing runtime resumability.",
+      "createdAt": "2026-08-18T02:44:20.160Z",
+      "id": "DISC-async-completion-same-turn-gating-mismatch",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/worker-runtime/integration.ts:ASYNC_COMPLETION_GUIDANCE",
+        "extensions/dag-workflow/worker-runtime/manager.mjs:dispatchNext",
+        "extensions/dag-workflow/worker-runtime/manager.mjs:onAgentSettled",
+        "session:release-v0.1.3"
+      ],
+      "state": "integrated",
+      "title": "Blocking same-turn audits require the agent to settle and resume by follow-up",
+      "updatedAt": "2026-08-18T15:27:42.672Z"
     },
     {
       "body": "The recovery design used \"token-bound\" language too strongly. Under the accepted trusted-local threat model, the random value only correlates mailbox, result, control, process identity, and attempt generation so stale files or PID reuse are not mistaken for the current worker. It does not protect against malicious local workers or code and need not be framed as a capability boundary.",
@@ -15004,9 +15029,9 @@
         }
       ]
     },
-    "revision": 231,
+    "revision": 235,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-18T03:30:00.000Z"
+    "updatedAt": "2026-08-18T15:31:50.419Z"
   },
   "proposals": [
     {
@@ -15131,6 +15156,39 @@
       "state": "recommended",
       "title": "Support explicit path-manifest snapshots without touching user state",
       "updatedAt": "2026-08-03T19:17:25.331Z"
+    },
+    {
+      "body": "Change launch guidance from a soft choice into a decision rule: continue only work that does not depend on the worker; at the first point where remaining work depends on it, end and settle the turn immediately. Do not poll, sleep, call status, or inspect to cross that barrier. Keep the parent task in progress and tell the user that no action is required because the completion follow-up will automatically start the next turn. Label status/inspect as diagnostic and recovery tools, not completion-waiting tools.",
+      "createdAt": "2026-08-18T15:29:44.954Z",
+      "id": "PROP-async-worker-dependency-barrier-guidance",
+      "introducedBy": "agent",
+      "rationale": "The current wording says the agent may continue or end the turn but does not identify the later dependency barrier. This permits one-turn completion bias to reappear after independent work is exhausted. An imperative transition rule explains that settling is normal continuation rather than abandonment.",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "DISC-async-completion-same-turn-gating-mismatch"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-async-completion-same-turn-gating-mismatch",
+        "user:async-worker-guidance-clarification"
+      ],
+      "state": "recommended",
+      "title": "State an imperative dependency-barrier rule for async workers",
+      "tradeoffs": [
+        "A brief interim assistant response may be visible before the automatic completion turn.",
+        "The rule relies on the agent correctly recognizing when its remaining work is blocked.",
+        "Diagnostic inspection remains available for actual recovery without serving as a waiting primitive."
+      ],
+      "updatedAt": "2026-08-18T15:29:44.954Z"
     },
     {
       "body": "The conductor owns the worker state machine `pending → claimed → queued → running → terminal`, enforces dependency and capacity checks, persists the claim before launch, binds one worker/attempt ID to one process, ingests terminal results idempotently, advances or fails the node, schedules newly ready work, and exposes all transitions through one subscription. The main agent requests run-level actions but does not manually relay launch parameters or worker results.",

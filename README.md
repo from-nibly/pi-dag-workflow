@@ -119,14 +119,14 @@ There is no generated-file ownership manifest, editable generated region, revers
 
 ## Asynchronous workers
 
-The extension owns a generic worker runtime; it does not depend on `pi-subagents`. Every launch returns immediately while a detached supervisor runs the exact installed Pi CLI in RPC mode. Launch output explicitly tells the parent agent not to poll status or sleep: it should continue independent work or end its turn because completion arrives automatically through the serial queue. Workers survive top-level Pi reload or exit, report through a terminating `subagent_report` tool, and deliver bounded completions serially when the owning session reconnects.
+The extension owns a generic worker runtime; it does not depend on `pi-subagents`. Every launch returns immediately while a detached supervisor runs the exact installed Pi CLI in RPC mode. Launch output gives the parent an explicit dependency-barrier rule: continue only independent work, then keep the parent task in progress and end the turn immediately when remaining work depends on the worker. The completion follow-up starts the next turn automatically without user action; status, inspection, result lookup, and diagnostic tails must not be used for completion waiting. Workers survive top-level Pi reload or exit, report through a terminating `subagent_report` tool, and deliver bounded completions serially when the owning session reconnects.
 
 Top-level agent tools:
 
 - `subagent` — launch an asynchronous worker;
-- `subagent_status` — list or summarize workers;
-- `subagent_inspect` — read a bounded immutable terminal result;
-- `subagent_tail` — read selected bounded diagnostics;
+- `subagent_status` — diagnostically list or summarize workers, never wait for completion;
+- `subagent_inspect` — read a bounded immutable result for diagnosis or recovery;
+- `subagent_tail` — read selected bounded diagnostics, never wait for completion;
 - `subagent_cancel` — cancel only after PID/start-identity and attempt verification;
 - `subagent_retry` — explicitly start a new attempt for a terminal worker.
 

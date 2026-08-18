@@ -30,8 +30,9 @@ try {
   const registeredPi = createRegistrationPi();
   registerWorkerRuntime(registeredPi);
   for (const toolName of ["subagent", "subagent_approve_disposable_root", "subagent_retire_disposable_root", "subagent_results", "subagent_result_by_launch_key"]) assert(registeredPi.tools.has(toolName), `integration exposes ${toolName} to real tool consumers`);
-  assert(registeredPi.tools.get("subagent").description.includes("Do not poll status or sleep while waiting"), "subagent tool description discourages polling before launch");
-  assert(ASYNC_COMPLETION_GUIDANCE.includes("delivered automatically") && ASYNC_COMPLETION_GUIDANCE.includes("do not poll subagent_status or sleep"), "launch output guidance tells the parent to await automatic completion without polling or sleeping");
+  assert(registeredPi.tools.get("subagent").description.includes("when remaining work depends on the result") && registeredPi.tools.get("subagent").description.includes("end the turn"), "subagent tool description states the blocking dependency handoff before launch");
+  assert(ASYNC_COMPLETION_GUIDANCE.includes("continue only work that does not depend") && ASYNC_COMPLETION_GUIDANCE.includes("end your turn immediately") && ASYNC_COMPLETION_GUIDANCE.includes("user does not need to respond") && ASYNC_COMPLETION_GUIDANCE.includes("not completion waiting"), "launch output gives an imperative dependency-barrier and automatic-resume rule");
+  for (const toolName of ["subagent_status", "subagent_inspect", "subagent_results", "subagent_result_by_launch_key", "subagent_tail"]) { const description = registeredPi.tools.get(toolName).description; assert(description.includes("Never use") && description.includes("wait for a pending dependency"), `${toolName} is explicitly diagnostic rather than a completion-waiting surface`); }
 
   const owner = { pid: process.pid, processStartIdentity: await processStartIdentity(), attachedAt: new Date().toISOString() };
   const state = createWorkerSession({ sessionId: "session-one", repositoryRoot: root, owner });

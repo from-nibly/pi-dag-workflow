@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-owned-worker-runtime; contract: 1; input: sha256:8a787eef56a642e0bcc26f468b6281f242e0883066297e102caf33139abba06a -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-owned-worker-runtime; contract: 1; input: sha256:f085edc786697899b50a886b7683dcb81eea97f2cad1bbae0a151ae6d70a43ee -->
 
 # Owned asynchronous DAG worker runtime
 
@@ -34,9 +34,9 @@ Asynchronous workers must continue running when the owning Pi extension reloads 
 
 ### Drain worker completions through a serial follow-up queue
 
-Each terminal subagent completion is durably enqueued. When no completion follow-up is in flight, the runtime delivers exactly one completion message to the top-level agent. After the agent finishes reacting to that completion and settles, the runtime delivers the next queued completion, continuing one by one until the queue is drained. Stable completion IDs prevent duplicate enqueue or delivery across reload. Every asynchronous subagent launch response explicitly reminds the parent agent that completion will be delivered automatically through this queue; it should not poll status or sleep while waiting, and should instead continue independent work or end its turn to await the update.
+Each terminal subagent completion is durably enqueued. When no completion follow-up is in flight, the runtime delivers exactly one completion message to the top-level agent. After the agent finishes reacting to that completion and settles, the runtime delivers the next queued completion, continuing one by one until the queue is drained. Stable completion IDs prevent duplicate enqueue or delivery across reload. Every asynchronous launch response states an imperative dependency-barrier rule: continue only work independent of the worker; as soon as remaining work depends on its result, keep the parent task in progress, end and settle the turn immediately, and rely on the completion follow-up to start the next turn automatically without user action. The parent must not poll, sleep, call status, or inspect to cross that barrier. Status, inspection, and diagnostic tails remain available for diagnosis and recovery, not completion waiting.
 
-**Rationale.** Serial delivery lets the top-level agent fully process each worker outcome without simultaneous completion turns, while preserving every completion independently rather than collapsing a burst into one summary.
+**Rationale.** Serial delivery lets the top-level agent fully process each worker outcome without simultaneous completion turns, while preserving every completion independently rather than collapsing a burst into one summary. Explicit dependency-barrier wording prevents one-turn completion bias from turning diagnostic tools into polling.
 
 <a id="obj-dec-detached-per-run-worker-supervisors"></a>
 

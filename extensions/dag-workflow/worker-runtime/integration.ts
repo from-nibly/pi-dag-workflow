@@ -5,9 +5,12 @@ import { Type } from "typebox";
 import { WorkerManager } from "./manager.mjs";
 
 export const ASYNC_COMPLETION_GUIDANCE = [
-  "completion: delivered automatically through the serial completion queue",
-  "next: continue independent work, or end your turn and await the completion update",
-  "avoid: do not poll subagent_status or sleep while waiting",
+  "async dependency rule:",
+  "- continue only work that does not depend on this worker",
+  "- when any remaining action depends on its result, keep the parent task in progress and end your turn immediately",
+  "- the completion follow-up will start the next turn automatically; the user does not need to respond",
+  "- do not poll, sleep, call subagent_status, subagent_inspect, subagent_results, subagent_result_by_launch_key, or subagent_tail to cross the dependency barrier",
+  "- those observation tools are for diagnosis and recovery only, not completion waiting",
 ].join("\n");
 
 export function registerWorkerRuntime(pi: ExtensionAPI) {
@@ -17,7 +20,7 @@ export function registerWorkerRuntime(pi: ExtensionAPI) {
   pi.registerTool({
     name: "subagent",
     label: "Launch Async Subagent",
-    description: "Launch an always-asynchronous process-isolated Pi worker. Returns immediately; completion is delivered later through the serial completion queue. Do not poll status or sleep while waiting.",
+    description: "Launch an always-asynchronous process-isolated Pi worker. Continue only independent work; when remaining work depends on the result, keep the parent task in progress and end the turn so the automatic completion follow-up can resume it. Never poll or inspect to cross that dependency barrier.",
     parameters: Type.Object({
       task: Type.String({ minLength: 1, maxLength: 65536 }),
       launchKey: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
@@ -63,7 +66,7 @@ export function registerWorkerRuntime(pi: ExtensionAPI) {
   pi.registerTool({
     name: "subagent_results",
     label: "Enumerate Durable Worker Results",
-    description: "Enumerate durable immutable worker results independently of completion delivery and acknowledgement.",
+    description: "Enumerate durable immutable worker results for diagnosis and recovery, independently of completion delivery and acknowledgement. Never use this tool to wait for a pending dependency; end the turn instead.",
     parameters: Type.Object({ launchKey: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })) }),
     async execute(_id, params) {
       assertAttached(attachError);
@@ -75,7 +78,7 @@ export function registerWorkerRuntime(pi: ExtensionAPI) {
   pi.registerTool({
     name: "subagent_result_by_launch_key",
     label: "Read Worker Result By Launch Key",
-    description: "Read the latest immutable terminal result for an opaque launch key.",
+    description: "Read the latest immutable terminal result for an opaque launch key during diagnosis or recovery. Never use this tool to wait for a pending dependency; end the turn instead.",
     parameters: Type.Object({ launchKey: Type.String({ minLength: 1, maxLength: 512 }) }),
     async execute(_id, params) {
       assertAttached(attachError);
@@ -87,7 +90,7 @@ export function registerWorkerRuntime(pi: ExtensionAPI) {
   pi.registerTool({
     name: "subagent_status",
     label: "Subagent Status",
-    description: "List workers for this top-level Pi session or show one worker's compact status.",
+    description: "Diagnostic/recovery only: list workers or show compact status. This does not acknowledge completion. Never use it to wait for a pending dependency; end the turn instead.",
     parameters: Type.Object({ workerId: Type.Optional(Type.String()) }),
     async execute(_id, params) {
       assertAttached(attachError);
@@ -99,7 +102,7 @@ export function registerWorkerRuntime(pi: ExtensionAPI) {
   pi.registerTool({
     name: "subagent_inspect",
     label: "Inspect Subagent",
-    description: "Inspect one worker or completion, including its bounded immutable terminal result when available.",
+    description: "Diagnostic/recovery only: inspect one worker or completion, including its bounded immutable result. This does not acknowledge completion. Never use it to wait for a pending dependency; end the turn instead.",
     parameters: Type.Object({ workerId: Type.String({ minLength: 1 }) }),
     async execute(_id, params) {
       assertAttached(attachError);
@@ -111,7 +114,7 @@ export function registerWorkerRuntime(pi: ExtensionAPI) {
   pi.registerTool({
     name: "subagent_tail",
     label: "Tail Subagent Diagnostics",
-    description: "Read a bounded tail of selected worker lifecycle/tool diagnostics. Cumulative message_update events are never logged.",
+    description: "Diagnostic/recovery only: read a bounded tail of worker lifecycle/tool diagnostics. Never use it to wait for a pending dependency; end the turn instead. Cumulative message_update events are never logged.",
     parameters: Type.Object({
       workerId: Type.String({ minLength: 1 }),
       attemptNumber: Type.Optional(Type.Integer({ minimum: 1 })),
