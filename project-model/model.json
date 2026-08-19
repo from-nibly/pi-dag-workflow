@@ -2274,6 +2274,46 @@
   "decisions": [
     {
       "acceptance": {
+        "acceptedAt": "2026-08-17T21:58:45.652Z",
+        "actor": "user",
+        "batchRef": "sha256:a60214f9e5f8068d7074e67c659c308bd0c95d383dfea99a44759c0f8d6b91ae",
+        "contentHash": "sha256:de0875876ff6290350391fd62d822879d62e5006975c860222a1750f97316d00",
+        "interactionRef": "pi-input:01a010bd-2dc6-7199-b569-1d7e3616b79f:1787003832698",
+        "mode": "accepted_existing"
+      },
+      "body": "The bounded passive DAG widget renders an activity-centered topology spotlight rather than the whole graph: mandatory attention nodes first, then sticky active lanes, then their immediate causal dependents and required one-hop context. It uses horizontal space for parallel activity lanes and summarizes every omitted region explicitly. Each selected node may show compact stage and activity detail. Spinner motion appears only while an exact joined worker observation proves that node's bound process is live and fresh; otherwise the active mark is static or frozen. The persistent renderer is purpose-built and responsive; general graph renderers are reserved for explicit full-DAG inspection.",
+      "createdAt": "2026-08-17T21:58:45.652Z",
+      "id": "DEC-activity-centered-topology-widget-v2",
+      "introducedBy": "user",
+      "rationale": "This keeps topology legible, makes current work continuously visible, and prevents animation from claiming activity that canonical worker evidence does not prove.",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-dag-widget-expanded-inspection-interaction"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-attention-active-context-widget-overflow-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "PROP-dag-widget-activity-spotlight",
+        "PROP-dag-widget-custom-responsive-renderer",
+        "PROP-dag-widget-snapshot-driven-motion"
+      ],
+      "state": "accepted",
+      "title": "Center the persistent DAG widget on live activity and immediate dependents",
+      "updatedAt": "2026-08-17T21:58:45.652Z"
+    },
+    {
+      "acceptance": {
         "acceptedAt": "2026-07-30T04:09:26.598Z",
         "actor": "user",
         "batchRef": "sha256:cd23e96a9dc0771933be2076956b83eac59b1ff36582f3ca0f73a8df0440df24",
@@ -2806,6 +2846,40 @@
       "state": "accepted",
       "title": "Adopt one durable project model as authority",
       "updatedAt": "2026-07-29T00:02:20.712Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-17T22:01:05.810Z",
+        "actor": "user",
+        "batchRef": "sha256:19b5709b36c09a85e33fcc389cbc43aa1cc75b1e8047ce9874dacc546477f8ad",
+        "contentHash": "sha256:1d43a4a7a6c804adeb2fbd9d2a2e60b003e65120db28ababa92d72d3de9c855d",
+        "interactionRef": "pi-input:01a010bd-2dc6-7199-b569-1d7e3616b79f:1787003952580",
+        "mode": "direct_direction"
+      },
+      "body": "A node progress bar has nine canonical segments for F0 through F8. Passed stages in the current valid candidate generation render complete, the current stage renders active, and later stages render pending. When repair, retry, or a successor candidate invalidates later stage results, the bar may regress. The UI does not infer percentages from tool events, elapsed time, tokens, or worker output.",
+      "createdAt": "2026-08-17T22:01:05.810Z",
+      "id": "DEC-canonical-stage-progress-widget-v1",
+      "introducedBy": "user",
+      "rationale": "Stage completion is already authoritative, understandable, and intentionally non-monotonic under iteration.",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-dag-node-progress-definition"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-pi-subagent-widget-pattern-review"
+      ],
+      "state": "accepted",
+      "title": "Measure node progress by canonical F0–F8 stage completion",
+      "updatedAt": "2026-08-17T22:01:05.810Z"
     },
     {
       "acceptance": {
@@ -3381,6 +3455,86 @@
       "state": "accepted",
       "title": "Use deterministic vector first-fit with critical rank and bounded bypass fairness",
       "updatedAt": "2026-08-03T23:22:55.540Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-18T02:39:48.212Z",
+        "actor": "user",
+        "batchRef": "sha256:6c61e60a94e23a07a41afe212f5538ef9f57613cec16ea14bfee2b1c9242f8e4",
+        "contentHash": "sha256:65047ca27444bf4039349cffdacb718c4087fa07507715edd98a02e21ee265de",
+        "interactionRef": "lavish-feedback:review-dag-widget-final-frontier-4:sha256:763c5594e3322a9d573770b82b916e8da45ba55eb32a2b4930658b24b8692bc2",
+        "mode": "direct_direction"
+      },
+      "body": "An exact successful observation of a bound worker with processDisposition=live authorizes activity-cell motion for 2.5 seconds from the controller observation time. Spinner frames advance every 120 ms only while at least one selected node remains freshly live; otherwise the animation timer is stopped. A successful non-live observation freezes immediately. Failed, stale, or cancelled refreshes never extend freshness, and animation frames never mutate semantic projection state.",
+      "createdAt": "2026-08-18T02:39:48.211Z",
+      "id": "DEC-dag-widget-balanced-motion-timing-v1",
+      "introducedBy": "user",
+      "rationale": "This tolerates one delayed one-second safety scan without preserving a cached live claim for many seconds.",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-dag-widget-motion-timing-contract"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-orthogonal-widget-activity-cell-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-current-dag-widget-one-second-refresh",
+        "SCN-dag-worker-liveness-stales-without-terminal-result"
+      ],
+      "state": "accepted",
+      "title": "Use a 2.5-second liveness window and 120 ms active-only animation",
+      "updatedAt": "2026-08-18T02:39:48.212Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-18T02:39:48.213Z",
+        "actor": "user",
+        "batchRef": "sha256:6c61e60a94e23a07a41afe212f5538ef9f57613cec16ea14bfee2b1c9242f8e4",
+        "contentHash": "sha256:d02505182c894bc5d71f792c2f50b4a3f6d5b7688a3a91a72c9e26893ddc754d",
+        "interactionRef": "lavish-feedback:review-dag-widget-final-frontier-4:sha256:763c5594e3322a9d573770b82b916e8da45ba55eb32a2b4930658b24b8692bc2",
+        "mode": "direct_direction"
+      },
+      "body": "Proceed with Projection V2, the serialized disposable controller, exact-width Graph branches renderer, and regression harness while the exact historical editor-scrambling transition remains open diagnostic research. Capture PI_TUI_WRITE_LOG, terminal dimensions, projection revisions, and controller generation if the incident recurs; add any newly proven transition to the regression suite. The implementation must already cover exact-width resize, overlapping refresh, variable-height breakpoint changes, stale liveness, and publication after disposal.",
+      "createdAt": "2026-08-18T02:39:48.212Z",
+      "id": "DEC-dag-widget-nonblocking-incident-reproduction-v1",
+      "introducedBy": "user",
+      "rationale": "A definite width-contract violation is already actionable and the accepted safety architecture prevents every currently plausible corruption class.",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-dag-widget-reproduction-gate"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-versioned-widget-projection-serialized-controller-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-dag-widget-failure-analysis",
+        "PROP-dag-widget-render-safety-contract",
+        "SCN-dag-widget-refresh-overlaps-session-disposal",
+        "SCN-dag-widget-resize-through-subminimum-width"
+      ],
+      "state": "accepted",
+      "title": "Do not gate widget replacement on reproducing the exact historical incident",
+      "updatedAt": "2026-08-18T02:39:48.213Z"
     },
     {
       "body": "V1 defaults `maxActiveNodes` to two. A run authorization may explicitly select another positive integer no greater than current validated operational capacity, declared semantic/resource safety maxima, and any narrower user cap. This is an instantaneous active-work-item limit, not a cumulative launch, time, token, cost, stage, or compute budget. Each admitted node retains its lane under `DEC-sticky-active-node-concurrency-lanes-v1`; phase transitions and blocked waits do not admit replacements.",
@@ -5549,6 +5703,45 @@
     },
     {
       "acceptance": {
+        "acceptedAt": "2026-08-17T22:30:05.363Z",
+        "actor": "user",
+        "batchRef": "sha256:7691058ff1667c70559de54efd150f854bf0e0cdb235e5c63acb1093cc831c18",
+        "contentHash": "sha256:f8146edcea8e1056215c9d3967fe904c5aa66fe65933d07bf5ea398da0945139",
+        "interactionRef": "pi-input:01a010bd-2dc6-7199-b569-1d7e3616b79f:1787005537075",
+        "mode": "direct_direction"
+      },
+      "body": "Each selected node lane reserves a leading activity cell distinct from the stable ten-state primary glyph. The cell animates only while the serialized controller holds a recent successful exact observation that the node's bound worker process disposition is live. When that observation becomes stale or non-live, the cell freezes to a static mark or blank according to the responsive width policy. The primary glyph continues to represent canonical node state and never changes merely to animate. The activity cell may be omitted only in the subminimum fallback, where no motion claim is shown.",
+      "createdAt": "2026-08-17T22:30:05.363Z",
+      "id": "DEC-orthogonal-widget-activity-cell-v1",
+      "introducedBy": "user",
+      "rationale": "Worker liveness, freshness, and canonical node state are orthogonal facts with different clocks.",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-dag-widget-motion-glyph-composition"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-ten-state-ascii-dag-widget-glyphs-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-dag-widget-needs-three-separate-clocks",
+        "PROP-orthogonal-spinner-primary-glyph"
+      ],
+      "state": "accepted",
+      "title": "Render live-worker motion in a separate activity cell",
+      "updatedAt": "2026-08-17T22:30:05.363Z"
+    },
+    {
+      "acceptance": {
         "acceptedAt": "2026-07-30T03:31:28.440Z",
         "actor": "user",
         "batchRef": "sha256:e8965b512ac2dd6f0e9a1ffa7d9832cef24f399ca039f612ec72660d596e484c",
@@ -6088,6 +6281,88 @@
       "state": "accepted",
       "title": "Require worker report tool use with deterministic repair prompting",
       "updatedAt": "2026-07-30T04:09:26.599Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-17T23:48:13.893Z",
+        "actor": "user",
+        "batchRef": "sha256:1fde09de54ce894d3d50b24fed01d46957f6b26f8a4300029cc8513c4bd1fe32",
+        "contentHash": "sha256:cbe88176636ff9474bab8ff52455dc29d7a8954c68126f5aa7674640c7b59487",
+        "interactionRef": "pi-input:01a010bd-2dc6-7199-b569-1d7e3616b79f:1787009128542",
+        "mode": "direct_direction"
+      },
+      "body": "Each selected activity or attention anchor renders its activity cell, stable primary glyph, alias, responsive F0–F8 progress encoding, and truncated title on one semantic row. A connector rail below that row routes to the anchor's visible immediate dependents on one shared dependent row. Each dependent edge uses a right-pointing arrow followed directly by the stable dependent alias, without a redundant `>` prefix. The same graph topology grammar applies at 50-, 80-, and 120-column layouts; only the already accepted progress encoding changes at narrow width. When all immediate dependents cannot fit, the renderer preserves deterministic priority and states the omitted count rather than silently dropping edges or switching to a different topology grammar.",
+      "createdAt": "2026-08-17T23:48:13.893Z",
+      "id": "DEC-responsive-horizontal-graph-branches-v1",
+      "introducedBy": "user",
+      "rationale": "The iterated prototype made causal topology substantially easier to read than a flat list while retaining horizontal efficiency and predictable responsive behavior.",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-activity-centered-topology-widget-v2"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-responsive-nine-stage-progress-encoding-v1"
+        },
+        {
+          "kind": "supersedes",
+          "targetId": "PROP-one-anchor-one-lane-widget-grammar"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-create-disposable-dag-widget-prototypes",
+        "DEC-orthogonal-widget-activity-cell-v1"
+      ],
+      "state": "accepted",
+      "title": "Render selected activity anchors as responsive horizontal graph branches",
+      "updatedAt": "2026-08-17T23:48:13.893Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-17T22:30:05.364Z",
+        "actor": "user",
+        "batchRef": "sha256:7691058ff1667c70559de54efd150f854bf0e0cdb235e5c63acb1093cc831c18",
+        "contentHash": "sha256:4e41613a107d055a6bc7626627f6a202e275ba6568e775808246320068fb5aad",
+        "interactionRef": "pi-input:01a010bd-2dc6-7199-b569-1d7e3616b79f:1787005537075",
+        "mode": "direct_direction"
+      },
+      "body": "At wide and medium widths, each selected node lane renders nine ordered F0–F8 cells with passed, current, and pending states distinguishable without color-only meaning. Titles and dependent labels truncate before semantic cells are removed. At narrow widths, the full bar becomes the current stage plus `passed/9`. At subminimum widths, the renderer keeps only alias, primary mark, and current stage and makes no progress-bar claim. Rework regression redraws fewer passed cells without animation that implies failure.",
+      "createdAt": "2026-08-17T22:30:05.364Z",
+      "id": "DEC-responsive-nine-stage-progress-encoding-v1",
+      "introducedBy": "user",
+      "rationale": "This keeps canonical stage progress visually useful while preserving exact-width and topology obligations at every breakpoint.",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-dag-widget-responsive-progress-encoding"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-canonical-stage-progress-widget-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-horizontal-wide-adjacency-narrow-dag-widget-v1",
+        "PROP-responsive-nine-stage-widget-bar"
+      ],
+      "state": "accepted",
+      "title": "Render nine-stage progress with deterministic width fallbacks",
+      "updatedAt": "2026-08-17T22:30:05.364Z"
     },
     {
       "acceptance": {
@@ -7591,6 +7866,50 @@
     },
     {
       "acceptance": {
+        "acceptedAt": "2026-08-17T22:15:45.182Z",
+        "actor": "user",
+        "batchRef": "sha256:9767e5a57490a660466de6a323e41235ce2f0ae38c79198898d05ad39dc5c7ef",
+        "contentHash": "sha256:4887f74b7b06ee55cbce45ba0bbb1bf464a61dd657ba3fa7e1700bbe1075b018",
+        "interactionRef": "pi-input:01a010bd-2dc6-7199-b569-1d7e3616b79f:1787004861153",
+        "mode": "accepted_existing"
+      },
+      "body": "Implement the activity-centered DAG widget through two explicit layers. DagExecutionProjectionV2 preserves the exact plan/run/scheduler/worker join and adds each node's ordered F0–F8 stage states, candidate generation, and exact joined worker process disposition; V1 is not silently widened. A session-scoped disposable controller owns at most one status read, coalesced successor refreshes, the last successful liveness-observation time, animation frames, stable render state, generation-fenced publication, and idempotent teardown. The pure renderer consumes semantic projection plus ephemeral view state, honors the exact supplied width, and never treats animation ticks as semantic progress.",
+      "createdAt": "2026-08-17T22:15:45.181Z",
+      "id": "DEC-versioned-widget-projection-serialized-controller-v1",
+      "introducedBy": "user",
+      "rationale": "The accepted progress and motion semantics require omitted canonical fields, while the observed corruption requires lifecycle and concurrency control outside the pure projection.",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-dag-widget-corruption-trigger"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-activity-centered-topology-widget-v2"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-canonical-stage-progress-widget-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-dag-widget-failure-analysis",
+        "PROP-dag-execution-projection-v2-widget-fields",
+        "PROP-serialized-disposable-dag-widget-controller"
+      ],
+      "state": "accepted",
+      "title": "Use a versioned widget projection and serialized disposable controller",
+      "updatedAt": "2026-08-17T22:15:45.182Z"
+    },
+    {
+      "acceptance": {
         "acceptedAt": "2026-07-30T02:23:00.100Z",
         "actor": "user",
         "batchRef": "sha256:54142cb2e5d86af7aafd6c6c9066b04be0091d5e416a1bcbce6f6c10f117e9fd",
@@ -8283,6 +8602,77 @@
       "state": "integrated",
       "title": "One dependency edge type cannot express every parallelism constraint",
       "updatedAt": "2026-08-04T14:41:12.650Z"
+    },
+    {
+      "body": "Pi requires every component line to fit the exact width passed to render(width). integration.ts instead calls renderDagWidgetV1 with Math.max(20, width). When Pi supplies fewer than 20 columns during resize or a constrained layout, the renderer is authorized to return lines wider than the actual surface. This is a concrete corruption mechanism at the widget/editor boundary. The diagnostic clip helper also measures JavaScript string length rather than visible terminal width.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T17:31:22.251Z",
+      "id": "DISC-dag-widget-can-violate-pi-render-width",
+      "implications": "The repair needs an exact-width minimal fallback below 20 columns and ANSI/Unicode-aware clipping everywhere; it must never widen render(width).",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "Pi docs: docs/tui.md",
+        "extensions/dag-workflow/dag-runtime/integration.ts:63",
+        "worker-completion:completion-worker-07711115d40c-f780fb3f14-1-8ce3f3a9e229"
+      ],
+      "state": "integrated",
+      "title": "The current widget can violate Pi's exact render-width contract",
+      "updatedAt": "2026-08-17T17:31:22.251Z"
+    },
+    {
+      "body": "Accepted decisions specify a below-editor passive widget and a horizontal topology slice at normal/wide widths with narrow adjacency fallback. The current integration omits the setWidget placement option, so Pi uses the above-editor default, while widget.ts renders one textual edge per row rather than a routed horizontal slice. The incident therefore occurs on a surface that has already drifted from the accepted UI contract.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T17:30:39.619Z",
+      "id": "DISC-dag-widget-implementation-drifted-from-accepted-layout",
+      "implications": "Treat placement and layout conformance as part of the repair, not only visual polish. Re-evaluate below-editor placement against the reported collision before restoring it blindly.",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-horizontal-wide-adjacency-narrow-dag-widget-v1",
+        "DEC-passive-live-dag-widget-v1",
+        "extensions/dag-workflow/dag-runtime/integration.ts",
+        "extensions/dag-workflow/dag-runtime/widget.ts"
+      ],
+      "state": "integrated",
+      "title": "The shipped widget does not fully implement the accepted placement and horizontal layout",
+      "updatedAt": "2026-08-17T17:30:39.619Z"
+    },
+    {
+      "body": "Canonical run revision controls semantic state and progress; successful status-read time controls how recently worker liveness was observed; animation frame time controls only visual motion. Conflating them would either mutate semantic hashes every frame, animate stale workers forever, or suppress motion when a live process has no DAG revision change.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:05:47.111Z",
+      "id": "DISC-dag-widget-needs-three-separate-clocks",
+      "implications": "Projection hashes remain deterministic, observation freshness lives in the controller, and frame ticks never imply semantic progress.",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-widget-liveness-can-use-exact-scan-observation",
+        "PROP-serialized-disposable-dag-widget-controller"
+      ],
+      "state": "integrated",
+      "title": "The widget needs separate canonical, observation, and animation clocks",
+      "updatedAt": "2026-08-17T22:05:47.111Z"
     },
     {
       "body": "Canonical run state deliberately separates work-item state, F0–F8 stage state, stage-attempt/process state, check disposition, findings, blockers, integration-train position, and desired/current run state. A single synthesized status label would recreate the ambiguity the lifecycle contract removed. The compact projection should choose one primary node glyph from explicit precedence rules but retain phase, blocker/attention, worker-attempt, retry, and integration annotations as separate fields; full inspect exposes every dimension.",
@@ -10468,6 +10858,31 @@
       "updatedAt": "2026-08-04T04:00:38.052Z"
     },
     {
+      "body": "Each service.status call already invokes workerManager.readBoundAttempts, which scans worker stores and returns processDisposition for the exact bound attempt. The current projection joins that fact but drops processDisposition from the node-facing worker tuple. A versioned projection can retain exact process disposition, while the widget controller records when it received the successful fresh status. Motion then requires both processDisposition=live and a recent successful controller observation; stale cached projections freeze without mutating canonical DAG state.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:04:41.614Z",
+      "id": "DISC-widget-liveness-can-use-exact-scan-observation",
+      "implications": "No renderer-local claim of process liveness and no new durable heartbeat field are required for the first implementation.",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/scheduler.ts",
+        "extensions/dag-workflow/index.ts",
+        "extensions/dag-workflow/worker-runtime/manager.mjs"
+      ],
+      "state": "integrated",
+      "title": "Spinner authority can come from the existing exact worker scan without persisting UI heartbeat state",
+      "updatedAt": "2026-08-17T22:04:41.614Z"
+    },
+    {
       "body": "Review feedback rejected a card-oriented research-worker surface as the design example. The Pi widget must be monospaced and show a useful slice of DAG edges with character/dot status marks for running, pending or blocked, and complete nodes, alongside a compact list of currently running work.",
       "confidence": "high",
       "createdAt": "2026-07-31T12:49:29.377Z",
@@ -11091,6 +11506,49 @@
       "updatedAt": "2026-08-04T16:24:12.901Z"
     },
     {
+      "body": "extensions/dag-workflow/dag-runtime/integration.ts installs canonical-dag-run above the editor, refreshes projection state every second, calls requestRender, and computes animation time inside render. widget.ts emits 4–12 independently cropped text lines, spends most rows on one-edge-per-line topology, and always appends an instructional footer. The component invalidate method is empty.",
+      "createdAt": "2026-08-17T17:29:40.512Z",
+      "id": "EV-current-dag-widget-layout-mechanics",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/integration.ts",
+        "extensions/dag-workflow/dag-runtime/widget.ts"
+      ],
+      "state": "current",
+      "title": "Current DAG widget is a one-second passive text renderer",
+      "updatedAt": "2026-08-17T17:29:40.512Z"
+    },
+    {
+      "body": "Repository inspection of extensions/dag-workflow/dag-runtime/integration.ts shows both conductor advancement and widget status refresh use independent 1000 ms intervals. The current refresh is not serialized, and render(width) is widened with Math.max(20, width). A replacement controller can preserve the accepted one-second safety observation cadence while separating it from animation frames and honoring exact width.",
+      "createdAt": "2026-08-18T02:24:08.134Z",
+      "id": "EV-current-dag-widget-one-second-refresh",
+      "introducedBy": "agent",
+      "kind": "repository_observation",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/integration.ts"
+      ],
+      "state": "current",
+      "strength": "direct",
+      "title": "Current DAG widget polls semantic status every second",
+      "updatedAt": "2026-08-18T02:24:08.134Z"
+    },
+    {
       "body": "`package.json` pins `pi-subagents` 0.25.0 and `extensions/dag-workflow/dag-subagent.ts` imports package-private `src/**` modules for discovery, execution, watchers, notifications, settings, schemas, and state. The current extension entry point does not import or register `registerDagSubagentTool`; dependency analysis finds no importer. The post-cutover runtime therefore does not currently launch workers, but still installs the dependency and retains tightly coupled dead integration code.",
       "confidence": "high",
       "createdAt": "2026-07-30T02:52:06.194Z",
@@ -11324,6 +11782,29 @@
       "updatedAt": "2026-08-03T18:30:57.346Z"
     },
     {
+      "body": "Independent source review found the exact-width violation definite and judged the reported repeated active row below the editor separator consistent with either an over-width physical wrap or stale content after a variable-height transition. It also identified un-serialized one-second refreshes, teardown races, and insufficient projection fields for authoritative spinners and stage progress. The recommended repair is a small versioned projection extension plus a serialized disposable widget controller around the pure renderer.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:04:41.614Z",
+      "id": "EV-dag-widget-failure-analysis",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/integration.ts",
+        "extensions/dag-workflow/dag-runtime/widget.ts",
+        "worker-completion:completion-worker-63af1efabb33-dc1ebb06d3-1-ab366acab131"
+      ],
+      "state": "current",
+      "title": "Independent failure analysis confirms width violation and stale-row mechanisms",
+      "updatedAt": "2026-08-17T22:04:41.614Z"
+    },
+    {
       "body": "The third terminal-styled review presented exact run binding, visibility across every run condition, event/rescan/stable-join refresh, reload/fork/ownership behavior, nine conductor-internal tools, and non-TUI degradation. User feedback selected one exact session-bound run with direct-fork-only transfer; visibility through every nonterminal condition and clearing only after durable terminal reconciliation; transition signals plus one-second safety rescan and a three-attempt stable join; five separate read tools and four separate mutation tools; and persistent widget installation only in interactive TUI mode.",
       "confidence": "high",
       "createdAt": "2026-08-04T14:00:59.007Z",
@@ -11367,6 +11848,49 @@
       "state": "current",
       "title": "Final review accepts session binding, lifecycle, recovery, tool, and mode boundaries",
       "updatedAt": "2026-08-04T14:00:59.007Z"
+    },
+    {
+      "body": "Independent comparison rejected orchard9/tui-diagrams as a Go-only traversal renderer without true DAG edge routing, viewport bounds, canonical sorting, or terminal-cell-safe width. beautiful-mermaid and lovely-mermaid produce useful full diagrams but representative activity DAGs still exceeded the widget's 4–12-row budget; Dagre and d3-dag provide coordinates but leave terminal rasterization, clipping, omission semantics, and row budgeting custom. The review recommends a custom selected-neighborhood renderer and reserves generic libraries for benchmarks or explicit full-DAG views.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:04:41.613Z",
+      "id": "EV-dag-widget-library-fit-review",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "beautiful-mermaid@1.1.3",
+        "https://github.com/orchard9/tui-diagrams",
+        "lovely-mermaid@0.3.3",
+        "worker-completion:completion-worker-bb0ad1e57368-27717b7c7f-1-c917494814cf"
+      ],
+      "state": "current",
+      "title": "Generic graph renderers do not fit the persistent widget viewport contract",
+      "updatedAt": "2026-08-17T22:04:41.613Z"
+    },
+    {
+      "body": "DagExecutionNodeV1 exposes activeLane and a worker tuple containing workerId, attemptNumber, terminalStatus, and retrySafe, but not processDisposition or an explicit live/running bit. A sticky active lane can also wait between operations. Therefore neither activeLane nor worker presence alone is sufficient authority for an animated spinner.",
+      "createdAt": "2026-08-17T17:29:40.513Z",
+      "id": "EV-dag-widget-projection-live-state-gap",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/scheduler.ts"
+      ],
+      "state": "current",
+      "title": "Current projection cannot prove a live worker process",
+      "updatedAt": "2026-08-17T17:29:40.513Z"
     },
     {
       "body": "A disposable Pi-terminal-styled Lavish artifact showed the same sticky-lane run at 48, 80, and 120 columns, runtime conflict containment, integrity degradation, ten ASCII marks, focus anchors, row budgeting, and interaction boundaries. User feedback selected the full ten-mark set, horizontal normal/wide topology with narrow adjacency fallback, one-third terminal height capped at twelve rows, and an entirely read-only widget whose users control the run only by communicating with the conductor agent.",
@@ -11449,6 +11973,25 @@
       "state": "current",
       "title": "Prototype review 2 accepts deterministic overflow, identity, stale, and time policies",
       "updatedAt": "2026-08-04T13:55:13.386Z"
+    },
+    {
+      "body": "The active-focus seed preserves a concrete TUI incident where a dense multi-line DAG topology, an active summary, the read-only footer, a separator, repeated active text, and a tool/evidence line appear concatenated or overwritten around the editor/footer boundary. The incident establishes visible corruption but not its transient trigger.",
+      "createdAt": "2026-08-17T17:29:40.511Z",
+      "id": "EV-dag-widget-scrambled-chat-surface-example",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "active-focus-seed"
+      ],
+      "state": "current",
+      "title": "DAG widget output visibly collided with the chat surface",
+      "updatedAt": "2026-08-17T17:29:40.511Z"
     },
     {
       "body": "Counterexamples and simulations confirm five distinct layers—static validity, correctness readiness, speculative safety, capacity admission, and dispatch safety—and recommend a minimal deterministic vector-resource list scheduler rather than RCPSP or per-run DRF. The review demonstrates expanded gate-production cycles, phase-scoped mutex requirements, greedy fragmentation, critical-path starvation, duplicate architecture authority, exponential speculative invalidation, correlated provider retry storms, evaluator/reviewer bottlenecks, long integration-lock separation, multi-repository preverification, generation-first cancellation, lease leakage, fairness head-of-line blocking, fanout oscillation, and large-frontier indexing needs. It proposes bounded bypass reservations, provider circuits, green/amber/red speculation, conservative hysteresis, closed narrowing observations, twenty reducer invariants, and property/crash/metamorphic release gates.",
@@ -12419,6 +12962,25 @@
       "updatedAt": "2026-07-31T04:34:58.526Z"
     },
     {
+      "body": "orchard9/tui-diagrams provides Unicode flowchart rendering and Mermaid parsing, but it is implemented in Go and targets orchard9/tui. Direct use in this TypeScript Pi extension would require a subprocess or port and does not inherently solve strict widget width/row budgets or activity-neighborhood selection.",
+      "createdAt": "2026-08-17T17:29:40.514Z",
+      "id": "EV-orchard9-tui-diagrams-language-mismatch",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "https://github.com/orchard9/tui-diagrams"
+      ],
+      "state": "current",
+      "title": "orchard9/tui-diagrams is a Go library rather than a direct Pi dependency",
+      "updatedAt": "2026-08-17T17:29:40.514Z"
+    },
+    {
       "body": "Each immutable generic worker result records exact worker/attempt/config identity, `startedAt`, `endedAt`, model, provider, stop reason, aggregate input/output/cache/total tokens, reported monetary cost when available, report-repair count, runtime/model/protocol errors, bounded diagnostic metadata, and artifacts. The DAG adapter can attribute these facts only through exact `WorkerBindingV1`; missing provider usage remains missing rather than estimated. Recovery results carry endpoints but not normal model usage and must be classified separately.",
       "confidence": "high",
       "createdAt": "2026-08-04T14:05:47.214Z",
@@ -12839,6 +13401,29 @@
       "updatedAt": "2026-07-30T03:02:08.972Z"
     },
     {
+      "body": "Independent review of Pi's bundled subagent example and pi-subagents 0.25.0 found a durable pattern: keep lifecycle separate from activity freshness, render one compact status row plus at most one activity row per selected item, show structural fractions instead of invented percentages, animate from changing snapshots or fresh heartbeats, enforce display-width and terminal-height budgets, explicitly summarize omissions, and tear down timers/widgets idempotently across session transitions.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T17:31:22.250Z",
+      "id": "EV-pi-subagent-widget-pattern-review",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "Pi examples/extensions/subagent",
+        "pi-subagents@0.25.0",
+        "worker-completion:completion-worker-07711115d40c-f780fb3f14-1-8ce3f3a9e229"
+      ],
+      "state": "current",
+      "title": "Subagent widget review favors snapshot-driven bounded activity rows",
+      "updatedAt": "2026-08-17T17:31:22.250Z"
+    },
+    {
       "body": "A field investigation found that Pi `message_update` records carried a tiny incremental `delta` plus `partial` and `message`, where the latter two were duplicate cumulative copies of the complete response so far. `pi-subagents@0.25.0` synchronously serialized and appended every complete update, writing the growing response twice per token update. The resulting sum is approximately quadratic in response length. One measured run had a 388 KiB session transcript but a 188.6 MiB event log: 187.2 MiB from `message_update`, about 486× amplification. A two-character delta produced a 60,542-byte line because it contained the current 30 KiB response twice. Long-running failed agents produced 6–9 GiB logs. A deployed hotfix drops `message_update`, retains final `message_end`, tool, lifecycle, and control events, and caps child diagnostics at 50 MiB per run; active runs then contained zero message updates and only a few MiB of diagnostics.",
       "confidence": "high",
       "createdAt": "2026-07-30T03:36:00.891Z",
@@ -13031,6 +13616,28 @@
       "state": "current",
       "title": "Pi supports a terminating structured-output tool captured through RPC",
       "updatedAt": "2026-07-30T18:22:44.806Z"
+    },
+    {
+      "body": "Pi's TUI component contract requires every rendered line to stay within the provided display width. Persistent widgets can render themed custom components, and timer-driven motion is implemented by changing a version/frame and calling tui.requestRender(). The bundled Snake and Space Invaders examples demonstrate this pattern; plan-mode demonstrates compact persistent progress.",
+      "createdAt": "2026-08-17T17:29:40.513Z",
+      "id": "EV-pi-widget-animation-and-width-contract",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "Pi docs: docs/tui.md",
+        "Pi examples: plan-mode/index.ts",
+        "Pi examples: snake.ts",
+        "Pi examples: space-invaders.ts"
+      ],
+      "state": "current",
+      "title": "Pi supports animated widgets but requires strict width-safe rendering",
+      "updatedAt": "2026-08-17T17:29:40.513Z"
     },
     {
       "body": "`SessionManager.getSessionId()` exposes a durable session UUID, `getSessionFile()` exposes its persisted JSONL path, and descendant headers record `parentSession`. `ExtensionContext.mode` distinguishes `tui`, `rpc`, `json`, and `print`. In TUI mode, `ctx.ui.setWidget` accepts a component factory whose `render(width)` can remain resize-aware and request rerenders. In RPC mode, `setWidget` supports fire-and-forget string arrays but ignores component factories. `setWidget(key, undefined)` clears either form. Session replacement tears down the old extension runtime before the replacement receives `session_start`, so manager subscriptions, timers, watchers, and widget state must rebind per session and captured old contexts are invalid.",
@@ -14048,60 +14655,28 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "# Released baseline\n\nv0.1.3 is released and applied at commit aa1c95a684275744dd3b07656fa46b9061e33d98. It closes recovered procedure evidence at durable reconciliation time, makes the first conductor error terminal and top-level-agent-visible, persists a background-wake fault latch across service/process replacement until an explicit retry succeeds, and preserves the latest dirty-wake time. Clean-tree release readiness passed smoke, evaluation, dogfood, the full paired portfolio, generated-spec, and packed-artifact gates. The Operant run remains intentionally paused at r21/epoch4 with its recorded owner PID 3707432 dead; it must not be resumed or reattached without explicit user direction.\n\n# Goal\n\nMake brainstorming a **readable window into the agent's working model of the project**, so the user can verify comprehension without reading the full project model.\n\n# Accepted interaction behavior\n\n## Question briefs\n\nEvery decision brief establishes the decision, why it matters, the recommendation, and the exact question. The agent adaptively adds current behavior, change context, constraints, consequences, uncertainty, and model evidence when they support an informed choice.\n\n## Current understanding\n\nThe latest non-authoritative synthesis uses adaptive Markdown to expose the goal, relevant current state or mechanism, and governing direction. It adds frontier, boundaries, constraints, evidence, or risks only when useful.\n\n## Acknowledgements\n\nNo distinct formal acknowledgement surface is required. Ordinary acknowledgements remain conversational.\n\n## Frontier progression\n\nAfter a review resolves, the agent automatically explores and presents the next supported material frontier until none remains, the user pauses or redirects, or progress requires unresolved user input. It does not invent questions to claim exhaustion.\n\n# Quality and enforcement boundary\n\nThe alignment proof is **selective causal synthesis**, not documentation reproduction. Guidance requires scannable Markdown and contextual synthesis. Deterministic tests verify guidance delivery, safe rendering, and source provenance, but runtime tools do not enforce fixed headings or claim to validate comprehension.\n\n# Bounded implementation impact\n\nThe accepted direction maps to one compact active-focus mode-guidance block plus focused deterministic regressions. Representative scenarios cover decision-origin context, selective Current understanding synthesis, and concise valid output without a rigid template. Later semantic prompt evaluation remains deferred until sustained field use yields a real corpus.\n\n# Frontier status\n\nNo further supported material product tradeoff remains in this focus. The direction is ready to move into implementation without a formal execution DAG.",
-      "generatedAt": "2026-08-18T02:59:10.822Z",
+      "body": "The DAG widget brainstorm frontier is complete. The user accepted a 2.5-second freshness window with 120 ms active-only spinner frames and accepted proceeding with implementation while exact historical reproduction remains nonblocking diagnostic follow-up. All visual, topology, projection, controller, lifecycle, degradation, responsive, motion, and corruption-safety product choices are settled. The sole remaining open widget question is diagnostic—capturing the exact historical corruption transition if it recurs—and it does not block implementation. The next work is implementation and regression verification, not another brainstorm turn.",
+      "generatedAt": "2026-08-18T02:40:43.204Z",
       "sourceObjects": [
         {
-          "id": "DEC-process-shared-dag-conductor-ownership-v1",
-          "semanticHash": "sha256:868e78611284cff7436e0274a698ad26c973074534181081018b35ed7dfd7942"
+          "id": "DEC-dag-widget-balanced-motion-timing-v1",
+          "semanticHash": "sha256:65047ca27444bf4039349cffdacb718c4087fa07507715edd98a02e21ee265de"
         },
         {
-          "id": "DISC-terminal-conductor-faults-require-durable-latch",
-          "semanticHash": "sha256:c951900ed65d0800b114fcddf4164d600fb83133073a3a0da639aa102f10459d"
+          "id": "DEC-dag-widget-nonblocking-incident-reproduction-v1",
+          "semanticHash": "sha256:d02505182c894bc5d71f792c2f50b4a3f6d5b7688a3a91a72c9e26893ddc754d"
         },
         {
-          "id": "EV-v013-release-ready-and-applied",
-          "semanticHash": "sha256:4f4a0e3f56655363075fe2ca0a99d66b1b5610baacaafef676b6d31aed9b360a"
+          "id": "DEC-responsive-horizontal-graph-branches-v1",
+          "semanticHash": "sha256:cbe88176636ff9474bab8ff52455dc29d7a8954c68126f5aa7674640c7b59487"
         },
         {
-          "id": "COM-question-context",
-          "semanticHash": "sha256:b69bcdbd50803297bddc27483afe1f3233fdbd28262a35775ec48b627fda52d9"
+          "id": "DEC-versioned-widget-projection-serialized-controller-v1",
+          "semanticHash": "sha256:4887f74b7b06ee55cbce45ba0bbb1bf464a61dd657ba3fa7e1700bbe1075b018"
         },
         {
-          "id": "COM-single-current-proof",
-          "semanticHash": "sha256:8130f33c6f5c4ec8f15ab6dba7abf233c41c3d7b4b3fc08fbd67cefd8e2bbf33"
-        },
-        {
-          "id": "COM-meaningful-semantic-refresh",
-          "semanticHash": "sha256:7f9f98531c1bb32ad60c6470924a60cc888eff2de75a2d8d7f1d013dbe173af0"
-        },
-        {
-          "id": "COM-structural-proof-validation",
-          "semanticHash": "sha256:82aa207b5511d6ad5ec86ca1b0f8598943bb5df6a91850f251fee734ebf5ee43"
-        },
-        {
-          "id": "COM-bounded-autonomous-bursts",
-          "semanticHash": "sha256:dbf9c157584fb66f39300cf8780e5aebb1e2ecb94c13cbba19090d4eca4c3de9"
-        },
-        {
-          "id": "PROP-implement-brainstorm-synthesis-guidance-regressions",
-          "semanticHash": "sha256:259003b5b2b65beacbf545df3c022de580f4ad20e579c682d2fc2c67e42cbabb"
-        },
-        {
-          "id": "SCN-question-brief-explains-decision-origin",
-          "semanticHash": "sha256:6d33937699c8a2bd56eebdf52ce2f3ce37560c2934a2a3e03a18a23d9a9beaa1"
-        },
-        {
-          "id": "SCN-current-understanding-demonstrates-selective-synthesis",
-          "semanticHash": "sha256:032e657e461e2c318c610e722d7938b06fc6208c5d50ad67d3d46d62d307e389"
-        },
-        {
-          "id": "SCN-concise-synthesis-is-not-rejected-for-shape",
-          "semanticHash": "sha256:e4565d89efe2f8d129ef2126d1dc686be8e0968cd140536973ef2e4bee39a055"
-        },
-        {
-          "id": "DISC-agent-prompt-evaluation",
-          "semanticHash": "sha256:8ab79f0a460c4a22daa9da8adf4a41ff60e465658caa145415c56f48440edb14"
+          "id": "Q-dag-widget-corruption-trigger",
+          "semanticHash": "sha256:b1cfbd31374e7a9daa51f4e20183c136473cdb5afbd6976f8699287d8530556e"
         }
       ]
     },
@@ -14273,7 +14848,15 @@
                 "DEC-fixed-fanout-manual-provider-recovery-v1",
                 "DEC-explicit-max-active-nodes-required-v1",
                 "DEC-sticky-lane-affected-scope-conflict-v1",
-                "DEC-policy-bound-reservations-disposable-scheduler-explanations-v1"
+                "DEC-policy-bound-reservations-disposable-scheduler-explanations-v1",
+                "DEC-activity-centered-topology-widget-v2",
+                "DEC-canonical-stage-progress-widget-v1",
+                "DEC-versioned-widget-projection-serialized-controller-v1",
+                "DEC-orthogonal-widget-activity-cell-v1",
+                "DEC-responsive-nine-stage-progress-encoding-v1",
+                "DEC-responsive-horizontal-graph-branches-v1",
+                "DEC-dag-widget-balanced-motion-timing-v1",
+                "DEC-dag-widget-nonblocking-incident-reproduction-v1"
               ],
               "title": "Accepted planning and execution direction"
             },
@@ -14344,6 +14927,11 @@
               "path": "spec/prototypes/lavish-turn-renderer/README.md",
               "summary": "Bounded whole-turn Lavish renderer and lifecycle evidence.",
               "title": "Lavish turn-renderer prototype"
+            },
+            {
+              "path": "spec/prototypes/dag-widget-activity-lanes/README.md",
+              "summary": "Responsive terminal activity-lane and horizontal graph-branch rendering evidence.",
+              "title": "DAG widget activity-lane prototype"
             }
           ],
           "path": "spec/prototypes/spec.md",
@@ -14441,7 +15029,7 @@
         }
       ]
     },
-    "revision": 234,
+    "revision": 235,
     "title": "Pi DAG Workflow",
     "updatedAt": "2026-08-18T15:31:50.419Z"
   },
@@ -15492,6 +16080,230 @@
       "state": "recommended",
       "title": "Use deterministic vector first-fit with critical rank and bounded bypass fairness",
       "updatedAt": "2026-08-03T22:10:11.626Z"
+    },
+    {
+      "body": "Version the execution projection rather than silently widening V1. For each node, retain the exact joined worker process disposition and expose the ordered F0–F8 stage states plus candidate generation. Keep observation freshness outside the semantic projection. Preserve the existing exact plan/run/scheduler/worker join and omission behavior; V1 remains available for historical compatibility if needed.",
+      "createdAt": "2026-08-17T22:04:41.614Z",
+      "id": "PROP-dag-execution-projection-v2-widget-fields",
+      "introducedBy": "agent",
+      "rationale": "The accepted spinner and progress semantics need fields already present in canonical inputs but omitted by V1; a narrow version bump keeps the contract explicit.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "recommended",
+      "title": "Add a narrow DagExecutionProjectionV2 for liveness and stage progress",
+      "updatedAt": "2026-08-17T22:04:41.614Z"
+    },
+    {
+      "body": "Render a compact header plus an activity-centered topology lane for each currently active or attention node, preserving edges rather than replacing the graph with worker cards. Each lane shows alias/title, exact stage, a stage progress bar, elapsed time, and a spinner only when the joined worker projection proves a live process. Use remaining horizontal width for immediate downstream dependents, grouped by active parent, and collapse all other DAG state into small aggregate counts.",
+      "createdAt": "2026-08-17T17:29:40.515Z",
+      "id": "PROP-dag-widget-activity-spotlight",
+      "introducedBy": "agent",
+      "rationale": "This directly prioritizes current activity, scales independently of total DAG size, and uses horizontal space for parallel lanes instead of one edge per row.",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-attention-active-context-widget-overflow-v1"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DISC-widget-value-is-topology-slice-not-worker-cards"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "candidate",
+      "title": "Replace the flat topology list with an activity spotlight",
+      "updatedAt": "2026-08-17T17:30:39.620Z"
+    },
+    {
+      "body": "Treat an exact successful live-worker observation as fresh for 2.5 seconds. Advance spinner frames every 120 ms only while at least one selected node remains freshly live; otherwise stop the animation timer. A new non-live observation freezes immediately, and failed refreshes never extend freshness.",
+      "createdAt": "2026-08-18T02:24:08.134Z",
+      "id": "PROP-dag-widget-balanced-motion-timing",
+      "introducedBy": "agent",
+      "rationale": "This tolerates one delayed one-second safety scan without allowing a cached live claim to persist for many seconds, while matching the reviewed prototype motion.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-current-dag-widget-one-second-refresh",
+        "SCN-dag-worker-liveness-stales-without-terminal-result"
+      ],
+      "state": "recommended",
+      "title": "Use a 2.5-second liveness window and 120 ms active-only animation",
+      "updatedAt": "2026-08-18T02:24:08.134Z"
+    },
+    {
+      "body": "First build a TUI reproduction harness, capture PI_TUI_WRITE_LOG and terminal dimensions, and identify the exact differential-render transition before changing production code.",
+      "createdAt": "2026-08-18T02:24:08.134Z",
+      "id": "PROP-dag-widget-block-on-incident-reproduction",
+      "introducedBy": "agent",
+      "rationale": "This maximizes causal certainty but delays removal of a known render-width contract violation and may fail to reproduce an intermittent historical transition.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "Q-dag-widget-corruption-trigger"
+      ],
+      "state": "candidate",
+      "title": "Block replacement implementation until the exact incident reproduces",
+      "updatedAt": "2026-08-18T02:24:08.134Z"
+    },
+    {
+      "body": "Keep the persistent widget's deterministic bounded layout purpose-built around a selected activity neighborhood. Treat general diagram libraries as inspiration or as an implementation option for the separate full diagram tool, not as the primary widget renderer. Define narrow, medium, and wide breakpoints with a fixed row budget and ANSI-aware truncation.",
+      "createdAt": "2026-08-17T17:29:40.515Z",
+      "id": "PROP-dag-widget-custom-responsive-renderer",
+      "introducedBy": "agent",
+      "rationale": "The persistent widget has stricter activity selection, semantic truth, row stability, and resize behavior than a general graph renderer provides.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "candidate",
+      "title": "Prefer a purpose-built responsive renderer for the persistent widget",
+      "updatedAt": "2026-08-17T17:29:40.515Z"
+    },
+    {
+      "body": "Proceed with Projection V2, the serialized disposable controller, exact-width rendering, stable breakpoint heights, and the regression harness. Keep PI_TUI_WRITE_LOG reproduction as an explicit diagnostic follow-up; if captured, add the exact transition as another regression without weakening the safety contract.",
+      "createdAt": "2026-08-18T02:24:08.134Z",
+      "id": "PROP-dag-widget-implement-with-nonblocking-reproduction",
+      "introducedBy": "agent",
+      "rationale": "The known width-contract violation is independently actionable, and the accepted replacement architecture directly prevents all currently plausible corruption classes.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-versioned-widget-projection-serialized-controller-v1",
+        "PROP-dag-widget-render-safety-contract",
+        "SCN-dag-widget-refresh-overlaps-session-disposal",
+        "SCN-dag-widget-resize-through-subminimum-width"
+      ],
+      "state": "recommended",
+      "title": "Implement now and keep exact incident reproduction nonblocking",
+      "updatedAt": "2026-08-18T02:24:08.134Z"
+    },
+    {
+      "body": "Honor the exact render(width), including a minimal fallback below 20 columns; separate slow semantic refresh from lightweight animation; serialize refreshes so only one projection fetch is in flight; make every output line ANSI/Unicode visible-width safe; keep height stable for a given terminal breakpoint; clear timers and widget state atomically; guard render failures; and test resize, projection churn, teardown, diagnostics, Unicode width, and animation frames.",
+      "createdAt": "2026-08-17T17:29:40.515Z",
+      "id": "PROP-dag-widget-render-safety-contract",
+      "introducedBy": "agent",
+      "rationale": "The preserved incident crosses the widget/editor boundary, so visual redesign should not proceed without explicit terminal rendering invariants.",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "PROP-serialized-disposable-dag-widget-controller"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "recommended",
+      "title": "Give the widget a render-safety contract and regression harness",
+      "updatedAt": "2026-08-17T22:04:41.614Z"
+    },
+    {
+      "body": "Allow a five-second freshness window and use a slower 160 ms spinner while at least one selected node remains fresh.",
+      "createdAt": "2026-08-18T02:24:08.134Z",
+      "id": "PROP-dag-widget-smooth-motion-timing",
+      "introducedBy": "agent",
+      "rationale": "This reduces flicker during temporary refresh failures but can imply current work for too long after an unobserved worker exit.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "SCN-dag-worker-liveness-stales-without-terminal-result"
+      ],
+      "state": "candidate",
+      "title": "Use a 5-second liveness window and 160 ms active-only animation",
+      "updatedAt": "2026-08-18T02:24:08.134Z"
+    },
+    {
+      "body": "Extend the semantic execution projection with an explicit worker process/activity disposition derived only from the exact joined worker binding. Animate a node while that disposition proves the bound process is live and the observation remains fresh; freeze to a static active mark when freshness expires without a terminal fact. Keep canonical node lifecycle and activity freshness as separate fields.",
+      "createdAt": "2026-08-17T17:31:22.251Z",
+      "id": "PROP-dag-widget-snapshot-driven-motion",
+      "introducedBy": "agent",
+      "rationale": "A local timer tied only to activeLane or worker presence can imply work is happening while a sticky lane is waiting or a process is dead.",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "PROP-dag-execution-projection-v2-widget-fields"
+        },
+        {
+          "kind": "supports",
+          "targetId": "PROP-serialized-disposable-dag-widget-controller"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "recommended",
+      "title": "Drive motion from exact fresh worker observations",
+      "updatedAt": "2026-08-17T22:04:41.614Z"
+    },
+    {
+      "body": "Expire motion 1.25 seconds after the exact observation and animate at 120 ms only while fresh.",
+      "createdAt": "2026-08-18T02:24:08.134Z",
+      "id": "PROP-dag-widget-strict-motion-timing",
+      "introducedBy": "agent",
+      "rationale": "This minimizes stale claims but can visibly freeze during ordinary timer or status-scan jitter.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-current-dag-widget-one-second-refresh"
+      ],
+      "state": "candidate",
+      "title": "Use a 1.25-second liveness window and 120 ms active-only animation",
+      "updatedAt": "2026-08-18T02:24:08.134Z"
     },
     {
       "body": "Ship `maxActiveNodes=2`. At run authorization the user may choose another positive integer up to validated worker/provider/resource and semantic safety maxima. The count controls admitted work items, not physical phase workers. Each active node retains its lane until integrated/complete, terminally cancelled, or moved to successor-plan/replan; blocked nodes are never parked automatically.",
@@ -17173,6 +17985,25 @@
       "updatedAt": "2026-08-03T19:17:25.331Z"
     },
     {
+      "body": "Each selected active or attention anchor owns one bounded lane row: activity cell, stable primary mark and alias, stage/progress, truncated title, then directed immediate dependents and an explicit overflow count. Optional second rows are reserved for blocker/attention detail rather than repeating topology. Shared dependents may appear by alias in multiple anchor lanes while node omission counts remain global and deterministic.",
+      "createdAt": "2026-08-17T22:18:29.623Z",
+      "id": "PROP-one-anchor-one-lane-widget-grammar",
+      "introducedBy": "agent",
+      "rationale": "One lane per anchor uses horizontal space, preserves causal direction, and avoids both one-edge-per-row explosion and tall boxed cards.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "recommended",
+      "title": "Render one compact horizontal lane per activity anchor",
+      "updatedAt": "2026-08-17T22:18:29.623Z"
+    },
+    {
       "body": "When the first `agent_settled` arrives without a valid report, send one deterministic report-only RPC prompt restating the schema and requiring `subagent_report` as the only action. If the second run settles without a valid report, finalize as report-missing/needs-attention with bounded final text. Expose `reportRepairAttempts` as an integer from 0 through 2, default 1; never retry task work automatically.",
       "createdAt": "2026-07-30T18:22:44.809Z",
       "id": "PROP-one-default-bounded-report-repair",
@@ -17286,6 +18117,25 @@
       "state": "selected",
       "title": "Implement the first vertical slice normally, then dogfood it",
       "updatedAt": "2026-08-14T00:36:49.952Z"
+    },
+    {
+      "body": "Reserve a leading activity cell before each selected node's stable primary glyph. A fresh exact live-worker observation animates that cell; a stale or non-live observation renders a frozen/static mark or blank according to available width. The accepted `*`, `:`, `!`, and other primary marks never change meaning or phase merely to animate.",
+      "createdAt": "2026-08-17T22:18:29.622Z",
+      "id": "PROP-orthogonal-spinner-primary-glyph",
+      "introducedBy": "agent",
+      "rationale": "Process liveness and canonical node state are separate facts and should remain visually separable.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "recommended",
+      "title": "Keep spinner motion orthogonal to the primary state glyph",
+      "updatedAt": "2026-08-17T22:18:29.622Z"
     },
     {
       "body": "Workers continue asynchronously while their owning Pi session is alive. On extension reload or `session_shutdown`, stop accepting launches, gracefully abort children, escalate process-group termination after a deadline, persist interrupted terminal state, flush completion receipts, and leave the DAG resumable through explicit retry. Do not introduce a daemon in v1.",
@@ -17738,6 +18588,24 @@
       "state": "candidate",
       "title": "Translate standard controls directly into semantic state",
       "updatedAt": "2026-07-28T18:37:09.005Z"
+    },
+    {
+      "body": "At wide widths, render all nine F0–F8 segments with passed, current, and pending cells distinguishable without relying only on color. At medium widths, retain a compact nine-cell bar and stage label while truncating titles/dependent labels first. At narrow widths, replace the bar with `Fcurrent passed/9`; at subminimum widths, keep only alias, primary mark, and stage. Regression simply redraws fewer passed cells.",
+      "createdAt": "2026-08-17T22:18:29.623Z",
+      "id": "PROP-responsive-nine-stage-widget-bar",
+      "introducedBy": "agent",
+      "rationale": "This preserves the accepted semantic bar where space permits while never violating topology or exact-width obligations.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "recommended",
+      "title": "Use a segmented stage bar with deterministic compact fallbacks",
+      "updatedAt": "2026-08-17T22:18:29.623Z"
     },
     {
       "body": "For a single-channel Lavish authority flow, render exact review choices only through package-owned shell controls and disallow arbitrary agent-authored scripts in the same authority document. Rich scripted context must be linked as a separate artifact that cannot call the review queue. The adapter may then treat standard action prompts from its trusted generated document as review-scoped human interactions.",
@@ -18209,6 +19077,25 @@
         "The ack schema and system guidance become part of the main-agent contract."
       ],
       "updatedAt": "2026-07-30T04:14:17.200Z"
+    },
+    {
+      "body": "Replace independent interval callbacks with one controller that owns a session generation, at most one status refresh, a dirty/coalesced successor refresh, the last fresh observation time, animation frame, stable-height render state, and idempotent disposal. Stale callbacks check generation before publishing. Semantic refresh runs near the existing one-second cadence; lightweight animation requests renders only while at least one exact live worker remains fresh.",
+      "createdAt": "2026-08-17T22:04:41.614Z",
+      "id": "PROP-serialized-disposable-dag-widget-controller",
+      "introducedBy": "agent",
+      "rationale": "This addresses overlapping refreshes, teardown races, false perpetual motion, and stale variable-height rows without coupling terminal behavior into canonical run state.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "recommended",
+      "title": "Wrap the pure renderer in a serialized disposable widget controller",
+      "updatedAt": "2026-08-17T22:04:41.614Z"
     },
     {
       "body": "At session start bind the exact CWD common-dir, worktree-admin identity, checked-out direct branch, HEAD/tree/index, and owner epoch. Planning may inspect or edit there, but execution starts only after the user supplies a committed clean baseline. Each node uses its own worktree. During execution the conductor does not create tracked changes in its session worktree. After exact proposal verification, hold the repository/session-worktree lock, require the bound branch and HEAD still equal expected old and the index/worktree are clean, persist landing intent, then run an ordinary worktree-aware fast-forward in the bound CWD. Reconcile exact old/new/third and post-state cleanliness. Dirty state, branch change, another live session, non-fast-forward drift, or worktree identity mismatch blocks without stash/reset/clean/switch. Launching on `main` is allowed because branch choice is explicit user context.",
@@ -19870,6 +20757,28 @@
       "updatedAt": "2026-08-04T14:40:39.757Z"
     },
     {
+      "answerObjectIds": [
+        "DEC-canonical-stage-progress-widget-v1"
+      ],
+      "body": "Candidate semantics include current lifecycle stage ordinal F0–F8, passed stages over the current generation, or completed operations in the current attempt. The user accepts non-monotonic movement during iteration, but the denominator and reset behavior still need an explicit product definition.",
+      "createdAt": "2026-08-17T17:29:40.515Z",
+      "id": "Q-dag-node-progress-definition",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "answered",
+      "title": "What should the node progress bar measure?",
+      "updatedAt": "2026-08-17T22:04:41.614Z"
+    },
+    {
       "body": "Choose bounded telemetry and evaluation criteria for planning rework, usable parallelism, queue/wait time, phase duration, retry/back-edge rates, provider/environment failures, codified regressions, architecture findings, hardening yield, speculative invalidation, merge conflicts, integrated verification, model cost, stale recovery, and human decision latency.",
       "createdAt": "2026-07-31T13:23:34.285Z",
       "id": "Q-dag-redesign-telemetry-and-evaluation",
@@ -19897,6 +20806,45 @@
       "state": "answered",
       "title": "How will dogfooding prove the redesigned DAG is better?",
       "updatedAt": "2026-08-04T14:40:39.757Z"
+    },
+    {
+      "body": "The exact incident trigger is still unknown, but one concrete corruption mechanism is now identified: integration.ts widens Pi's supplied render width to at least 20 columns, violating the component contract during narrow/resize states. Remaining investigation should determine whether the preserved incident also requires variable widget height, overlapping asynchronous refreshes, teardown/re-registration, or another Pi differential-rendering transition. Reproduction should capture PI_TUI_WRITE_LOG and terminal dimensions/projection revisions.",
+      "createdAt": "2026-08-17T17:29:40.514Z",
+      "id": "Q-dag-widget-corruption-trigger",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "open",
+      "title": "What exact render transition scrambles the DAG widget and editor boundary?",
+      "updatedAt": "2026-08-17T17:31:22.252Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-activity-centered-topology-widget-v2"
+      ],
+      "body": "An activity spotlight can stay compact and read-only, with exact full-DAG topology and diagnostics available through dag_run_diagram/inspect or a separate command/overlay. Decide whether any keyboard interaction is needed in the persistent surface.",
+      "createdAt": "2026-08-17T17:29:40.515Z",
+      "id": "Q-dag-widget-expanded-inspection-interaction",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "answered",
+      "title": "Should the persistent widget remain passive while detail moves elsewhere?",
+      "updatedAt": "2026-08-17T22:04:41.614Z"
     },
     {
       "answerObjectIds": [
@@ -20032,6 +20980,107 @@
       "state": "answered",
       "title": "What lifecycle, refresh, stale-state, and degradation behavior should the widget use?",
       "updatedAt": "2026-08-04T14:00:59.007Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-orthogonal-widget-activity-cell-v1"
+      ],
+      "body": "Answered: live motion occupies a separate activity cell and never replaces the stable primary glyph. The activity cell animates only from a fresh exact joined worker observation and disappears in the subminimum fallback.",
+      "createdAt": "2026-08-17T22:18:29.622Z",
+      "id": "Q-dag-widget-motion-glyph-composition",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-activity-centered-topology-widget-v2",
+        "DEC-ten-state-ascii-dag-widget-glyphs-v1",
+        "DISC-dag-widget-needs-three-separate-clocks"
+      ],
+      "state": "answered",
+      "title": "How should live motion coexist with the accepted primary state glyph?",
+      "updatedAt": "2026-08-18T02:24:08.134Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-dag-widget-balanced-motion-timing-v1"
+      ],
+      "body": "The worker observation source and separate activity cell are accepted, but production still needs numeric timing. The current semantic scan cadence is one second. The choice must balance brief scheduling jitter against stale motion claims and avoid repainting when no exact worker is freshly live.",
+      "createdAt": "2026-08-18T02:24:08.134Z",
+      "id": "Q-dag-widget-motion-timing-contract",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-orthogonal-widget-activity-cell-v1",
+        "DISC-widget-liveness-can-use-exact-scan-observation",
+        "EV-current-dag-widget-one-second-refresh"
+      ],
+      "state": "answered",
+      "title": "What exact freshness window and animation cadence should govern live motion?",
+      "updatedAt": "2026-08-18T02:40:43.204Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-dag-widget-nonblocking-incident-reproduction-v1"
+      ],
+      "body": "A definite contract violation is known and the replacement safety invariants cover the other plausible transition classes, but the exact historical transition has not been captured with PI_TUI_WRITE_LOG. Decide whether implementation is gated on reproduction or whether reproduction remains a nonblocking diagnostic follow-up.",
+      "createdAt": "2026-08-18T02:24:08.134Z",
+      "id": "Q-dag-widget-reproduction-gate",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-dag-widget-failure-analysis",
+        "PROP-dag-widget-render-safety-contract",
+        "Q-dag-widget-corruption-trigger"
+      ],
+      "state": "answered",
+      "title": "Must the historical editor-scrambling incident be reproduced before implementing the replacement?",
+      "updatedAt": "2026-08-18T02:40:43.204Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-responsive-nine-stage-progress-encoding-v1"
+      ],
+      "body": "Answered: wide and medium widths use nine ordered F0–F8 cells; narrow width uses current stage plus passed/9; subminimum width retains alias, primary mark, and current stage only.",
+      "createdAt": "2026-08-17T22:18:29.622Z",
+      "id": "Q-dag-widget-responsive-progress-encoding",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-canonical-stage-progress-widget-v1",
+        "DEC-horizontal-wide-adjacency-narrow-dag-widget-v1"
+      ],
+      "state": "answered",
+      "title": "How should nine-stage progress compress across terminal widths?",
+      "updatedAt": "2026-08-18T02:24:08.134Z"
     },
     {
       "answerObjectIds": [
@@ -22815,6 +23864,80 @@
       "state": "proposed",
       "title": "Selected custom provider is unavailable in the isolated child",
       "updatedAt": "2026-07-30T03:50:40.608Z"
+    },
+    {
+      "action": "Fence every publish and render request by controller generation, coalesce successor work only within the live generation, and dispose timers/TUI references idempotently.",
+      "body": "A status refresh begins, then the session reloads, switches, or shuts down before the refresh completes.",
+      "context": "The old controller still has an in-flight promise while a new session generation owns or has cleared the widget.",
+      "createdAt": "2026-08-17T22:05:47.111Z",
+      "expectedOutcome": "The old result cannot publish into the new widget, request through stale TUI state, restore a cleared widget, or overwrite current diagnostics.",
+      "id": "SCN-dag-widget-refresh-overlaps-session-disposal",
+      "introducedBy": "agent",
+      "kind": "failure",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-dag-widget-failure-analysis",
+        "PROP-serialized-disposable-dag-widget-controller"
+      ],
+      "state": "proposed",
+      "title": "A slow widget refresh completes after reload or session replacement",
+      "updatedAt": "2026-08-17T22:05:47.111Z"
+    },
+    {
+      "action": "Render each frame from the exact supplied width, switch to a minimal fallback below the rich-layout minimum, and recompute bounded height deterministically.",
+      "body": "A DAG widget is visible while the terminal rapidly crosses wide, normal, narrow, and sub-20-column breakpoints.",
+      "context": "The editor contains text and the widget's selected activity neighborhood would normally require multiple rows.",
+      "createdAt": "2026-08-17T22:05:47.111Z",
+      "expectedOutcome": "No line exceeds the supplied width, the editor/footer boundary remains intact, and stale rows disappear when breakpoint changes reduce widget height.",
+      "id": "SCN-dag-widget-resize-through-subminimum-width",
+      "introducedBy": "agent",
+      "kind": "boundary",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-dag-widget-can-violate-pi-render-width",
+        "EV-dag-widget-failure-analysis"
+      ],
+      "state": "proposed",
+      "title": "Terminal resizes through a width below the widget's rich-layout minimum",
+      "updatedAt": "2026-08-17T22:05:47.111Z"
+    },
+    {
+      "action": "Freeze the spinner while preserving canonical node/lane state, stale-read-only diagnostics, progress, and the last-good topology.",
+      "body": "The widget receives an exact live-worker observation and then subsequent semantic refreshes fail or stop while the last-good projection remains visible.",
+      "context": "No new terminal worker fact or canonical DAG revision has arrived, and the controller freshness window expires.",
+      "createdAt": "2026-08-17T22:05:47.111Z",
+      "expectedOutcome": "The UI no longer claims current motion, but it also does not invent worker death, node failure, or lost progress.",
+      "id": "SCN-dag-worker-liveness-stales-without-terminal-result",
+      "introducedBy": "agent",
+      "kind": "boundary",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-widget-liveness-can-use-exact-scan-observation",
+        "PROP-dag-widget-snapshot-driven-motion"
+      ],
+      "state": "proposed",
+      "title": "A previously live worker observation becomes stale before terminal reconciliation",
+      "updatedAt": "2026-08-17T22:05:47.111Z"
     },
     {
       "action": "Result ingestion is idempotent, DAG advancement is not repeated, and completion delivery checks the persisted receipt before queuing a follow-up.",

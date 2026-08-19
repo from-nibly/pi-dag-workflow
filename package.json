@@ -1,6 +1,6 @@
 {
   "name": "pi-dag-workflow",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "description": "Pi extension for authoritative project modeling, inspectable DAG planning, and durable execution.",
   "keywords": ["pi-package", "pi-extension", "dag-workflow"],
@@ -13,6 +13,7 @@
     "test:dag-planning-command": "node scripts/dag-planning-command-test.mjs",
     "test:dag-prepared-start": "node scripts/dag-prepared-start-test.mjs",
     "test:dag-runtime": "node scripts/dag-runtime-test.mjs",
+    "test:dag-widget": "node scripts/dag-widget-test.mjs",
     "test:dag-evaluation": "node scripts/dag-evaluation-test.mjs",
     "test:dag-dogfood": "node scripts/dag-dogfood-test.mjs",
     "test:dag-dogfood-portfolio": "node scripts/dag-dogfood-portfolio.mjs",

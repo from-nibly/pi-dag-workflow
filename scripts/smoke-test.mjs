@@ -39,6 +39,7 @@ const files = [
   "extensions/dag-workflow/dag-runtime/conductor.ts",
   "extensions/dag-workflow/dag-runtime/integration.ts",
   "extensions/dag-workflow/dag-runtime/widget.ts",
+  "extensions/dag-workflow/dag-runtime/widget-controller.ts",
   "extensions/dag-workflow/dag-runtime/index.ts",
   "extensions/dag-workflow/planning/types.ts",
   "extensions/dag-workflow/planning/artifact.ts",
@@ -61,6 +62,7 @@ const files = [
   "scripts/dag-prepared-start-test.mjs",
   "scripts/release-readiness.mjs",
   "scripts/dag-runtime-test.mjs",
+  "scripts/dag-widget-test.mjs",
   "scripts/git-integration-test.mjs",
   "scripts/worker-runtime-test.mjs",
   "scripts/fixtures/fake-worker-rpc.mjs",
@@ -78,6 +80,10 @@ const files = [
   "spec/prototypes/lavish-turn-renderer/renderer.mjs",
   "spec/prototypes/lavish-turn-renderer/scenario.mjs",
   "spec/prototypes/lavish-turn-renderer/sample-turn.html",
+  "spec/prototypes/dag-widget-activity-lanes/README.md",
+  "spec/prototypes/dag-widget-activity-lanes/render.mjs",
+  "spec/prototypes/dag-widget-activity-lanes/scenario.mjs",
+  "spec/prototypes/dag-widget-activity-lanes/prototype.html",
 ];
 
 for (const file of files) await access(file);
@@ -95,6 +101,10 @@ const preparedStart = await execFileAsync(process.execPath, ["scripts/dag-prepar
 assertIncludes(preparedStart.stdout, "dag prepared start tests passed", "prepared-start crash recovery tests pass");
 const dagRuntime = await execFileAsync(process.execPath, ["scripts/dag-runtime-test.mjs"]);
 assertIncludes(dagRuntime.stdout, "Canonical DAG plan and run-state schema tests OK", "canonical DAG schema tests pass");
+const dagWidget = await execFileAsync(process.execPath, ["scripts/dag-widget-test.mjs"]);
+assertIncludes(dagWidget.stdout, "DAG widget V2 tests OK", "responsive DAG widget/controller tests pass");
+const widgetPrototype = await execFileAsync(process.execPath, ["spec/prototypes/dag-widget-activity-lanes/scenario.mjs"]);
+assertIncludes(widgetPrototype.stdout, "DAG widget activity-lane prototype OK", "DAG widget visual prototype evidence still executes");
 const gitIntegration = await execFileAsync(process.execPath, ["scripts/git-integration-test.mjs"], { timeout: 300_000 });
 assertIncludes(gitIntegration.stdout, "Exact real-Git integration transaction and failpoint matrix OK", "real-Git integration failpoint matrix passes");
 const workerRuntime = await execFileAsync(process.execPath, ["scripts/worker-runtime-test.mjs"], { timeout: 10 * 60_000 });
