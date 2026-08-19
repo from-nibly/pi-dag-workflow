@@ -497,8 +497,8 @@ async function testGuidedMigrationWorkflow() {
     const sources = candidate.project.migration.sources.map((source) => ({
       path: source.path,
       kind: source.kind,
-      disposition: source.path === "spec/manual.md" ? "retained" : "mapped",
-      reason: source.path === "spec/manual.md" ? "Required manual reference." : "Mapped into the candidate.",
+      disposition: source.path === "README.md" ? "mapped" : source.path === "spec/manual.md" ? "retained" : "omitted",
+      reason: source.path === "README.md" ? "Mapped into the candidate intent." : source.path === "spec/manual.md" ? "Required manual reference." : "Orientation or superseded index does not add governing meaning.",
     }));
     let incompleteRejected = false;
     try {
@@ -516,10 +516,10 @@ async function testGuidedMigrationWorkflow() {
     await domain.update(focus.id, {
       add: [
         { collection: "workstreams", key: "product", value: { ...base("Product", "Migrated product behavior."), state: "active" } },
-        { collection: "intents", key: "goal", value: { ...base("Migration goal", "Preserve the product's current supported behavior."), kind: "outcome" } },
+        { collection: "intents", key: "goal", value: { ...base("Migration goal", "Preserve the product's current supported behavior."), kind: "outcome", sourceRefs: ["README.md"] } },
       ],
       specViews: [
-        { id: "SPEC-root", kind: "index", path: "spec/spec.md", title: "Product specifications", childViewIds: ["SPEC-product"] },
+        { id: "SPEC-root", kind: "index", path: "spec/spec.md", title: "Product specifications", childViewIds: ["SPEC-product"], manualLinks: [{ path: "spec/manual.md", title: "Manual contract", summary: "Required retained reference." }] },
         { id: "SPEC-product", kind: "spec", path: "spec/generated.md", title: "Product", sections: [{ id: "intent", title: "Intent", objectIds: ["INT-goal"] }] },
       ],
       migration: {
@@ -537,6 +537,14 @@ async function testGuidedMigrationWorkflow() {
     assert(candidate.project.migration.phase === "ready" && migrationReadinessErrors(candidate).length === 0, "complete semantic and artifact dispositions make the candidate ready");
     assert(await readFile(join(root, "spec/spec.md"), "utf8") === initialFiles.get("spec/spec.md"), "ready candidate still does not overwrite an approved collision");
 
+    await domain.update(focus.id, { patch: [{ id: "INT-goal", changes: { sourceRefs: [] } }] });
+    candidate = await domain.models.load();
+    let untraceableRejected = false;
+    try { await domain.cutover(focus.id, candidateManifestHash(candidate), "user-cutover-untraceable"); }
+    catch (error) { untraceableRejected = String(error.message).includes("lacks source traceability"); }
+    assert(untraceableRejected, "cutover rejects governing candidate meaning without source traceability");
+    await domain.update(focus.id, { patch: [{ id: "INT-goal", changes: { sourceRefs: ["README.md"] } }] });
+    candidate = await domain.models.load();
     const freshHash = candidateManifestHash(candidate);
     await writeFile(join(root, "README.md"), "# Changed after review\n");
     let sourceDriftRejected = false;

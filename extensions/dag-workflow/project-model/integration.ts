@@ -130,7 +130,10 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
       const focusId = requireFocus(ctx);
       const activeReviewId = params.cutover ? (await domain(ctx.cwd).sessions.load(focusId)).activeReview?.id : undefined;
       const result = await domain(ctx.cwd).recordDirection(focusId, params, currentInteractionRef);
-      if (params.cutover && activeReviewId) await presenter(ctx.cwd).cleanup(focusId, activeReviewId).catch(() => undefined);
+      if (params.cutover) {
+        if (activeReviewId) await presenter(ctx.cwd).cleanup(focusId, activeReviewId).catch(() => undefined);
+        if (activeFocus?.id === focusId && activeFocus.repositoryRoot === resolve(ctx.cwd)) activeFocus.mode = "brainstorm";
+      }
       return asToolResult(result, "record_direction");
     }),
   });

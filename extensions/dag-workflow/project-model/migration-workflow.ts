@@ -160,10 +160,19 @@ export function migrationReadinessErrors(model: ProjectModel, migration = model.
   const errors: string[] = [];
   if (migration.blockers.length) errors.push(...migration.blockers.map((blocker) => `Blocker: ${blocker}`));
   if (!migration.sources.length) errors.push("No repository sources were inventoried.");
-  for (const source of migration.sources) if (source.disposition === "unreviewed") errors.push(`Source is unreviewed: ${source.path}`);
+  const sourceRefs = new Set(allSourceRefs(model));
+  for (const source of migration.sources) {
+    if (source.disposition === "unreviewed") errors.push(`Source is unreviewed: ${source.path}`);
+    else if (!source.reason?.trim()) errors.push(`Source disposition lacks rationale: ${source.path}`);
+    if (source.disposition === "mapped" && !sourceRefs.has(source.path) && !(source.kind === "legacy_model" && [...sourceRefs].some((ref) => ref.startsWith("legacy-brainstorm:")))) errors.push(`Mapped source is not referenced by a model object: ${source.path}`);
+  }
+  const manualLinks = new Set(model.project.projections.specs.flatMap((view) => view.manualLinks?.map(({ path }) => path) ?? []));
   for (const artifact of migration.artifacts) {
     if (artifact.disposition === "unresolved") errors.push(`Artifact disposition is unresolved: ${artifact.path}`);
+    else if (!artifact.reason?.trim()) errors.push(`Artifact disposition lacks rationale: ${artifact.path}`);
     if (artifact.disposition === "block") errors.push(`Artifact blocks cutover: ${artifact.path}`);
+    if (artifact.disposition === "retain_reference" && !manualLinks.has(artifact.path)) errors.push(`Retained reference is not linked by a projection: ${artifact.path}`);
+    if (artifact.disposition === "retain_evidence" && !sourceRefs.has(artifact.path)) errors.push(`Retained evidence is not referenced by a model object: ${artifact.path}`);
   }
   const artifactByPath = new Map(migration.artifacts.map((artifact) => [artifact.path, artifact]));
   const projectionTargets = new SpecProjector(".").render(model).map(({ path }) => path);
@@ -181,6 +190,7 @@ export function migrationReadinessErrors(model: ProjectModel, migration = model.
     ...model.commitments.filter(({ state }) => ["proposed", "not_reviewed"].includes(state)),
   ];
   if (!candidateAuthority.length) errors.push("Candidate contains no proposed governing project meaning.");
+  for (const object of candidateAuthority) if (!object.sourceRefs.length) errors.push(`Proposed governing object lacks source traceability: ${object.id}`);
   if (model.questions.some(({ kind, state }) => ["contradiction", "reconsideration"].includes(kind) && state === "open")) errors.push("Open contradiction or authority reconsideration remains.");
   return [...new Set(errors)].sort();
 }
@@ -290,6 +300,10 @@ async function hashRepositoryFile(root: string, relativePath: string, allowMissi
   return hashBytes(await readFile(absolute));
 }
 
+function allSourceRefs(model: ProjectModel): string[] {
+  return [model.workstreams, model.intents, model.concepts, model.evidence, model.assumptions, model.questions, model.tensions, model.scenarios, model.proposals, model.decisions, model.commitments, model.discoveries]
+    .flatMap((objects) => objects.flatMap(({ sourceRefs }) => sourceRefs));
+}
 function hashBytes(value: Buffer): string { return `sha256:${createHash("sha256").update(value).digest("hex")}`; }
 function posixify(value: string): string { return value.replaceAll("\\", "/"); }
 function normalizeRepositoryPath(value: string): string {
