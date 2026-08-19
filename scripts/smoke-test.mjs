@@ -29,6 +29,7 @@ const files = [
   "extensions/dag-workflow/project-model/lavish-cli.ts",
   "extensions/dag-workflow/project-model/review-presentation.ts",
   "extensions/dag-workflow/project-model/migration.ts",
+  "extensions/dag-workflow/project-model/migration-workflow.ts",
   "extensions/dag-workflow/dag-runtime/common.ts",
   "extensions/dag-workflow/dag-runtime/plan.ts",
   "extensions/dag-workflow/dag-runtime/run-state.ts",
@@ -165,6 +166,7 @@ await testWorktreeRefresh();
 const readme = await readFile("README.md", "utf8");
 assertIncludes(readme, "project-model/model.json", "README documents the shared model authority");
 assertIncludes(readme, "/dag brainstorm", "README documents model brainstorming");
+assertIncludes(readme, "/dag migrate", "README documents guided project-model migration");
 assertIncludes(readme, "dag_model_record_direction", "README documents the direct-authority boundary");
 assertIncludes(readme, "/dag plan [--new", "README documents architecture-first planning");
 assertIncludes(readme, "/dag show --run", "README documents exact live inspection");

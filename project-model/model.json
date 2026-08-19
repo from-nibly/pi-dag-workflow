@@ -7999,6 +7999,76 @@
       "state": "accepted",
       "title": "Workers survive Pi reload and exit",
       "updatedAt": "2026-07-30T03:31:28.441Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-19T02:17:55.018Z",
+        "actor": "user",
+        "batchRef": "sha256:8bdd4e4fc6e4683dc94c3537cc9e83f4f45c0d91eec2e0c21a241f1098eae886",
+        "contentHash": "sha256:727622b7ba5100223aafe77c45aef52e052517b7d52339dd8035190e930184ed",
+        "interactionRef": "lavish-feedback:review-rev-dag-migrate-foundation:sha256:5679ecaf82d026f5dc368ddfd064d65ed10a64c802f3f9678ae1ccacda7d2d4c",
+        "mode": "accepted_existing"
+      },
+      "body": "`/dag migrate` assigns every relevant existing artifact an explicit disposition. Cutover replaces only exact generated-projection collisions approved in the reviewed manifest; all other required files and directories may remain in place as linked manual references or evidence. If a retained artifact must still govern project semantics, cutover remains blocked until the authority conflict is resolved.",
+      "createdAt": "2026-08-19T02:17:55.018Z",
+      "id": "DEC-dag-migrate-preserve-files-single-authority",
+      "introducedBy": "user",
+      "rationale": "Physical coexistence satisfies repository retention needs while preserving one explicit semantic authority after cutover.",
+      "relationships": [],
+      "resolvesQuestionIds": [
+        "Q-dag-migrate-retained-artifact-authority"
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "selectedProposalIds": [
+        "PROP-dag-migrate-retain-nonauthoritative-artifacts"
+      ],
+      "sourceRefs": [],
+      "state": "accepted",
+      "title": "Preserve required artifacts without preserving dual authority",
+      "updatedAt": "2026-08-19T02:17:55.018Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-19T02:25:11.574Z",
+        "actor": "user",
+        "batchRef": "sha256:abb4a55d7e910e506b8f5153890f25c012763673f4647307ed6b3a9980ed4c75",
+        "contentHash": "sha256:a33e659c2284611bec2c71da29c9f7613c4fa7472d087c5f9f2541c9bea553c9",
+        "interactionRef": "lavish-feedback:review-rev-dag-migrate-bootstrap-readiness:sha256:fe995c8bf4de9807a151f72634df45d68246fc7a4d1975eb25d55af5d9839651",
+        "mode": "accepted_existing"
+      },
+      "body": "`/dag migrate` first inventories enough repository metadata to bootstrap an empty non-authoritative candidate model and dedicated migration focus, then activates the existing project-model tool loop under migration-specific guidance. The agent uses relevant-first repository evidence and supported deterministic legacy adapters to create or refresh source-traceable model objects, mappings, omissions, warnings, proposed projections, generated-spec previews, and per-artifact dispositions without overwriting existing artifacts. Lavish may present an incomplete candidate, but cutover is offered only when explicit semantic and artifact readiness gates pass. Cutover remains a separate explicit operation bound to the exact reviewed candidate and artifact manifest; an existing authoritative model fails closed.",
+      "createdAt": "2026-08-19T02:17:55.015Z",
+      "id": "DEC-dag-migrate-staged-candidate-review-cutover",
+      "introducedBy": "user",
+      "rationale": "Reusing the existing validated mutation, review, and authority path avoids a duplicate migration subsystem while adding only the bootstrap, inference guidance, readiness metadata, and artifact-manifest binding required by the feature.",
+      "relationships": [],
+      "resolvesQuestionIds": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "selectedProposalIds": [
+        "PROP-dag-migrate-staged-candidate-review-cutover",
+        "PROP-dag-migrate-relevant-first-source-inventory",
+        "PROP-dag-migrate-semantic-readiness-gates"
+      ],
+      "sourceRefs": [],
+      "state": "accepted",
+      "title": "Stage migration candidate, reuse the model loop, audit in Lavish, and cut over exactly",
+      "updatedAt": "2026-08-19T02:25:11.574Z"
     }
   ],
   "discoveries": [
@@ -11201,6 +11271,55 @@
       "state": "integrated",
       "title": "Template compliance can conceal whether the agent understands the project",
       "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
+      "body": "`/dag migrate` does not need a parallel semantic-authority subsystem. A small pre-model bootstrap can write an empty candidate, create a migration focus, activate the existing model tools, and send migration-specific kickoff guidance. The agent can then inspect sources and make non-authoritative candidate updates through the same validated domain used by ordinary brainstorming; exact review and cutover remain existing authority operations extended with the artifact manifest hash.",
+      "createdAt": "2026-08-19T02:18:59.931Z",
+      "id": "DISC-dag-migrate-can-bootstrap-existing-model-loop",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "EV-model-tools-require-existing-model-focus"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-dag-migrate-staged-candidate-review-cutover"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/domain.ts",
+        "extensions/dag-workflow/project-model/integration.ts",
+        "extensions/dag-workflow/project-model/model.ts"
+      ],
+      "state": "integrated",
+      "title": "Migration can bootstrap and reuse the existing model loop",
+      "updatedAt": "2026-08-19T02:18:59.931Z"
+    },
+    {
+      "body": "A model-content summary alone cannot make cutover safe. The review must also show every colliding or semantically relevant existing artifact and its proposed disposition: replace with a generated projection, retain as a non-authoritative reference/manual artifact, or block cutover because unresolved governing authority remains.",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "DISC-dag-migrate-needs-artifact-disposition-manifest",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "EV-current-cutover-replaces-only-declared-target-collisions"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/projector.ts",
+        "project-model/migrations/brainstorm-v2-candidate.md"
+      ],
+      "state": "integrated",
+      "title": "Safe migration requires explicit artifact dispositions",
+      "updatedAt": "2026-08-18T22:08:48.978Z"
     }
   ],
   "evidence": [
@@ -14472,6 +14591,70 @@
       "state": "current",
       "title": "Brainstorm behavior is currently controlled by one compact mode-guidance block",
       "updatedAt": "2026-08-17T22:31:54.444Z"
+    },
+    {
+      "body": "Migration cutover calls the projector with `replaceUnmanagedSpecs: true`. The projector may overwrite an unmanaged file only when its path is a declared generated projection target; other existing spec files remain in place, and only stale files already bearing the project-model generated marker are candidates for managed cleanup.",
+      "confidence": "high",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "EV-current-cutover-replaces-only-declared-target-collisions",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/domain.ts",
+        "extensions/dag-workflow/project-model/projector.ts"
+      ],
+      "state": "current",
+      "title": "Current cutover replaces unmanaged files only at declared projection targets",
+      "updatedAt": "2026-08-18T22:08:48.978Z"
+    },
+    {
+      "body": "`scripts/migrate-brainstorm-to-project-model.mjs` reads only `.ai/brainstorm/structured-brainstorming.json`; `migration.ts` contains Pi-DAG-specific mappings, hard-codes the project title and projection layout, emits a candidate report and preview, and has no `/dag migrate` command surface.",
+      "confidence": "high",
+      "createdAt": "2026-08-18T22:08:48.977Z",
+      "id": "EV-current-migration-is-one-off-legacy-brainstorm-script",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-dag-migrate-existing-repository"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/migration.ts",
+        "scripts/migrate-brainstorm-to-project-model.mjs"
+      ],
+      "state": "current",
+      "title": "Current migration path is a repository-specific legacy-brainstorm script",
+      "updatedAt": "2026-08-18T22:08:48.977Z"
+    },
+    {
+      "body": "The integration registers model tools once but activates them only after a focus is active. `/dag brainstorm` refuses to start when `project-model/model.json` is absent. `createEmptyModel` already supports candidate mode with no semantic objects or projections.",
+      "confidence": "high",
+      "createdAt": "2026-08-19T02:18:59.930Z",
+      "id": "EV-model-tools-require-existing-model-focus",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-dag-migrate-existing-repository"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/integration.ts",
+        "extensions/dag-workflow/project-model/model.ts"
+      ],
+      "state": "current",
+      "title": "Current model tools require an existing model and active focus",
+      "updatedAt": "2026-08-19T02:18:59.930Z"
     }
   ],
   "intents": [
@@ -14650,33 +14833,78 @@
       "state": "accepted",
       "title": "Scale human oversight through a shared project model",
       "updatedAt": "2026-07-29T00:02:20.711Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-19T02:17:55.013Z",
+        "actor": "user",
+        "batchRef": "sha256:8bdd4e4fc6e4683dc94c3537cc9e83f4f45c0d91eec2e0c21a241f1098eae886",
+        "contentHash": "sha256:433c1d4570e12bdcd66480ff412efc318f438074b168aa4d191ffbf60090b20a",
+        "interactionRef": "lavish-feedback:review-rev-dag-migrate-foundation:sha256:5679ecaf82d026f5dc368ddfd064d65ed10a64c802f3f9678ae1ccacda7d2d4c",
+        "mode": "accepted_existing"
+      },
+      "body": "Provide a guided `/dag migrate` workflow that converts an existing repository into a project-model candidate, exposes what was inferred, and requires explicit user approval before authority changes.",
+      "createdAt": "2026-08-18T22:08:48.977Z",
+      "id": "INT-dag-migrate-existing-repository",
+      "introducedBy": "agent",
+      "kind": "outcome",
+      "relationships": [],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "focus-seed:focus-we-need-to-add-a-new-feature-called-dag-migrate-where-we-m"
+      ],
+      "state": "accepted",
+      "title": "Add /dag migrate for existing repositories",
+      "updatedAt": "2026-08-19T02:17:55.013Z"
     }
   ],
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "The DAG widget brainstorm frontier is complete. The user accepted a 2.5-second freshness window with 120 ms active-only spinner frames and accepted proceeding with implementation while exact historical reproduction remains nonblocking diagnostic follow-up. All visual, topology, projection, controller, lifecycle, degradation, responsive, motion, and corruption-safety product choices are settled. The sole remaining open widget question is diagnostic—capturing the exact historical corruption transition if it recurs—and it does not block implementation. The next work is implementation and regression verification, not another brainstorm turn.",
-      "generatedAt": "2026-08-18T02:40:43.204Z",
+      "body": "# Accepted direction\n\n`/dag migrate` is the supported staged conversion path for repositories without a project model. It bootstraps an empty candidate and migration focus, then reuses the existing project-model update, review, Lavish, and authority loop under migration-specific guidance.\n\n# Inference and readiness\n\nThe agent discovers evidence relevant-first: supported legacy snapshots; repository/package orientation; README, specs, docs, ADRs, and plans; tests and representative code for confirmation or contradiction; bounded Git history only when current sources are materially ambiguous. A known adapter is a fast path, never a review bypass.\n\nLavish may present a partial candidate, but cutover is offered only after explicit gates pass: valid model; source-traceable governing content; explained mappings, retention, and omissions for material sources; no unresolved authority conflict; successful projection preview; complete per-artifact dispositions; and a fresh hash binding both candidate and manifest. There is no synthetic completeness percentage.\n\n# Artifact coexistence\n\nCutover replaces only exact generated-projection collisions approved in the reviewed manifest. Other required specs and directories remain as linked manual references or evidence. If any retained artifact must remain governing, cutover is blocked; v1 does not introduce scoped external authority. The retained-artifact authority question is answered by this accepted policy.\n\n# Bounded implementation surface\n\nThe new surface consists of `/dag migrate` command routing; candidate/focus bootstrap and resume metadata; migration mode guidance; repository source inventory and supported adapter dispatch; artifact-disposition/readiness structures included in the manifest hash; a migration-specific Lavish audit; and deterministic tests for no-overwrite staging, incomplete candidates, stale approval, retained specs, approved collisions, adapter fast paths, and authoritative-model refusal.\n\n# Frontier status\n\nThe `/dag migrate` product, interaction, coexistence, and authority boundaries are resolved. Remaining work is implementation decomposition and schema detail following established repository conventions; no further product decision is currently supported.",
+      "generatedAt": "2026-08-19T02:59:17.302Z",
       "sourceObjects": [
         {
-          "id": "DEC-dag-widget-balanced-motion-timing-v1",
-          "semanticHash": "sha256:65047ca27444bf4039349cffdacb718c4087fa07507715edd98a02e21ee265de"
+          "id": "INT-dag-migrate-existing-repository",
+          "semanticHash": "sha256:433c1d4570e12bdcd66480ff412efc318f438074b168aa4d191ffbf60090b20a"
         },
         {
-          "id": "DEC-dag-widget-nonblocking-incident-reproduction-v1",
-          "semanticHash": "sha256:d02505182c894bc5d71f792c2f50b4a3f6d5b7688a3a91a72c9e26893ddc754d"
+          "id": "DEC-dag-migrate-staged-candidate-review-cutover",
+          "semanticHash": "sha256:a33e659c2284611bec2c71da29c9f7613c4fa7472d087c5f9f2541c9bea553c9"
         },
         {
-          "id": "DEC-responsive-horizontal-graph-branches-v1",
-          "semanticHash": "sha256:cbe88176636ff9474bab8ff52455dc29d7a8954c68126f5aa7674640c7b59487"
+          "id": "DEC-dag-migrate-preserve-files-single-authority",
+          "semanticHash": "sha256:727622b7ba5100223aafe77c45aef52e052517b7d52339dd8035190e930184ed"
         },
         {
-          "id": "DEC-versioned-widget-projection-serialized-controller-v1",
-          "semanticHash": "sha256:4887f74b7b06ee55cbce45ba0bbb1bf464a61dd657ba3fa7e1700bbe1075b018"
+          "id": "Q-dag-migrate-retained-artifact-authority",
+          "semanticHash": "sha256:d5dd3c386e51f4b5e765336c39779b6ea31256429b61c09ad6be9e82ba25521f"
         },
         {
-          "id": "Q-dag-widget-corruption-trigger",
-          "semanticHash": "sha256:b1cfbd31374e7a9daa51f4e20183c136473cdb5afbd6976f8699287d8530556e"
+          "id": "PROP-dag-migrate-relevant-first-source-inventory",
+          "semanticHash": "sha256:d660352d4dda7103f3d591679c893479e4206638bac633678df7d68f3b0c2a85"
+        },
+        {
+          "id": "PROP-dag-migrate-semantic-readiness-gates",
+          "semanticHash": "sha256:46acde3d894356d5d44ca4b169263a060b393edb766a9405f40f17ed3ef2d602"
+        },
+        {
+          "id": "DISC-dag-migrate-can-bootstrap-existing-model-loop",
+          "semanticHash": "sha256:279f0c1453558ffd1491392095611614e93d6e44439a34fcdf889fbff25b7d6e"
+        },
+        {
+          "id": "SCN-dag-migrate-incomplete-repository-evidence",
+          "semanticHash": "sha256:374e9439731a446eb92f02bd2aa083c9187f2acf8f08e819939aa5f12f5911e3"
+        },
+        {
+          "id": "SCN-dag-migrate-supported-legacy-fast-path",
+          "semanticHash": "sha256:e5a202155dd90cb9108cba23bb3d9716d7be430cd5d251ad817a65d70b65df61"
+        },
+        {
+          "id": "SCN-dag-migrate-existing-spec-collision",
+          "semanticHash": "sha256:0ab4f3d13ffd6ed6f09d608bf4615a1fbc21cadb57e5f743d3d7972c0df41755"
         }
       ]
     },
@@ -14694,7 +14922,8 @@
               "objectIds": [
                 "INT-scalable-oversight",
                 "INT-human-authority",
-                "INT-brainstorm-first-dogfood"
+                "INT-brainstorm-first-dogfood",
+                "INT-dag-migrate-existing-repository"
               ],
               "title": "Candidate intent"
             },
@@ -14751,7 +14980,9 @@
                 "DEC-lavish-feedback-human-initiated",
                 "DEC-separate-lavish-presentation-adapter",
                 "DEC-pinned-optional-lavish-cli",
-                "DEC-whole-turn-lavish-renderer-slice"
+                "DEC-whole-turn-lavish-renderer-slice",
+                "DEC-dag-migrate-staged-candidate-review-cutover",
+                "DEC-dag-migrate-preserve-files-single-authority"
               ],
               "title": "Candidate accepted direction"
             },
@@ -15029,9 +15260,9 @@
         }
       ]
     },
-    "revision": 235,
+    "revision": 240,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-18T15:31:50.419Z"
+    "updatedAt": "2026-08-19T03:01:45.394Z"
   },
   "proposals": [
     {
@@ -20275,6 +20506,134 @@
       "state": "superseded",
       "title": "Define a structured Markdown contract for brainstorm surfaces",
       "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
+      "body": "Discover migration evidence in tiers: explicit supported legacy model snapshots first; repository orientation and package metadata; README, spec/docs, ADRs and plans; tests and representative code where they establish or contradict behavior; bounded Git history only when current artifacts leave material ambiguity. Record every inspected source and its role, but do not equate file count with semantic coverage or ingest transient/build/vendor/secret paths.",
+      "createdAt": "2026-08-19T02:18:59.932Z",
+      "id": "PROP-dag-migrate-relevant-first-source-inventory",
+      "introducedBy": "agent",
+      "rationale": "Generic repositories need semantic inference, while a fixed adapter-only migration would not satisfy the accepted existing-repository outcome. Relevant-first traversal controls cost and avoids converting implementation detail into false product authority.",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-dag-migrate-staged-candidate-review-cutover"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "COM-mechanical-inference-only",
+        "COM-research-classify-before-ask"
+      ],
+      "state": "selected",
+      "title": "Use a relevant-first repository source inventory",
+      "updatedAt": "2026-08-19T02:25:11.574Z"
+    },
+    {
+      "body": "At cutover, replace only exact projection paths explicitly approved in the artifact disposition manifest. Preserve all other required existing files and directories in place, classify and link relevant documents as manual references or evidence, and label them non-authoritative where ambiguity would otherwise remain. If any legacy artifact must continue as governing semantic authority, block cutover and return to candidate review rather than silently creating dual authority.",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "PROP-dag-migrate-retain-nonauthoritative-artifacts",
+      "introducedBy": "agent",
+      "rationale": "This satisfies directory/file retention needs within the accepted atomic single-authority architecture and avoids treating physical coexistence as semantic dual writing.",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-audited-candidate-atomic-cutover"
+        },
+        {
+          "kind": "supports",
+          "targetId": "INT-dag-migrate-existing-repository"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/projector.ts",
+        "project-model/model.json"
+      ],
+      "state": "selected",
+      "title": "Retain required legacy artifacts without retaining dual authority",
+      "updatedAt": "2026-08-19T02:17:55.019Z"
+    },
+    {
+      "body": "Extend the project model with scoped external-authority declarations so selected existing specifications can remain governing after cutover while the model governs all other declared scopes.",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "PROP-dag-migrate-scoped-external-authority",
+      "introducedBy": "agent",
+      "rationale": "This directly supports repositories with mandatory external specifications, but changes the current global candidate/authoritative model and introduces precedence, drift, and conflict rules that do not exist today.",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "INT-dag-migrate-existing-repository"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-audited-candidate-atomic-cutover"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "project-model/model.json"
+      ],
+      "state": "rejected",
+      "title": "Allow retained specs to remain governing in declared scopes",
+      "updatedAt": "2026-08-19T02:17:55.020Z"
+    },
+    {
+      "body": "A candidate becomes cutover-ready only when the model validates; every proposed governing object is traceable to user direction or repository evidence; every material source is mapped, retained, or explicitly omitted with rationale; contradictions and open authority questions are resolved or declared non-governing; projection previews succeed; every relevant artifact has a disposition; and the exact candidate-plus-manifest hash is fresh. The Lavish summary may still present an incomplete candidate, but its cutover action is disabled and blockers are shown.",
+      "createdAt": "2026-08-19T02:18:59.933Z",
+      "id": "PROP-dag-migrate-semantic-readiness-gates",
+      "introducedBy": "agent",
+      "rationale": "No honest percentage can prove semantic completeness across arbitrary repositories. Explicit fail-closed gates make readiness explainable and testable without claiming the agent understood every file.",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-dag-migrate-preserve-files-single-authority"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-dag-migrate-staged-candidate-review-cutover"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "COM-mechanical-inference-only",
+        "DEC-audited-candidate-atomic-cutover",
+        "DEC-semantic-current-state-import"
+      ],
+      "state": "selected",
+      "title": "Gate cutover on semantic and artifact readiness, not coverage percentage",
+      "updatedAt": "2026-08-19T02:25:11.574Z"
+    },
+    {
+      "body": "Implement `/dag migrate` as a resumable staged workflow: inventory repository artifacts; infer a non-authoritative candidate model and projection map; validate it without overwriting existing files; render a Lavish audit showing model scope, counts, governing content, unresolved questions, omissions, source-to-model mappings, generated-spec diffs, and artifact dispositions; then apply an exact hash-bound cutover only after explicit approval. Re-running before cutover refreshes or resumes the candidate; an authoritative existing model fails closed.",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "PROP-dag-migrate-staged-candidate-review-cutover",
+      "introducedBy": "agent",
+      "rationale": "This generalizes the current audited migration mechanics while keeping inference separate from authority and making file effects reviewable before any destructive collision.",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-dag-migrate-existing-repository"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/domain.ts",
+        "extensions/dag-workflow/project-model/review-renderer.ts",
+        "scripts/migrate-brainstorm-to-project-model.mjs"
+      ],
+      "state": "selected",
+      "title": "Use a staged candidate, visual audit, and explicit cutover",
+      "updatedAt": "2026-08-19T02:17:55.019Z"
     }
   ],
   "questions": [
@@ -23652,6 +24011,35 @@
       "state": "answered",
       "title": "What information architecture should govern Current understanding?",
       "updatedAt": "2026-08-17T22:17:42.399Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-dag-migrate-preserve-files-single-authority"
+      ],
+      "body": "Should `/dag migrate` preserve existing spec artifacts only as explicitly non-authoritative references, or must it support repositories where some existing specifications remain governing after the project model becomes authoritative?",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "Q-dag-migrate-retained-artifact-authority",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "PROP-dag-migrate-retain-nonauthoritative-artifacts"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-dag-migrate-scoped-external-authority"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "focus-seed:focus-we-need-to-add-a-new-feature-called-dag-migrate-where-we-m"
+      ],
+      "state": "answered",
+      "title": "What does retaining existing artifacts mean at cutover?",
+      "updatedAt": "2026-08-19T02:59:17.299Z"
     }
   ],
   "scenarios": [
@@ -24584,6 +24972,76 @@
       "state": "proposed",
       "title": "A modification question explains why the decision exists",
       "updatedAt": "2026-08-17T22:31:54.445Z"
+    },
+    {
+      "body": "A repository already has `spec/spec.md` plus manually maintained domain specs. `/dag migrate` builds the candidate without touching them, shows the proposed generated replacement for `spec/spec.md`, preserves unrelated manual specs, identifies whether they become linked references or unresolved authorities, and performs no replacement until the user approves the exact candidate and artifact disposition manifest.",
+      "createdAt": "2026-08-18T22:08:48.979Z",
+      "id": "SCN-dag-migrate-existing-spec-collision",
+      "introducedBy": "agent",
+      "kind": "boundary",
+      "relationships": [
+        {
+          "kind": "related_to",
+          "targetId": "PROP-dag-migrate-retain-nonauthoritative-artifacts"
+        },
+        {
+          "kind": "related_to",
+          "targetId": "PROP-dag-migrate-staged-candidate-review-cutover"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/projector.ts"
+      ],
+      "state": "proposed",
+      "title": "Migration finds an existing spec path collision",
+      "updatedAt": "2026-08-18T22:08:48.979Z"
+    },
+    {
+      "body": "A repository contains contradictory README and spec requirements plus an undocumented implementation. `/dag migrate` records the contradiction, presents the partial candidate and source map in Lavish, explains which governing question remains unresolved, preserves all existing files, and offers continued refinement rather than a cutover approval action.",
+      "createdAt": "2026-08-19T02:18:59.934Z",
+      "id": "SCN-dag-migrate-incomplete-repository-evidence",
+      "introducedBy": "agent",
+      "kind": "failure",
+      "relationships": [
+        {
+          "kind": "related_to",
+          "targetId": "PROP-dag-migrate-semantic-readiness-gates"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "DEC-audited-candidate-atomic-cutover"
+      ],
+      "state": "proposed",
+      "title": "Migration cannot establish complete current authority",
+      "updatedAt": "2026-08-19T02:18:59.934Z"
+    },
+    {
+      "body": "When a supported legacy brainstorm snapshot exists, `/dag migrate` invokes its deterministic adapter for mappings and omissions, then runs the same repository inventory, candidate validation, Lavish audit, artifact disposition, and explicit cutover flow as a generic repository. The adapter accelerates inference but does not bypass review.",
+      "createdAt": "2026-08-19T02:18:59.934Z",
+      "id": "SCN-dag-migrate-supported-legacy-fast-path",
+      "introducedBy": "agent",
+      "kind": "ordinary",
+      "relationships": [
+        {
+          "kind": "related_to",
+          "targetId": "PROP-dag-migrate-relevant-first-source-inventory"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "scripts/migrate-brainstorm-to-project-model.mjs"
+      ],
+      "state": "proposed",
+      "title": "Known legacy state uses a deterministic fast path",
+      "updatedAt": "2026-08-19T02:18:59.934Z"
     }
   ],
   "schemaVersion": 1,
@@ -24994,6 +25452,34 @@
       "state": "resolved",
       "title": "Scannable structure versus performative template compliance",
       "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
+      "body": "The project model's accepted architecture forbids continued dual semantic authority after cutover, while existing repositories may need to retain a `spec/` directory or particular documents. File coexistence is compatible only when retained artifacts have an explicit non-authoritative role; a document that must remain governing requires either a scoped-authority design change or a blocked/deferred cutover.",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "TEN-dag-migrate-single-authority-vs-retained-specs",
+      "introducedBy": "agent",
+      "poleObjectIds": [
+        "DEC-audited-candidate-atomic-cutover",
+        "PROP-dag-migrate-scoped-external-authority"
+      ],
+      "relationships": [
+        {
+          "kind": "related_to",
+          "targetId": "INT-dag-migrate-existing-repository"
+        }
+      ],
+      "resolutionObjectIds": [
+        "DEC-dag-migrate-preserve-files-single-authority"
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "project-model/model.json"
+      ],
+      "state": "resolved",
+      "title": "Single semantic authority versus retained specification artifacts",
+      "updatedAt": "2026-08-19T02:17:55.020Z"
     }
   ],
   "workstreams": [

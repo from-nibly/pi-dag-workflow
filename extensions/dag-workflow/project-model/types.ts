@@ -174,6 +174,35 @@ export interface SpecProjectionView {
   manualLinks?: Array<{ path: string; title: string; summary?: string }>;
 }
 
+export type MigrationSourceDisposition = "unreviewed" | "mapped" | "retained" | "omitted";
+export type MigrationArtifactDisposition = "unresolved" | "create_generated" | "replace_generated" | "retain_reference" | "retain_evidence" | "block";
+
+export interface MigrationSourceRecord {
+  path: string;
+  kind: string;
+  disposition: MigrationSourceDisposition;
+  observedHash: string;
+  reason?: string;
+}
+
+export interface MigrationArtifactRecord {
+  path: string;
+  disposition: MigrationArtifactDisposition;
+  observedHash: string | null;
+  generatedHash?: string;
+  reason?: string;
+}
+
+export interface MigrationMetadata {
+  schemaVersion: 1;
+  focusId: string;
+  phase: "inventory" | "draft" | "ready";
+  sources: MigrationSourceRecord[];
+  artifacts: MigrationArtifactRecord[];
+  blockers: string[];
+  updatedAt: string;
+}
+
 export interface ProjectMetadata {
   id: string;
   title: string;
@@ -182,6 +211,7 @@ export interface ProjectMetadata {
   createdAt: string;
   updatedAt: string;
   currentUnderstanding?: CurrentUnderstanding;
+  migration?: MigrationMetadata;
   projections: { specs: SpecProjectionView[] };
 }
 

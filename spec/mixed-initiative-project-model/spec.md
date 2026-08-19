@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-mixed-initiative; contract: 1; input: sha256:74d6bf5ab3178b917567f30abf076eba5f85099d13486fe82fb45c11f60d8291 -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-mixed-initiative; contract: 1; input: sha256:ea0a16f46d8a8a06d36dd4caf9ca0844d78b11ca821f9cfbadb6a20317a16e93 -->
 
 # Mixed-initiative project model
 
@@ -23,6 +23,12 @@ Humans own outcomes, priorities, values, non-goals, and acceptance or replacemen
 ### Dogfood model brainstorming before redesigning execution
 
 Switch and evaluate the complete brainstorming slice first, with model-unaware planning and execution disabled until field experience informs their model-aware replacements.
+
+<a id="obj-int-dag-migrate-existing-repository"></a>
+
+### Add /dag migrate for existing repositories
+
+Provide a guided `/dag migrate` workflow that converts an existing repository into a project-model candidate, exposes what was inferred, and requires explicit user approval before authority changes.
 
 ## Candidate concepts
 
@@ -375,6 +381,22 @@ Package a tested `lavish-axi` version as an optional runtime dependency and isol
 Render a versioned `ModelReviewTurnProjection` containing project/focus identity, revision/hash, Current understanding, selected delta/frontier summaries, exact active review content, and optional agent-authored presentation blocks. Generate one self-contained package-owned HTML shell at `.ai/model-sessions/<focus-id>/lavish/<review-id>.html`; preserve it while unresolved, resume interrupted polls, honor user-ended sessions, and end/remove it after resolution. Bundle responsive accessible CSS and standard review controls, permit trusted rich presentation blocks, and return capped prompts plus severe layout/session metadata while omitting DOM snapshots by default. Rely on Lavish's window-level Send to Agent control instead of duplicating a send action at the top of the page. Make option cards self-contained with all prose needed for an informed choice and do not expose serialized authority-payload expanders. Support any number of awareness and decision points in one turn, with independently queued sparse outcomes. Always include an explicit Other radio option so the human can move away from suggested choices. Keep a separate response text box available regardless of which radio option is selected, so the human can add context or modification to a suggested option as well as describe Other direction. Proceed with direct production implementation rather than creating a planning DAG for this bounded slice.
 
 **Rationale.** The renderer's product frontier and vertical prototype are complete; the remaining work is bounded production integration and end-to-end dogfood, which does not justify a separate planning DAG.
+
+<a id="obj-dec-dag-migrate-staged-candidate-review-cutover"></a>
+
+### Stage migration candidate, reuse the model loop, audit in Lavish, and cut over exactly
+
+`/dag migrate` first inventories enough repository metadata to bootstrap an empty non-authoritative candidate model and dedicated migration focus, then activates the existing project-model tool loop under migration-specific guidance. The agent uses relevant-first repository evidence and supported deterministic legacy adapters to create or refresh source-traceable model objects, mappings, omissions, warnings, proposed projections, generated-spec previews, and per-artifact dispositions without overwriting existing artifacts. Lavish may present an incomplete candidate, but cutover is offered only when explicit semantic and artifact readiness gates pass. Cutover remains a separate explicit operation bound to the exact reviewed candidate and artifact manifest; an existing authoritative model fails closed.
+
+**Rationale.** Reusing the existing validated mutation, review, and authority path avoids a duplicate migration subsystem while adding only the bootstrap, inference guidance, readiness metadata, and artifact-manifest binding required by the feature.
+
+<a id="obj-dec-dag-migrate-preserve-files-single-authority"></a>
+
+### Preserve required artifacts without preserving dual authority
+
+`/dag migrate` assigns every relevant existing artifact an explicit disposition. Cutover replaces only exact generated-projection collisions approved in the reviewed manifest; all other required files and directories may remain in place as linked manual references or evidence. If a retained artifact must still govern project semantics, cutover remains blocked until the authority conflict is resolved.
+
+**Rationale.** Physical coexistence satisfies repository retention needs while preserving one explicit semantic authority after cutover.
 
 ## Candidate representative scenarios
 

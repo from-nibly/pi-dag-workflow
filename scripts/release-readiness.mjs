@@ -28,6 +28,7 @@ const packed = JSON.parse((await run("npm", ["pack", "--dry-run", "--json"], { c
 if (packed.version !== packageJson.version) throw new Error("npm pack version does not match package.json");
 for (const path of [
   "extensions/dag-workflow/planning/integration.ts",
+  "extensions/dag-workflow/project-model/migration-workflow.ts",
   "extensions/dag-workflow/planning/runtime-adapter.ts",
   "extensions/dag-workflow/command-prompts/plan.md",
   "project-model/model.json",

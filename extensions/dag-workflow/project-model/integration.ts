@@ -5,6 +5,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { ProjectModelDomain, type DirectionInput, type ModelUpdateInput, type ReviewOutcomeInput, type ReviewPointInput } from "./domain.ts";
 import type { LavishFeedback } from "./lavish-cli.ts";
+import { bootstrapProjectMigration } from "./migration-workflow.ts";
 import { sha256 } from "./model.ts";
 import { ReviewPresentationManager, type PresentationUpdate } from "./review-presentation.ts";
 import { normalizeFocusId } from "./sessions.ts";
@@ -56,7 +57,7 @@ interface LinkEntry { repositoryRoot: string; focusSessionId: string; mode: "act
 type CommandContext = any;
 
 export function registerProjectModelIntegration(pi: ExtensionAPI) {
-  let activeFocus: { id: string; repositoryRoot: string } | undefined;
+  let activeFocus: { id: string; repositoryRoot: string; mode: "brainstorm" | "migration" } | undefined;
   let modeActive = false;
   let currentInteractionRef: string | undefined;
   const domainByRoot = new Map<string, ProjectModelDomain>();
@@ -79,8 +80,8 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
     activeFocus = undefined;
     pi.setActiveTools(pi.getActiveTools().filter((name) => !MODEL_TOOL_NAMES.includes(name as any)));
   };
-  const activate = (cwd: string, focusId: string) => {
-    activeFocus = { id: focusId, repositoryRoot: resolve(cwd) };
+  const activate = (cwd: string, focusId: string, mode: "brainstorm" | "migration" = "brainstorm") => {
+    activeFocus = { id: focusId, repositoryRoot: resolve(cwd), mode };
     modeActive = true;
     pi.setActiveTools([...new Set([...pi.getActiveTools(), ...MODEL_TOOL_NAMES])]);
   };
@@ -99,7 +100,7 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
     name: "dag_model_context",
     label: "Model Context",
     description: "Read a narrow project-model or active-focus projection without mutating it.",
-    parameters: Type.Object({ view: Type.Optional(StringEnum(["orientation", "entities", "frontier", "delta", "review", "governing"] as const)), ids: Type.Optional(Type.Array(Type.String())) }),
+    parameters: Type.Object({ view: Type.Optional(StringEnum(["orientation", "migration", "entities", "frontier", "delta", "review", "governing"] as const)), ids: Type.Optional(Type.Array(Type.String())) }),
     execute: async (params: any, ctx: any) => asToolResult(await domain(ctx.cwd).context(requireFocus(ctx), params), "context"),
   });
 
@@ -113,6 +114,7 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
       removeIds: Type.Optional(Type.Array(Type.String())),
       currentUnderstanding: Type.Optional(UNDERSTANDING_SCHEMA),
       specViews: Type.Optional(Type.Array(VALUE_SCHEMA)),
+      migration: Type.Optional(VALUE_SCHEMA),
       focus: Type.Optional(Type.Object({ workstreamIds: Type.Array(Type.String()) })),
     }),
     execute: async (params: any, ctx: any) => modelQueue(ctx, async () => asToolResult(await domain(ctx.cwd).update(requireFocus(ctx), params as ModelUpdateInput), "update")),
@@ -125,7 +127,11 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
     parameters: Type.Object({ directions: Type.Optional(Type.Array(DIRECTION_SCHEMA, { minItems: 1 })), currentUnderstanding: Type.Optional(UNDERSTANDING_SCHEMA), specViews: Type.Optional(Type.Array(VALUE_SCHEMA)), cutover: Type.Optional(Type.Object({ candidateManifestHash: Type.String() })) }),
     execute: async (params: any, ctx: any) => modelQueue(ctx, async () => {
       if (!currentInteractionRef) throw new Error("No eligible current user interaction for direct direction");
-      return asToolResult(await domain(ctx.cwd).recordDirection(requireFocus(ctx), params, currentInteractionRef), "record_direction");
+      const focusId = requireFocus(ctx);
+      const activeReviewId = params.cutover ? (await domain(ctx.cwd).sessions.load(focusId)).activeReview?.id : undefined;
+      const result = await domain(ctx.cwd).recordDirection(focusId, params, currentInteractionRef);
+      if (params.cutover && activeReviewId) await presenter(ctx.cwd).cleanup(focusId, activeReviewId).catch(() => undefined);
+      return asToolResult(result, "record_direction");
     }),
   });
 
@@ -188,7 +194,7 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
     parameters: Type.Object({
       reviewId: Type.Optional(Type.String()),
       outcomes: Type.Optional(Type.Array(Type.Object({ pointId: Type.String(), action: StringEnum(["accept", "reject", "modify", "defer", "unresolved"] as const), optionId: Type.Optional(Type.String()), direction: Type.Optional(DIRECTION_SCHEMA) }))),
-      update: Type.Optional(Type.Object({ add: Type.Optional(Type.Array(ADD_SCHEMA)), patch: Type.Optional(Type.Array(PATCH_SCHEMA)), removeIds: Type.Optional(Type.Array(Type.String())), currentUnderstanding: Type.Optional(UNDERSTANDING_SCHEMA), specViews: Type.Optional(Type.Array(VALUE_SCHEMA)) })),
+      update: Type.Optional(Type.Object({ add: Type.Optional(Type.Array(ADD_SCHEMA)), patch: Type.Optional(Type.Array(PATCH_SCHEMA)), removeIds: Type.Optional(Type.Array(Type.String())), currentUnderstanding: Type.Optional(UNDERSTANDING_SCHEMA), specViews: Type.Optional(Type.Array(VALUE_SCHEMA)), migration: Type.Optional(VALUE_SCHEMA) })),
       currentUnderstanding: Type.Optional(UNDERSTANDING_SCHEMA),
     }),
     execute: async (params: any, ctx: any) => modelQueue(ctx, async () => {
@@ -225,7 +231,8 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
       await projectDomain.reconcileSatisfiedReview(link.focusSessionId);
       const focus = await projectDomain.sessions.load(link.focusSessionId);
       if (focus.status !== "active") return;
-      activate(ctx.cwd, link.focusSessionId);
+      const model = await projectDomain.models.load();
+      activate(ctx.cwd, link.focusSessionId, model.project.migration?.focusId === focus.id && model.project.mode === "candidate" ? "migration" : "brainstorm");
     } catch {
       ctx.ui.notify(`Model focus ${link.focusSessionId} could not be restored; run /dag brainstorm resume.`, "warning");
     }
@@ -233,8 +240,9 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
 
   pi.on("before_agent_start", (event: any, ctx: any) => {
     if (!modeActive || !activeFocus || activeFocus.repositoryRoot !== resolve(ctx.cwd)) return;
+    const guidance = activeFocus.mode === "migration" ? MIGRATION_MODE_GUIDANCE : MODEL_MODE_GUIDANCE;
     return {
-      systemPrompt: `${event.systemPrompt}\n\n${MODEL_MODE_GUIDANCE}\nActive focus session: ${activeFocus.id}`,
+      systemPrompt: `${event.systemPrompt}\n\n${guidance}\nActive focus session: ${activeFocus.id}`,
     };
   });
 
@@ -255,6 +263,24 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
     suspend: (ctx: CommandContext) => {
       if (activeFocus && activeFocus.repositoryRoot === resolve(ctx.cwd)) appendLink(ctx.cwd, activeFocus.id, "suspended");
       deactivate();
+    },
+    handleMigrateCommand: async (args: string, ctx: CommandContext) => {
+      if (args.trim()) {
+        ctx.ui.notify("Usage: /dag migrate", "error");
+        return true;
+      }
+      currentInteractionRef = undefined;
+      if (activeFocus && activeFocus.repositoryRoot === resolve(ctx.cwd)) appendLink(ctx.cwd, activeFocus.id, "suspended");
+      deactivate();
+      const result = await bootstrapProjectMigration(ctx.cwd);
+      activate(ctx.cwd, result.focusId, "migration");
+      appendLink(ctx.cwd, result.focusId, "active");
+      pi.sendMessage({
+        customType: KICKOFF_MESSAGE,
+        content: `Enter project-model migration mode for ${result.focusId}. Candidate ${result.created ? "created" : "resumed"}; legacy adapter ${result.usedLegacyAdapter ? "used" : "not used"}; inventoried ${result.sourceCount} sources and ${result.artifactCount} existing spec artifacts. Candidate manifest: ${result.candidateManifestHash}. Inspect the migration metadata and repository, build the semantic candidate, then present the required Lavish audit and exact cutover/coexistence choice.`,
+        display: true,
+      }, { triggerTurn: true, deliverAs: "followUp" });
+      return true;
     },
     handleBrainstormCommand: async (args: string, ctx: CommandContext) => {
       // The command title/seed is routing input, not semantic authority.
@@ -413,3 +439,13 @@ const MODEL_MODE_GUIDANCE = `You are in mixed-initiative model brainstorming mod
 - Demonstrate comprehension through selective causal synthesis rather than reproducing the project model or filling an exhaustive template. Do not require a distinct formal acknowledgement surface.
 - Resolve sparse responses independently through dag_model_resolve_review; stale, omitted, ambiguous, or conflicting points remain open. After a frontier review resolves, automatically explore and present the next supported material frontier until none remains, the user redirects, or unresolved user input blocks progress; never invent questions to claim exhaustion.
 - New prototypes require explicit user request. Planning, chunking, DAG execution, and archive are unavailable in model mode; use the optional presentation adapter for Lavish review when requested.`;
+
+const MIGRATION_MODE_GUIDANCE = `You are in guided project-model migration mode for an existing repository.
+- Start with dag_model_context orientation. Inspect relevant repository evidence in tiers: supported legacy state; repository/package orientation; README, specs, docs, ADRs, and plans; tests or representative code when they confirm or contradict behavior; bounded Git history only for material ambiguity.
+- Build a coherent non-authoritative candidate with dag_model_update. Agents classify meaning; tools own IDs, hashes, validation, and persistence. Never copy every file or mistake implementation detail for governing product direction.
+- Keep project.migration current through dag_model_update migration. Classify every inventoried source as mapped, retained, or omitted with rationale. Classify every relevant artifact as create_generated, replace_generated, retain_reference, retain_evidence, or block. The tool records exact observed and generated hashes.
+- A partial candidate may be presented, but set migration phase ready only when the model and projections are coherent, every material source and artifact is dispositioned, authority conflicts are resolved, and blockers are empty. Never report a synthetic completeness percentage.
+- Before cutover, create one review with an awareness summary and a decision asking whether to cut over or continue refining/coexisting. Its options may omit semantic direction payloads because cutover is an isolated authority operation. Present it with dag_model_present_review and rich blocks that show inferred goals/direction, workstreams and counts, unresolved questions, source mappings/omissions, generated-spec diffs, blockers, and an artifact-disposition table.
+- Treat Lavish feedback as the exact human interaction. If the user chooses cutover, call dag_model_record_direction with only cutover.candidateManifestHash from the current candidate. If the user asks for side-by-side artifacts or changes, resolve that directionless migration option with dag_model_resolve_review, update dispositions/model meaning, and present a refreshed review instead. Never cut over while migration readiness or file freshness fails.
+- Physical coexistence is allowed; dual semantic authority is not. Retained specs remain linked references or evidence. If an existing artifact must remain governing, keep a blocker and do not cut over.
+- Planning and DAG execution remain unavailable until migration cutover completes.`;

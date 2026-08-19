@@ -59,7 +59,7 @@ export async function migrateLegacyBrainstorm(root: string, legacy: LegacyState)
   const overrides = await loadMigrationOverrides(root);
   const model = createEmptyModel(legacy.id || "project", legacy.title || "Project", "candidate");
   model.project.id = slugify(resolve(root).split("/").pop() || legacy.id || "project");
-  model.project.title = "Pi DAG Workflow";
+  model.project.title = legacy.title || resolve(root).split("/").pop() || "Project";
   const mappings: MigrationMapping[] = [];
   const warnings: string[] = [];
   const legacyToNew = new Map<string, string>();

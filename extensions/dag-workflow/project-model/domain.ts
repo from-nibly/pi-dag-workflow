@@ -16,6 +16,7 @@ import {
   sha256,
   specEligibleObjectIds,
 } from "./model.ts";
+import { assertFreshMigrationReadiness, materializeMigrationMetadata, migrationReadinessErrors, type MigrationMetadataInput } from "./migration-workflow.ts";
 import { SpecProjector } from "./projector.ts";
 import { reviewSemanticHash, type ModelReviewTurnProjection, type PresentationBlock } from "./review-turn.ts";
 import { FocusSessionStore } from "./sessions.ts";
@@ -75,6 +76,7 @@ export interface ModelUpdateInput {
   removeIds?: string[];
   currentUnderstanding?: { body: string; sourceObjectIds: string[] };
   specViews?: SpecProjectionView[];
+  migration?: MigrationMetadataInput;
   focus?: { workstreamIds: string[] };
 }
 
@@ -123,7 +125,13 @@ export class ProjectModelDomain {
       currentUnderstanding: model.project.currentUnderstanding ?? null,
       counts: scopedCounts(model, focus),
       activeReview: focus.activeReview ? summarizeReview(focus.activeReview) : null,
+      ...(model.project.migration ? { migration: { phase: model.project.migration.phase, sourceCount: model.project.migration.sources.length, artifactCount: model.project.migration.artifacts.length, blockers: model.project.migration.blockers, readinessErrors: migrationReadinessErrors(model) } } : {}),
     };
+    if (view === "migration") return model.project.migration ? {
+      metadata: model.project.migration,
+      readinessErrors: migrationReadinessErrors(model),
+      candidateManifestHash: candidateManifestHash(model),
+    } : null;
     if (view === "entities") {
       if (!(input.ids?.length)) throw new Error("entities context requires ids");
       return input.ids.map((id) => {
@@ -195,9 +203,15 @@ export class ProjectModelDomain {
       for (const id of ids) if (!model.workstreams.some((workstream) => workstream.id === id)) throw new Error(`Unknown focus workstream: ${id}`);
       focus = await this.sessions.mutate(focusId, (session) => { session.workstreamIds = ids; });
     }
-    const hasSemanticInput = Boolean(input.add?.length || input.patch?.length || input.removeIds?.length || input.currentUnderstanding || input.specViews);
+    const hasSemanticInput = Boolean(input.add?.length || input.patch?.length || input.removeIds?.length || input.currentUnderstanding || input.specViews || input.migration);
     if (!hasSemanticInput) return { action: "update", focusId, focus: summarizeFocus(focus), changedIds: [], generatedPaths: [], staleGeneratedPaths: [] };
-    const result = await this.transact(async (draft, changed) => { applyUpdate(draft, focus, input, changed); });
+    const result = await this.transact(async (draft, changed) => {
+      applyUpdate(draft, focus, input, changed);
+      if (input.migration) {
+        draft.project.migration = await materializeMigrationMetadata(this.root, draft, input.migration);
+        changed.add("project.migration");
+      }
+    });
     return receipt("update", result, { focusId, focus: summarizeFocus(focus) });
   }
 
@@ -260,6 +274,7 @@ export class ProjectModelDomain {
       if (draft.project.mode !== "candidate") throw new Error("Project model is already authoritative");
       const actual = candidateManifestHash(draft);
       if (actual !== acceptedCandidateHash) throw new Error(`Candidate manifest is stale: expected ${actual}`);
+      if (draft.project.migration) await assertFreshMigrationReadiness(this.root, draft);
       for (const { collection, object } of allObjects(draft)) {
         const acceptedState = ACCEPTED_STATE[collection];
         if (acceptedState && ["proposed", "not_reviewed", "candidate"].includes(object.state)) (object as ModelObjectBase).state = acceptedState;
@@ -280,7 +295,13 @@ export class ProjectModelDomain {
       }
       draft.project.mode = "authoritative";
       changed.add("project.mode");
-    }, undefined, { replaceUnmanagedSpecs: true });
+    }, async () => {
+      if (!focus.activeReview) return;
+      const session = await this.sessions.load(focus.id);
+      if (!session.activeReview || session.activeReview.id !== focus.activeReview.id) return;
+      delete session.activeReview;
+      await this.sessions.write(session);
+    }, { replaceUnmanagedSpecs: true });
     return receipt("migration_cutover", result, { focusId: focus.id, receiptMode: "migration_cutover", acceptedCandidateHash, batchRef });
   }
 
@@ -383,9 +404,13 @@ export class ProjectModelDomain {
           if (!outcome.optionId) throw new Error(`${point.id} acceptance requires optionId`);
           const option = point.options.find(({ id }) => id === outcome.optionId);
           if (!option) throw new Error(`${point.id} references unknown option ${outcome.optionId}`);
-          if (!option.direction) throw new Error(`${point.id}/${option.id} has no reviewed authority payload`);
-          if (outcome.direction && canonicalStringify(outcome.direction) !== canonicalStringify(option.direction)) throw new Error(`${point.id} outcome direction differs from the reviewed option`);
-          applyDirection(draft, focus, option.direction, "accepted_existing", interactionRef, batchRef, changed);
+          if (!option.direction) {
+            if (draft.project.mode !== "candidate" || !draft.project.migration) throw new Error(`${point.id}/${option.id} has no reviewed authority payload`);
+            if (outcome.direction) throw new Error(`${point.id} non-authoritative migration outcome cannot carry a direction`);
+          } else {
+            if (outcome.direction && canonicalStringify(outcome.direction) !== canonicalStringify(option.direction)) throw new Error(`${point.id} outcome direction differs from the reviewed option`);
+            applyDirection(draft, focus, option.direction, "accepted_existing", interactionRef, batchRef, changed);
+          }
         } else if (outcome.action === "modify") {
           if (!outcome.direction) throw new Error(`${point.id} modification requires the user's exact authoritative direction`);
           applyDirection(draft, focus, outcome.direction, "accepted_existing", interactionRef, batchRef, changed);
@@ -397,7 +422,13 @@ export class ProjectModelDomain {
         } else if (outcome.direction) throw new Error(`${point.id} unresolved outcome cannot carry an authoritative direction`);
         appliedPointIds.push(point.id);
       }
-      if (input.update) applyUpdate(draft, focus, input.update, changed);
+      if (input.update) {
+        applyUpdate(draft, focus, input.update, changed);
+        if (input.update.migration) {
+          draft.project.migration = await materializeMigrationMetadata(this.root, draft, input.update.migration);
+          changed.add("project.migration");
+        }
+      }
       if (input.currentUnderstanding) setCurrentUnderstanding(draft, input.currentUnderstanding, changed);
       unresolvedPointIds = review.points.filter((point) => point.purpose === "decision" && !appliedPointIds.includes(point.id)).map(({ id }) => id);
       if (unresolvedPointIds.length) {

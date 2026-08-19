@@ -244,11 +244,16 @@ export default function dagWorkflow(pi: ExtensionAPI) {
   workerManager.onTerminalResult(() => conductor.wakeActive().catch((error) => console.error(`DAG worker-completion wake failed: ${error.message}`)));
 
   pi.registerCommand("dag", {
-    description: "Model brainstorming, planning, exact inspection, and session-bound DAG execution",
+    description: "Project-model migration, brainstorming, planning, exact inspection, and session-bound DAG execution",
     handler: async (args: string, ctx: CommandContext) => {
       const { command, rest, options } = parseArgs(args);
       if (command === "brainstorm") {
         await modelIntegration.handleBrainstormCommand(rest, ctx);
+        return;
+      }
+      if (command === "migrate") {
+        if (Object.keys(options).length) { ctx.ui.notify("Usage: /dag migrate", "error"); return; }
+        await modelIntegration.handleMigrateCommand(rest, ctx);
         return;
       }
       if (await planningIntegration.handleCommand(command, { rest, options }, ctx)) return;
@@ -298,7 +303,7 @@ export default function dagWorkflow(pi: ExtensionAPI) {
         ctx.ui.notify(`[legacy read-only]\n${(await readLogTail(path, 40)).slice(-4000) || "No log output"}`, "info");
         return;
       }
-      ctx.ui.notify("Usage: /dag brainstorm [new|resume|list|stop] | plan | show | run | validate | status | workers | inspect | tail", "info");
+      ctx.ui.notify("Usage: /dag migrate | brainstorm [new|resume|list|stop] | plan | show | run | validate | status | workers | inspect | tail", "info");
     },
   });
 

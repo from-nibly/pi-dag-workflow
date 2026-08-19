@@ -186,9 +186,12 @@ export function modelHash(model: ProjectModel): string {
 
 export function candidateManifestHash(model: ProjectModel): string {
   const normalized = normalizeModel(model);
+  const migration = normalized.project.migration
+    ? canonicalize({ ...normalized.project.migration, updatedAt: undefined })
+    : undefined;
   return sha256({
     schemaVersion: normalized.schemaVersion,
-    project: { id: normalized.project.id, title: normalized.project.title, projections: normalized.project.projections },
+    project: { id: normalized.project.id, title: normalized.project.title, projections: normalized.project.projections, migration },
     objects: allObjects(normalized).map(({ collection, object }) => ({ id: object.id, semanticHash: semanticHash(collection, object) })),
   });
 }
@@ -235,6 +238,11 @@ export function normalizeModel(input: ProjectModel): ProjectModel {
     values.sort((a, b) => a.id.localeCompare(b.id));
   }
   model.project.projections.specs.sort((a, b) => a.path.localeCompare(b.path) || a.id.localeCompare(b.id));
+  if (model.project.migration) {
+    if (Array.isArray(model.project.migration.sources)) model.project.migration.sources.sort((a, b) => String(a?.path).localeCompare(String(b?.path)));
+    if (Array.isArray(model.project.migration.artifacts)) model.project.migration.artifacts.sort((a, b) => String(a?.path).localeCompare(String(b?.path)));
+    if (Array.isArray(model.project.migration.blockers)) model.project.migration.blockers = [...new Set(model.project.migration.blockers)].sort();
+  }
   return canonicalize(model);
 }
 
@@ -273,6 +281,7 @@ export function validateProjectModel(model: ProjectModel): string[] {
   if (!Number.isInteger(model.project?.revision) || model.project.revision < 0) errors.push("project.revision must be a non-negative integer");
   if (!new Set(["candidate", "authoritative"]).has(model.project?.mode)) errors.push("project.mode is invalid");
   if (!Array.isArray(model.project?.projections?.specs)) errors.push("project.projections.specs must be an array");
+  validateMigrationMetadata(model.project?.migration, errors);
 
   const seenIds = new Set<string>();
   const objectById = new Map<string, { collection: ModelCollectionName; object: ModelObject }>();
@@ -475,6 +484,43 @@ function validateCurrentUnderstanding(model: ProjectModel, objectById: Map<strin
     }
   }
 }
+
+function validateMigrationMetadata(migration: ProjectModel["project"]["migration"], errors: string[]) {
+  if (migration === undefined) return;
+  if (migration?.schemaVersion !== 1) errors.push("project.migration.schemaVersion must be 1");
+  if (typeof migration?.focusId !== "string" || !migration.focusId.startsWith("focus-")) errors.push("project.migration.focusId must start with focus-");
+  if (!new Set(["inventory", "draft", "ready"]).has(migration?.phase)) errors.push("project.migration.phase is invalid");
+  if (!validIso(migration?.updatedAt)) errors.push("project.migration.updatedAt must be an ISO date");
+  if (!Array.isArray(migration?.sources)) errors.push("project.migration.sources must be an array");
+  if (!Array.isArray(migration?.artifacts)) errors.push("project.migration.artifacts must be an array");
+  if (!Array.isArray(migration?.blockers) || !migration.blockers.every((value) => typeof value === "string" && value.trim())) errors.push("project.migration.blockers must contain non-empty strings");
+  const sourcePaths = new Set<string>();
+  for (const [index, source] of (migration?.sources ?? []).entries()) {
+    const label = `project.migration.sources[${index}]`;
+    validateMigrationPath(source?.path, `${label}.path`, sourcePaths, errors);
+    if (typeof source?.kind !== "string" || !source.kind.trim()) errors.push(`${label}.kind is required`);
+    if (!new Set(["unreviewed", "mapped", "retained", "omitted"]).has(source?.disposition)) errors.push(`${label}.disposition is invalid`);
+    if (!validSha256(source?.observedHash)) errors.push(`${label}.observedHash is invalid`);
+  }
+  const artifactPaths = new Set<string>();
+  for (const [index, artifact] of (migration?.artifacts ?? []).entries()) {
+    const label = `project.migration.artifacts[${index}]`;
+    validateMigrationPath(artifact?.path, `${label}.path`, artifactPaths, errors);
+    if (!new Set(["unresolved", "create_generated", "replace_generated", "retain_reference", "retain_evidence", "block"]).has(artifact?.disposition)) errors.push(`${label}.disposition is invalid`);
+    if (artifact?.observedHash !== null && !validSha256(artifact?.observedHash)) errors.push(`${label}.observedHash is invalid`);
+    if (artifact?.generatedHash !== undefined && !validSha256(artifact.generatedHash)) errors.push(`${label}.generatedHash is invalid`);
+  }
+}
+
+function validateMigrationPath(value: unknown, label: string, seen: Set<string>, errors: string[]) {
+  if (typeof value !== "string") { errors.push(`${label} is unsafe`); return; }
+  const normalized = posix.normalize(value.replaceAll("\\", "/").replace(/^\.\//, ""));
+  if (!normalized || normalized === "." || normalized !== value || normalized.startsWith("../") || normalized.startsWith("/")) errors.push(`${label} is unsafe`);
+  if (seen.has(normalized)) errors.push(`${label} is duplicated`);
+  seen.add(normalized);
+}
+
+function validSha256(value: unknown): value is string { return typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value); }
 
 function validSpecPath(path: string, allowPrototypeContent = false): boolean {
   if (typeof path !== "string" || !path.startsWith("spec/") || !path.endsWith(".md")) return false;

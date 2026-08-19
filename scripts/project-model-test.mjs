@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import dagWorkflow from "../extensions/dag-workflow/index.ts";
 import { ProjectModelDomain } from "../extensions/dag-workflow/project-model/domain.ts";
 import { migrateLegacyBrainstorm } from "../extensions/dag-workflow/project-model/migration.ts";
+import { bootstrapProjectMigration, migrationReadinessErrors } from "../extensions/dag-workflow/project-model/migration-workflow.ts";
 import { candidateManifestHash, validateProjectModel } from "../extensions/dag-workflow/project-model/model.ts";
 import { FocusSessionStore, validateFocusSession } from "../extensions/dag-workflow/project-model/sessions.ts";
 import { ProjectModelStore } from "../extensions/dag-workflow/project-model/store.ts";
@@ -441,19 +442,162 @@ async function testProcessSharedPersistence() {
 }
 
 async function testMigration() {
+  const legacy = {
+    id: "legacy", title: "Legacy", neighborhoods: [{ id: "area", title: "Area", status: "active" }],
+    tangents: [], questions: [], evidence: [], proposals: [], probes: [], promotions: [],
+    decisions: [{ id: "D-old", title: "Keep behavior", contract: "Behavior remains.", rationale: "Needed.", status: "active", questionIds: [] }],
+  };
   await withTemp("migration", async (root) => {
     await mkdir(join(root, "spec"), { recursive: true });
     await writeFile(join(root, "spec/spec.md"), "# Legacy\n");
-    const legacy = {
-      id: "legacy", title: "Legacy", neighborhoods: [{ id: "area", title: "Area", status: "active" }],
-      tangents: [], questions: [], evidence: [], proposals: [], probes: [], promotions: [],
-      decisions: [{ id: "D-old", title: "Keep behavior", contract: "Behavior remains.", rationale: "Needed.", status: "active", questionIds: [] }],
-    };
     const migrated = await migrateLegacyBrainstorm(root, legacy);
     assert(migrated.model.project.mode === "candidate", "migration creates candidate mode");
     assert(migrated.model.commitments.length === 1, "legacy behavior maps to candidate commitment");
     assertIncludes(migrated.report, "pending semantic audit", "migration report requires audit");
     assert(validateProjectModel(migrated.model).length === 0, "migration candidate validates");
+  });
+  await withTemp("legacy-fast-path", async (root) => {
+    await mkdir(join(root, ".ai/brainstorm"), { recursive: true });
+    await mkdir(join(root, "spec"), { recursive: true });
+    await writeFile(join(root, ".ai/brainstorm/structured-brainstorming.json"), JSON.stringify(legacy));
+    await writeFile(join(root, "spec/spec.md"), "# Legacy remains untouched\n");
+    const bootstrap = await bootstrapProjectMigration(root);
+    assert(bootstrap.usedLegacyAdapter, "/dag migrate uses the supported deterministic legacy adapter as a fast path");
+    assert((await new ProjectModelStore(root).load()).project.title === "Legacy", "legacy fast path preserves the migrated repository title");
+    assertIncludes(await readFile(join(root, "project-model/migrations/brainstorm-v2-candidate.md"), "utf8"), "Object mapping", "legacy fast path retains its mapping audit");
+    assert(await readFile(join(root, "spec/spec.md"), "utf8") === "# Legacy remains untouched\n", "legacy fast path previews without replacing existing specs");
+  });
+}
+
+async function testGuidedMigrationWorkflow() {
+  await withTemp("guided-migration", async (root) => {
+    await mkdir(join(root, "spec"), { recursive: true });
+    await writeFile(join(root, "package.json"), '{"name":"migration-demo"}\n');
+    await writeFile(join(root, "README.md"), "# Migration Demo\n");
+    await writeFile(join(root, "spec/spec.md"), "# Existing index\n");
+    await writeFile(join(root, "spec/manual.md"), "# Required manual contract\n");
+
+    const initialFiles = new Map([
+      ["spec/spec.md", await readFile(join(root, "spec/spec.md"), "utf8")],
+      ["spec/manual.md", await readFile(join(root, "spec/manual.md"), "utf8")],
+    ]);
+    const bootstrap = await bootstrapProjectMigration(root);
+    assert(bootstrap.created && !bootstrap.usedLegacyAdapter, "guided migration bootstraps a generic candidate");
+    const domain = new ProjectModelDomain(root);
+    const focus = await domain.sessions.load(bootstrap.focusId);
+    let candidate = await domain.models.load();
+    assert(candidate.project.mode === "candidate" && candidate.project.migration?.phase === "inventory", "bootstrap persists candidate migration metadata");
+    assert(candidate.project.migration.sources.some(({ path }) => path === "README.md"), "relevant-first inventory includes repository orientation");
+    assert(candidate.project.migration.artifacts.some(({ path, disposition }) => path === "spec/manual.md" && disposition === "unresolved"), "existing specs begin unresolved");
+    for (const [path, content] of initialFiles) assert(await readFile(join(root, path), "utf8") === content, "bootstrap never overwrites existing specs");
+
+    const resumed = await bootstrapProjectMigration(root);
+    assert(!resumed.created && resumed.focusId === bootstrap.focusId, "repeated /dag migrate resumes the exact candidate focus");
+
+    const sources = candidate.project.migration.sources.map((source) => ({
+      path: source.path,
+      kind: source.kind,
+      disposition: source.path === "spec/manual.md" ? "retained" : "mapped",
+      reason: source.path === "spec/manual.md" ? "Required manual reference." : "Mapped into the candidate.",
+    }));
+    let incompleteRejected = false;
+    try {
+      await domain.update(focus.id, {
+        migration: {
+          phase: "ready",
+          sources,
+          artifacts: candidate.project.migration.artifacts.map(({ path }) => ({ path, disposition: "unresolved" })),
+          blockers: [],
+        },
+      });
+    } catch (error) { incompleteRejected = String(error.message).includes("not cutover-ready"); }
+    assert(incompleteRejected, "ready phase rejects unresolved artifacts and absent semantic projections");
+
+    await domain.update(focus.id, {
+      add: [
+        { collection: "workstreams", key: "product", value: { ...base("Product", "Migrated product behavior."), state: "active" } },
+        { collection: "intents", key: "goal", value: { ...base("Migration goal", "Preserve the product's current supported behavior."), kind: "outcome" } },
+      ],
+      specViews: [
+        { id: "SPEC-root", kind: "index", path: "spec/spec.md", title: "Product specifications", childViewIds: ["SPEC-product"] },
+        { id: "SPEC-product", kind: "spec", path: "spec/generated.md", title: "Product", sections: [{ id: "intent", title: "Intent", objectIds: ["INT-goal"] }] },
+      ],
+      migration: {
+        phase: "ready",
+        sources,
+        artifacts: [
+          { path: "spec/spec.md", disposition: "replace_generated", reason: "Replace the approved index collision." },
+          { path: "spec/generated.md", disposition: "create_generated", reason: "Create the approved generated product view." },
+          { path: "spec/manual.md", disposition: "retain_reference", reason: "Keep the required manual contract side by side." },
+        ],
+        blockers: [],
+      },
+    });
+    candidate = await domain.models.load();
+    assert(candidate.project.migration.phase === "ready" && migrationReadinessErrors(candidate).length === 0, "complete semantic and artifact dispositions make the candidate ready");
+    assert(await readFile(join(root, "spec/spec.md"), "utf8") === initialFiles.get("spec/spec.md"), "ready candidate still does not overwrite an approved collision");
+
+    const freshHash = candidateManifestHash(candidate);
+    await writeFile(join(root, "README.md"), "# Changed after review\n");
+    let sourceDriftRejected = false;
+    try { await domain.cutover(focus.id, freshHash, "user-cutover-drift"); }
+    catch (error) { sourceDriftRejected = String(error.message).includes("source changed after review"); }
+    assert(sourceDriftRejected, "cutover rejects source drift after review");
+    await writeFile(join(root, "README.md"), "# Migration Demo\n");
+
+    await domain.update(focus.id, { add: [{ collection: "discoveries", key: "post-review", value: base("Post-review finding", "This changes the exact candidate manifest.") }] });
+    let staleManifestRejected = false;
+    try { await domain.cutover(focus.id, freshHash, "user-cutover-stale"); }
+    catch (error) { staleManifestRejected = String(error.message).includes("Candidate manifest is stale"); }
+    assert(staleManifestRejected, "cutover rejects a stale candidate-plus-artifact manifest hash");
+
+    const coexistenceReview = await domain.createReview(focus.id, {
+      title: "Migration coexistence",
+      points: [{ key: "coexist", title: "Keep refining", context: "Retain a manual artifact side by side.", purpose: "decision", question: "Continue refining?", options: [{ key: "continue", label: "Continue", description: "Keep the candidate non-authoritative." }] }],
+    });
+    await domain.markReviewPresented(focus.id, coexistenceReview.review.id, coexistenceReview.reviewHash);
+    const coexistence = await domain.resolveReview(focus.id, { outcomes: [{ pointId: "point-coexist", action: "accept", optionId: "option-continue" }] }, "lavish-feedback:continue");
+    assert(!coexistence.unresolvedPointIds.length && !(await domain.sessions.load(focus.id)).activeReview, "directionless migration feedback can close a non-authoritative refinement choice");
+
+    const review = await domain.createReview(focus.id, {
+      title: "Migration cutover",
+      points: [{ key: "cutover", title: "Cut over", context: "Review the candidate and artifact dispositions.", purpose: "decision", question: "Cut over?", options: [{ key: "yes", label: "Cut over", description: "Apply the exact candidate." }] }],
+    });
+    await domain.markReviewPresented(focus.id, review.review.id, review.reviewHash);
+    candidate = await domain.models.load();
+    await domain.cutover(focus.id, candidateManifestHash(candidate), "lavish-feedback:cutover");
+    const authoritative = await domain.models.load();
+    assert(authoritative.project.mode === "authoritative", "fresh ready candidate cuts over atomically");
+    assert(!(await domain.sessions.load(focus.id)).activeReview, "successful migration cutover clears its disposable review");
+    assertIncludes(await readFile(join(root, "spec/spec.md"), "utf8"), "generated-by: pi-dag-workflow/project-model", "cutover replaces only the approved projection collision");
+    assertIncludes(await readFile(join(root, "spec/generated.md"), "utf8"), "Preserve the product", "cutover creates approved generated projections");
+    assert(await readFile(join(root, "spec/manual.md"), "utf8") === initialFiles.get("spec/manual.md"), "cutover preserves required side-by-side specs byte-for-byte");
+    let authoritativeRejected = false;
+    try { await bootstrapProjectMigration(root); }
+    catch (error) { authoritativeRejected = String(error.message).includes("already has an authoritative"); }
+    assert(authoritativeRejected, "/dag migrate fails closed for an authoritative model");
+  });
+}
+
+async function testPiMigrationCommand() {
+  await withTemp("pi-migration", async (root) => {
+    await writeFile(join(root, "package.json"), '{"name":"pi-migration"}\n');
+    await writeFile(join(root, "README.md"), "# Pi Migration\n");
+    const pi = new FakePi();
+    const workerRoleEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith("PI_DAG_WORKER_")));
+    for (const key of Object.keys(workerRoleEnvironment)) delete process.env[key];
+    try { dagWorkflow(pi); }
+    finally { for (const [key, value] of Object.entries(workerRoleEnvironment)) process.env[key] = value; }
+    pi.loading = false;
+    const ctx = pi.context(root);
+    await pi.runCommand("dag", "migrate", ctx);
+    assert(pi.activeTools.has("dag_model_context"), "/dag migrate activates the existing model tools");
+    const model = await new ProjectModelStore(root).load();
+    assert(model.project.mode === "candidate" && model.project.migration?.focusId === "focus-project-model-migration", "/dag migrate creates the candidate and dedicated focus");
+    assertIncludes(pi.messages.at(-1).content, "present the required Lavish audit", "/dag migrate kicks off semantic audit and presentation work");
+    const [promptUpdate] = (await pi.emit("before_agent_start", { systemPrompt: "Base prompt" }, ctx)).filter(Boolean);
+    assertIncludes(promptUpdate.systemPrompt, "guided project-model migration mode", "migration mode receives dedicated inference guidance");
+    assertIncludes(promptUpdate.systemPrompt, "Physical coexistence is allowed; dual semantic authority is not", "migration guidance preserves the accepted coexistence boundary");
   });
 }
 
@@ -580,5 +724,7 @@ function assert(value, message) { if (!value) throw new Error(`Project model tes
 await testDomainAndProjection();
 await testProcessSharedPersistence();
 await testMigration();
+await testGuidedMigrationWorkflow();
+await testPiMigrationCommand();
 await testPiIntegration();
 console.log("Project model production tests OK");

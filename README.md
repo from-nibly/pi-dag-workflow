@@ -30,6 +30,18 @@ Tracked Markdown under `spec/` is a deterministic readable projection of accepte
 pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.1.6
 ```
 
+## Project-model migration
+
+```text
+/dag migrate                            # create or resume a reviewed candidate migration
+```
+
+Run `/dag migrate` in a repository that does not yet have an authoritative project model. The command inventories relevant repository orientation, specifications, decision records, and plans; uses a supported legacy snapshot as a deterministic fast path when available; creates `project-model/model.json` in candidate mode; and activates a dedicated migration focus over the existing model tools.
+
+Migration never overwrites existing specifications while building the candidate. The agent records source mappings and omissions, generated projection previews, blockers, and an explicit disposition for every relevant artifact. It then opens a Lavish audit covering inferred project meaning, unresolved questions, source coverage, generated-spec consequences, and the exact cutover/coexistence choice.
+
+Cutover requires a fresh hash binding the candidate and artifact manifest. It replaces only approved generated-projection collisions. Existing spec directories and required documents may remain side by side as linked references or evidence; if a retained document must remain governing semantic authority, cutover stays blocked. Re-running `/dag migrate` resumes the candidate, while an already-authoritative model fails closed.
+
 ## Model brainstorming commands
 
 ```text
@@ -73,8 +85,8 @@ Thin plans live under ignored `.ai/dag-plans-v1/`. Each head has immutable retai
 
 The seven tools register once and are activated only after Pi's extension runtime has initialized and a model brainstorming focus is active:
 
-- `dag_model_context` — read narrow orientation, entity, frontier, delta, review, or governing projections.
-- `dag_model_update` — record non-authoritative findings, relationships, routing metadata, or Current understanding. It cannot grant authority or rewrite accepted semantics.
+- `dag_model_context` — read narrow orientation, migration, entity, frontier, delta, review, or governing projections.
+- `dag_model_update` — record non-authoritative findings, relationships, routing metadata, migration source/artifact dispositions, or Current understanding. It cannot grant authority or rewrite accepted semantics.
 - `dag_model_record_direction` — record unambiguous direct user authority with content-bound receipts.
 - `dag_model_review` — create an exact hash-bound review turn with **For awareness** and **Decisions needed**; its exact visible tool result records successful presentation.
 - `dag_model_present_review` — optionally render and `present`, `resume`, or `end` the active review through Lavish while returning bounded feedback for agent interpretation.
@@ -182,23 +194,9 @@ dag_status
 
 They cannot create or advance execution.
 
-## Candidate migration
+## Legacy migration adapter
 
-The repository includes a one-time importer for the previous structured-brainstorm snapshot:
-
-```nu
-node scripts/migrate-brainstorm-to-project-model.mjs
-```
-
-It writes:
-
-```text
-project-model/model.json                              # candidate mode
-project-model/migrations/brainstorm-v2-candidate.md  # mapping/omission audit
-.ai/model-migration/candidate/spec/**                 # ignored generated preview
-```
-
-The candidate does not become authoritative until its semantic mappings, omissions, generated specs, and exact manifest hash receive explicit human approval. Cutover is an isolated `dag_model_record_direction` operation with `{ "cutover": { "candidateManifestHash": "sha256:…" } }`; it creates `migration_cutover` receipts, changes model mode, and replaces the declared hand-maintained projection targets as one recoverable transaction. The importer refuses to replace an authoritative model, even with `--force`.
+`/dag migrate` automatically recognizes the previous `.ai/brainstorm/structured-brainstorming.json` snapshot and uses its deterministic mapper as a fast path. The repository-only `node scripts/migrate-brainstorm-to-project-model.mjs` command remains available for reproducing that adapter directly. It emits the candidate model, mapping/omission report, and ignored generated preview, but never bypasses the same semantic audit, artifact dispositions, Lavish review, freshness checks, or exact cutover required by the product command.
 
 ## Source-checkout validation
 
@@ -222,4 +220,4 @@ npm run release:ready              # full deterministic matrix plus specs/packag
 node scripts/migrate-brainstorm-to-project-model.mjs --force
 ```
 
-The production tests cover model validation, acceptance boundaries, concurrent model/focus CAS, sparse/stale review resolution, deterministic plan projections and lineage, exact command selection, real-Git source/baseline validation, crash-recoverable prepared start, canonical runtime compilation, whole-run replanning, Pi activation and fork restoration, legacy read-only compatibility, and migration candidate generation.
+The production tests cover model validation, acceptance boundaries, concurrent model/focus CAS, sparse/stale review resolution, deterministic plan projections and lineage, exact command selection, real-Git source/baseline validation, crash-recoverable prepared start, canonical runtime compilation, whole-run replanning, Pi activation and fork restoration, legacy read-only compatibility, generic migration bootstrap/resume, no-overwrite staging, source and manifest freshness, preserved side-by-side specs, approved projection collisions, legacy-adapter dispatch, and authoritative-model refusal.
