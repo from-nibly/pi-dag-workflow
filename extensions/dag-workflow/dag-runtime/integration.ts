@@ -58,17 +58,21 @@ export function registerCanonicalDagRuntime(pi: ExtensionAPI, service = new DagC
       widgetController?.failClosed(message);
     }
   };
+  const hydrateConductor = async (generation: number) => {
+    await advanceConductor(generation);
+    if (generation !== conductorGeneration || conductorTimer) return;
+    conductorTimer = setInterval(() => { void advanceConductor(generation); }, 1000);
+    conductorTimer.unref?.();
+  };
 
   pi.on("session_start", async (_event, ctx: any) => {
     if (conductorTimer) clearInterval(conductorTimer);
+    conductorTimer = null;
     disposeWidget();
     conductorGeneration += 1;
     const generation = conductorGeneration;
     conductorContext = ctx;
-    conductorTimer = setInterval(() => { void advanceConductor(generation); }, 1000);
-    conductorTimer.unref?.();
-    await advanceConductor(generation);
-    if (generation !== conductorGeneration) return;
+    void hydrateConductor(generation);
     if (!ctx.hasUI || (ctx.mode && ctx.mode !== "tui") || typeof ctx.ui?.setWidget !== "function") return;
     widgetContext = ctx;
     let controller!: DagWidgetControllerV2;
@@ -113,8 +117,11 @@ export function registerCanonicalDagRuntime(pi: ExtensionAPI, service = new DagC
         invalidate() {},
       };
     });
-    controller.start();
-    await controller.refresh();
+    void controller.start().catch((error) => {
+      if (widgetController !== controller) return;
+      try { controller.failClosed(`DAG widget hydration failed: ${String((error as Error).message).slice(0, 160)}`); } catch { /* widget callbacks must not block session startup */ }
+    });
+    await new Promise<void>((resolveYield) => setImmediate(resolveYield));
   });
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     const binding = await service.binding(ctx).catch(() => null);

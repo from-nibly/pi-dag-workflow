@@ -40,6 +40,7 @@ export class DagWidgetControllerV2 {
   #drainPromise: Promise<void> | null = null;
   #queuedRefresh: { promise: Promise<void>; resolve: () => void } | null = null;
   #outstandingQueuedRefreshes = new Set<{ promise: Promise<void>; resolve: () => void }>();
+  #startPromise: Promise<void> | null = null;
   #refreshTimer: ReturnType<typeof setInterval> | null = null;
   #projection: DagExecutionProjectionV2 | null = null;
   #diagnostic: string | null = null;
@@ -56,10 +57,15 @@ export class DagWidgetControllerV2 {
     this.#refreshIntervalMs = options.refreshIntervalMs ?? DAG_WIDGET_REFRESH_INTERVAL_MS_V2;
   }
 
-  start(): void {
-    if (this.#disposed || this.#refreshTimer) return;
-    this.#refreshTimer = this.#scheduleInterval(() => { void this.refresh(); }, this.#refreshIntervalMs);
-    this.#refreshTimer.unref?.();
+  start(): Promise<void> {
+    if (this.#disposed) return Promise.resolve();
+    if (this.#startPromise) return this.#startPromise;
+    this.#startPromise = this.refresh().finally(() => {
+      if (this.#disposed || this.#refreshTimer) return;
+      this.#refreshTimer = this.#scheduleInterval(() => { void this.refresh(); }, this.#refreshIntervalMs);
+      this.#refreshTimer.unref?.();
+    });
+    return this.#startPromise;
   }
 
   refresh(): Promise<void> {
