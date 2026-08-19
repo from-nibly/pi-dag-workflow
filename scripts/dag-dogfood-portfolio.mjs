@@ -69,18 +69,24 @@ export async function buildCanonicalDogfoodPortfolioV1() {
   } finally { await rm(root, { recursive: true, force: true }); }
 }
 
-export async function runCanonicalDogfoodPortfolioV1({ outputRoot = null } = {}) {
+export async function runCanonicalDogfoodPortfolioV1({ outputRoot = null, templateIds = [], drillNames = [] } = {}) {
   const portfolio = parseDagEvaluationPortfolioV1(await readFile(FIXTURE_URL, "utf8"));
   assert.equal(canonicalStringify(portfolio), canonicalStringify(await buildCanonicalDogfoodPortfolioV1()), "checked-in portfolio must equal exact regenerated content");
   assert.equal(portfolio.pairs.length, 6);
   assert.equal(new Set(portfolio.pairs.flatMap((pair) => pair.executions.map((execution) => execution.executionIdentityHash))).size, 12);
   const templates = new Map(CANONICAL_DOGFOOD_PAIR_TEMPLATES_V1.map((template) => [canonicalHash({ ...SCRIPT_CONTRACT, templateId: template.templateId }), template]));
+  const knownTemplateIds = CANONICAL_DOGFOOD_PAIR_TEMPLATES_V1.map(({ templateId }) => templateId); const knownDrillNames = [...portfolio.excludedRecoveryDrills];
+  const selectionRequested = templateIds.length > 0 || drillNames.length > 0;
+  const selectedTemplateIds = templateIds.length ? [...new Set(templateIds)] : selectionRequested ? [] : knownTemplateIds; const selectedDrillNames = drillNames.length ? [...new Set(drillNames)] : selectionRequested ? [] : knownDrillNames;
+  for (const id of selectedTemplateIds) if (!knownTemplateIds.includes(id)) throw new Error(`Unknown dogfood portfolio template: ${id}`);
+  for (const name of selectedDrillNames) if (!knownDrillNames.includes(name)) throw new Error(`Unknown dogfood recovery drill: ${name}`);
   const root = await mkdtemp(join(tmpdir(), "pi-dag-canonical-portfolio-v1-"));
   try {
     const cohortHash = dagEvaluationCohortHashV1(portfolio);
     const results = [], envelopeHashes = [];
     for (const pair of portfolio.pairs) {
       const template = templates.get(pair.scriptHash); assert(template);
+      if (!selectedTemplateIds.includes(template.templateId)) continue;
       for (const execution of [...pair.executions].sort((a, b) => a.order - b.order)) {
         const executionRoot = join(root, execution.executionIdentityHash.slice(7, 23)); await mkdir(executionRoot);
         const projections = [];
@@ -99,17 +105,25 @@ export async function runCanonicalDogfoodPortfolioV1({ outputRoot = null } = {})
         results.push({ executionIdentityHash: execution.executionIdentityHash, envelopeHash: envelope.envelopeHash, cohortHash, valid: true, uncompensatedInvariantsPass: Object.values(envelope.invariants).every((status) => status === "pass"), elapsedMs: envelope.metrics.timing.autonomousElapsed.numerator ?? 0, usefulWorkMs: envelope.metrics.usefulParallelism.usefulWork.numerator ?? 0, reportedCost: envelope.metrics.modelUsage.reportedCost.numerator });
       }
     }
-    assert.equal(results.length, 12); assert.equal(new Set(results.map((result) => result.executionIdentityHash)).size, 12);
-    assert.equal(new Set(envelopeHashes).size, 12);
-    const report = buildPairedEvaluationReportV1(portfolio, results);
-    assert.equal(validatePairedEvaluationReportV1(report, portfolio).ok, true);
-    const drills = await runSeparateRecoveryDrills(root);
-    assert.deepEqual(Object.keys(drills).sort(), [...portfolio.excludedRecoveryDrills].sort());
+    const expectedExecutions = selectedTemplateIds.length * 2;
+    assert.equal(results.length, expectedExecutions); assert.equal(new Set(results.map((result) => result.executionIdentityHash)).size, expectedExecutions);
+    assert.equal(new Set(envelopeHashes).size, expectedExecutions);
+    const drills = await runSeparateRecoveryDrills(root, selectedDrillNames);
+    assert.deepEqual(Object.keys(drills).sort(), [...selectedDrillNames].sort());
     assert(Object.values(drills).every(({ comparativeExecutionCount }) => comparativeExecutionCount === 0));
-    const semanticCore = { schemaVersion: 1, kind: "DagDogfoodPortfolioSemanticManifestV1", portfolioIdentityHash: portfolio.portfolioIdentityHash, cohortHash, pairCountHash: canonicalHash({ pairCount: 6 }), executionCountHash: canonicalHash({ executionCount: 12 }), recoveryDrillCountHash: canonicalHash({ recoveryDrillCount: 3 }), reportHash: canonicalHash(report), runtimeIdentityStatus: "runtime_bound_exact_excluded_from_semantic_manifest_hash" };
-    const manifestCore = { ...semanticCore, semanticManifestHash: canonicalHash(semanticCore), executionEnvelopeHashes: envelopeHashes.sort(), executionEnvelopeHashesStatus: "runtime_bound_exact", recoveryDrillHashes: Object.fromEntries(Object.entries(drills).map(([name, drill]) => [name, drill.drillHash])), recoveryDrillHashesStatus: "runtime_bound_exact" };
-    const manifest = { ...manifestCore, manifestHash: canonicalHash(manifestCore) };
-    assert.equal(manifest.executionEnvelopeHashes.length, 12);
+    const full = selectedTemplateIds.length === knownTemplateIds.length && selectedDrillNames.length === knownDrillNames.length;
+    let manifest;
+    if (full) {
+      const report = buildPairedEvaluationReportV1(portfolio, results);
+      assert.equal(validatePairedEvaluationReportV1(report, portfolio).ok, true);
+      const semanticCore = { schemaVersion: 1, kind: "DagDogfoodPortfolioSemanticManifestV1", portfolioIdentityHash: portfolio.portfolioIdentityHash, cohortHash, pairCountHash: canonicalHash({ pairCount: 6 }), executionCountHash: canonicalHash({ executionCount: 12 }), recoveryDrillCountHash: canonicalHash({ recoveryDrillCount: 3 }), reportHash: canonicalHash(report), runtimeIdentityStatus: "runtime_bound_exact_excluded_from_semantic_manifest_hash" };
+      const manifestCore = { ...semanticCore, semanticManifestHash: canonicalHash(semanticCore), executionEnvelopeHashes: envelopeHashes.sort(), executionEnvelopeHashesStatus: "runtime_bound_exact", recoveryDrillHashes: Object.fromEntries(Object.entries(drills).map(([name, drill]) => [name, drill.drillHash])), recoveryDrillHashesStatus: "runtime_bound_exact" };
+      manifest = { ...manifestCore, manifestHash: canonicalHash(manifestCore) };
+      assert.equal(manifest.executionEnvelopeHashes.length, 12);
+    } else {
+      const core = { schemaVersion: 1, kind: "DagDogfoodPortfolioSelectionManifestV1", portfolioIdentityHash: portfolio.portfolioIdentityHash, cohortHash, selectedTemplateIds: [...selectedTemplateIds].sort(), selectedDrillNames: [...selectedDrillNames].sort(), executionResultsHash: canonicalHash(results), executionEnvelopeHashes: envelopeHashes.sort(), recoveryDrillHashes: Object.fromEntries(Object.entries(drills).map(([name, drill]) => [name, drill.drillHash])) };
+      manifest = { ...core, manifestHash: canonicalHash(core) };
+    }
     if (outputRoot) { await mkdir(outputRoot, { recursive: true }); await writeFile(join(outputRoot, "dag-dogfood-portfolio-manifest-v1.json"), canonicalStringify(manifest), { mode: 0o600 }); }
     return manifest;
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -167,8 +181,8 @@ function evaluationSourceHashes(state, accumulator, projections) {
   };
 }
 
-async function runSeparateRecoveryDrills(root) {
-  const drills = {}, definitions = [["provider_worker_loss", { crashCleanup: true }], ["conductor_crash_resume", { crashAt: "after_landing_git" }], ["target_drift_conflict", { thirdTargetDrift: true }]];
+async function runSeparateRecoveryDrills(root, selectedNames) {
+  const drills = {}, definitions = [["provider_worker_loss", { crashCleanup: true }], ["conductor_crash_resume", { crashAt: "after_landing_git" }], ["target_drift_conflict", { thirdTargetDrift: true }]].filter(([name]) => selectedNames.includes(name));
   for (const [name, option] of definitions) { const result = await scenario(join(root, "recovery"), name, { items: 1, templateId: `drill-${name}`, runLabel: `drill-${name}`, ...option }); drills[name] = { comparativeExecutionCount: 0, drillHash: canonicalHash(result) }; }
   return drills;
 }
@@ -180,11 +194,16 @@ async function git(cwd, args, env) { return (await execFileAsync("git", args, { 
 function issues(validation) { return validation.issues.map(({ path, message }) => `${path}: ${message}`).join("\n"); }
 function assertPrivacySafe(value) { const bytes = canonicalStringify(value).toLowerCase(); for (const forbidden of ["/", "prose", "prompt", "transcript", "diagnostic", "locator", "sourceText"]) assert.equal(bytes.includes(forbidden.toLowerCase()), false); }
 
+function assertKnownArgs(args, valued, boolean) { for (let index = 0; index < args.length; index += 1) { const arg = args[index]; if (valued.has(arg)) { if (!args[++index]) throw new Error(`${arg} requires a value`); } else if (!boolean.has(arg)) throw new Error(`Unknown argument: ${arg}`); } }
+function valuesFor(args, flag) { const values = []; for (let index = 0; index < args.length; index += 1) if (args[index] === flag) { if (!args[index + 1]) throw new Error(`${flag} requires a value`); values.push(...args[++index].split(",").filter(Boolean)); } return values; }
+
 async function main() {
-  const args = process.argv.slice(2);
+  const args = process.argv.slice(2); assertKnownArgs(args, new Set(["--output-root", "--template", "--drill"]), new Set(["--write-fixture", "--portfolio-only"]));
+  if ((args.includes("--write-fixture") || args.includes("--portfolio-only")) && args.some((arg) => ["--output-root", "--template", "--drill"].includes(arg))) throw new Error("Fixture-only portfolio modes cannot be combined with execution selectors");
   if (args.includes("--write-fixture")) { const portfolio = await buildCanonicalDogfoodPortfolioV1(); await writeFile(FIXTURE_URL, `${JSON.stringify(portfolio, null, 2)}\n`); process.stdout.write(`${canonicalStringify({ kind: "DagDogfoodPortfolioFixtureReceiptV1", portfolioIdentityHash: portfolio.portfolioIdentityHash })}\n`); return; }
   if (args.includes("--portfolio-only")) { const portfolio = await buildCanonicalDogfoodPortfolioV1(); process.stdout.write(`${canonicalStringify({ kind: "DagDogfoodPortfolioFixtureReceiptV1", portfolioIdentityHash: portfolio.portfolioIdentityHash })}\n`); return; }
   const index = args.indexOf("--output-root"), outputRoot = index < 0 ? null : args[index + 1]; if (index >= 0 && !outputRoot) throw new Error("--output-root requires a directory");
-  process.stdout.write(`${canonicalStringify(await runCanonicalDogfoodPortfolioV1({ outputRoot }))}\n`);
+  const templateIds = valuesFor(args, "--template"), drillNames = valuesFor(args, "--drill");
+  process.stdout.write(`${canonicalStringify(await runCanonicalDogfoodPortfolioV1({ outputRoot, templateIds, drillNames }))}\n`);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

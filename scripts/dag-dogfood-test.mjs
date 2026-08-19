@@ -48,34 +48,43 @@ function integrationProfilesFixture(options = {}) {
   }));
 }
 
-export async function runCurrentDogfoodManifest() {
+const lifecycleCrashPoints = ["after_procedure_intent", "after_procedure_dispatch", "after_procedure_result", "after_procedure_reconcile"];
+export const DOGFOOD_SCENARIOS = Object.freeze([
+  { id: "happy", group: "baseline", name: "happy", options: () => ({ items: 1 }) },
+  { id: "f4PassCrashMatrix", group: "lifecycle", name: "f4-pass-crash-matrix", options: () => ({ items: 1, lifecycleCrashAt: lifecycleCrashPoints, lifecycleCrashStage: "F4" }) },
+  { id: "f7FailCrashMatrix", group: "lifecycle", name: "f7-fail-crash-matrix", options: () => ({ items: 1, lifecycleCrashAt: lifecycleCrashPoints, lifecycleCrashStage: "F7", procedureFailureStage: "F7" }) },
+  { id: "compositionBeforeDispatchReplay", group: "composition", name: "composition-before-dispatch", options: () => ({ items: 1, crashAt: "after_integration_reserve" }) },
+  { id: "compositionAfterDispatchReplay", group: "composition", name: "composition-after-dispatch", options: () => ({ items: 1, crashAt: "after_composition_dispatch" }) },
+  { id: "compositionAfterGitReplay", group: "composition", name: "composition-after-git", options: () => ({ items: 1, crashAt: "after_composition_git" }) },
+  { id: "compositionAfterCommitReplay", group: "composition", name: "composition-after-commit", options: () => ({ items: 1, crashAt: "after_composition_commit" }) },
+  { id: "validationCrashMatrix", group: "validation", name: "validation-crash-matrix", options: () => ({ items: 1, validationCrashPoints: ["after_prefix_validation_intent", "after_prefix_validation_dispatch", "after_prefix_validation_result", "after_prefix_validation_reconcile", "after_final_validation_intent", "after_final_validation_dispatch", "after_final_validation_result", "after_final_validation_reconcile"] }) },
+  { id: "validationObservationConflict", group: "validation", name: "validation-observation-conflict", options: () => ({ items: 1, crashAt: "after_prefix_validation_result", validationObservationConflict: true }) },
+  { id: "finalValidationFailClosed", group: "validation", name: "final-validation-fail", options: () => ({ items: 1, validationFailurePhase: "final" }) },
+  { id: "landingBeforeDispatchReplay", group: "landing", name: "landing-before-dispatch", options: () => ({ items: 1, crashAt: "after_landing_intent" }) },
+  { id: "landingAfterDispatchReplay", group: "landing", name: "landing-after-dispatch", options: () => ({ items: 1, crashAt: "after_landing_dispatch" }) },
+  { id: "restartReplay", group: "landing", name: "restart", options: () => ({ items: 1, crashAt: "after_landing_git" }) },
+  { id: "provenAbsentLandingReplay", group: "landing", name: "landing-proven-absent", options: () => ({ items: 1, provenAbsentLanding: true, crashAt: "after_landing_proven_absent_commit" }) },
+  { id: "cleanupReplay", group: "cleanup", name: "cleanup-replay", options: () => ({ items: 1, crashCleanup: true }) },
+  { id: "compositionConflict", group: "baseline", name: "conflict", options: () => ({ items: 2, conflictingCandidates: true }) },
+  { id: "thirdTargetDrift", group: "baseline", name: "third-drift", options: () => ({ items: 1, thirdTargetDrift: true }) },
+]);
+export const DOGFOOD_SCENARIO_GROUPS = Object.freeze([...new Set(DOGFOOD_SCENARIOS.map(({ group }) => group))]);
+
+export async function runCurrentDogfoodManifest({ groups = [], scenarios = [] } = {}) {
+  const selected = new Set(scenarios);
+  for (const group of groups) for (const definition of DOGFOOD_SCENARIOS) if (definition.group === group) selected.add(definition.id);
+  const definitions = selected.size ? DOGFOOD_SCENARIOS.filter(({ id }) => selected.has(id)) : DOGFOOD_SCENARIOS;
+  for (const id of selected) if (!DOGFOOD_SCENARIOS.some((definition) => definition.id === id)) throw new Error(`Unknown dogfood scenario: ${id}`);
+  for (const group of groups) if (!DOGFOOD_SCENARIO_GROUPS.includes(group)) throw new Error(`Unknown dogfood group: ${group}`);
   const root = await mkdtemp(join(tmpdir(), "pi-dag-dogfood-v1-"));
   try {
     const results = {};
-    results.happy = await scenario(root, "happy", { items: 1 });
-    const lifecycleCrashPoints = ["after_procedure_intent", "after_procedure_dispatch", "after_procedure_result", "after_procedure_reconcile"];
-    results.f4PassCrashMatrix = await scenario(root, "f4-pass-crash-matrix", { items: 1, lifecycleCrashAt: lifecycleCrashPoints, lifecycleCrashStage: "F4" });
-    results.f7FailCrashMatrix = await scenario(root, "f7-fail-crash-matrix", { items: 1, lifecycleCrashAt: lifecycleCrashPoints, lifecycleCrashStage: "F7", procedureFailureStage: "F7" });
-    results.compositionBeforeDispatchReplay = await scenario(root, "composition-before-dispatch", { items: 1, crashAt: "after_integration_reserve" });
-    results.compositionAfterDispatchReplay = await scenario(root, "composition-after-dispatch", { items: 1, crashAt: "after_composition_dispatch" });
-    results.compositionAfterGitReplay = await scenario(root, "composition-after-git", { items: 1, crashAt: "after_composition_git" });
-    results.compositionAfterCommitReplay = await scenario(root, "composition-after-commit", { items: 1, crashAt: "after_composition_commit" });
-    results.validationCrashMatrix = await scenario(root, "validation-crash-matrix", { items: 1, validationCrashPoints: ["after_prefix_validation_intent", "after_prefix_validation_dispatch", "after_prefix_validation_result", "after_prefix_validation_reconcile", "after_final_validation_intent", "after_final_validation_dispatch", "after_final_validation_result", "after_final_validation_reconcile"] });
-    results.validationObservationConflict = await scenario(root, "validation-observation-conflict", { items: 1, crashAt: "after_prefix_validation_result", validationObservationConflict: true });
-    results.finalValidationFailClosed = await scenario(root, "final-validation-fail", { items: 1, validationFailurePhase: "final" });
-    results.landingBeforeDispatchReplay = await scenario(root, "landing-before-dispatch", { items: 1, crashAt: "after_landing_intent" });
-    results.landingAfterDispatchReplay = await scenario(root, "landing-after-dispatch", { items: 1, crashAt: "after_landing_dispatch" });
-    results.restartReplay = await scenario(root, "restart", { items: 1, crashAt: "after_landing_git" });
-    results.provenAbsentLandingReplay = await scenario(root, "landing-proven-absent", { items: 1, provenAbsentLanding: true, crashAt: "after_landing_proven_absent_commit" });
-    results.cleanupReplay = await scenario(root, "cleanup-replay", { items: 1, crashCleanup: true });
-    results.compositionConflict = await scenario(root, "conflict", { items: 2, conflictingCandidates: true });
-    results.thirdTargetDrift = await scenario(root, "third-drift", { items: 1, thirdTargetDrift: true });
+    for (const definition of definitions) results[definition.id] = await scenario(root, definition.name, definition.options());
     const hashResults = Object.fromEntries(Object.entries(results).map(([name, result]) => [name, canonicalHash(result)]));
-    const core = { schemaVersion: 1, kind: "DagDogfoodHashManifestV1", results: hashResults };
+    const full = definitions.length === DOGFOOD_SCENARIOS.length;
+    const core = full ? { schemaVersion: 1, kind: "DagDogfoodHashManifestV1", results: hashResults } : { schemaVersion: 1, kind: "DagDogfoodSelectionManifestV1", selectedScenarioIds: definitions.map(({ id }) => id), results: hashResults };
     return { ...core, manifestHash: canonicalHash(core) };
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  } finally { await rm(root, { recursive: true, force: true }); }
 }
 
 export async function scenario(parent, name, options) {
@@ -535,5 +544,9 @@ async function git(cwd, args, env) { const result = await execFileAsync("git", a
 export function commitEnvironment() { return { GIT_AUTHOR_NAME: "Scripted DAG Fixture", GIT_AUTHOR_EMAIL: "dag-fixture@example.invalid", GIT_COMMITTER_NAME: "Scripted DAG Fixture", GIT_COMMITTER_EMAIL: "dag-fixture@example.invalid", GIT_AUTHOR_DATE: AT, GIT_COMMITTER_DATE: AT, TZ: "UTC", LC_ALL: "C", LANG: "C" }; }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.stdout.write(`${canonicalStringify(await runCurrentDogfoodManifest())}\n`);
+  const args = process.argv.slice(2); assertKnownArgs(args, new Set(["--group", "--scenario"]), new Set(["--list"])); const groups = valuesFor(args, "--group"); const scenarios = valuesFor(args, "--scenario");
+  if (args.includes("--list")) process.stdout.write(`${canonicalStringify({ groups: DOGFOOD_SCENARIO_GROUPS, scenarios: DOGFOOD_SCENARIOS.map(({ id, group }) => ({ id, group })) })}\n`);
+  else process.stdout.write(`${canonicalStringify(await runCurrentDogfoodManifest({ groups, scenarios }))}\n`);
 }
+function assertKnownArgs(args, valued, boolean) { for (let index = 0; index < args.length; index += 1) { const arg = args[index]; if (valued.has(arg)) { if (!args[++index]) throw new Error(`${arg} requires a value`); } else if (!boolean.has(arg)) throw new Error(`Unknown argument: ${arg}`); } }
+function valuesFor(args, flag) { const values = []; for (let index = 0; index < args.length; index += 1) if (args[index] === flag) { if (!args[index + 1]) throw new Error(`${flag} requires a value`); values.push(...args[++index].split(",").filter(Boolean)); } return values; }

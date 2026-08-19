@@ -9,6 +9,8 @@ import { PACKAGE_DEFAULT_CONFIG } from "../extensions/dag-workflow/defaults.ts";
 import { getNodeFlowName } from "../extensions/dag-workflow/dag.ts";
 import { ensureNodeWorktree, execGit, isConventionalCommitSubject, mergeNode, refreshNodeWorktreeFromParent } from "../extensions/dag-workflow/worktrees.ts";
 
+const args = process.argv.slice(2); if (args.some((arg) => arg !== "--package")) throw new Error(`Unknown smoke argument: ${args.find((arg) => arg !== "--package")}`); const packageMode = args.includes("--package");
+
 const files = [
   "package.json",
   "extensions/dag-workflow/index.ts",
@@ -62,6 +64,8 @@ const files = [
   "scripts/dag-planning-command-test.mjs",
   "scripts/dag-prepared-start-test.mjs",
   "scripts/release-readiness.mjs",
+  "scripts/release-impact.mjs",
+  "scripts/release-impact-test.mjs",
   "scripts/dag-runtime-test.mjs",
   "scripts/dag-widget-test.mjs",
   "scripts/git-integration-test.mjs",
@@ -90,30 +94,36 @@ const files = [
 for (const file of files) await access(file);
 
 const execFileAsync = promisify(execFile);
-const productionModel = await execFileAsync(process.execPath, ["scripts/project-model-test.mjs"]);
-assertIncludes(productionModel.stdout, "Project model production tests OK", "production project-model tests pass");
-const planning = await execFileAsync(process.execPath, ["scripts/dag-planning-test.mjs"]);
-assertIncludes(planning.stdout, "planning tests passed", "strict planning store/projection tests pass");
-const planningRuntime = await execFileAsync(process.execPath, ["scripts/dag-planning-runtime-test.mjs"]);
-assertIncludes(planningRuntime.stdout, "DAG planning runtime adapter tests passed", "thin-plan runtime compatibility tests pass");
-const planningCommands = await execFileAsync(process.execPath, ["scripts/dag-planning-command-test.mjs"]);
-assertIncludes(planningCommands.stdout, "DAG planning command integration tests passed", "product plan/show/run tests pass");
-const preparedStart = await execFileAsync(process.execPath, ["scripts/dag-prepared-start-test.mjs"]);
-assertIncludes(preparedStart.stdout, "dag prepared start tests passed", "prepared-start crash recovery tests pass");
-const dagRuntime = await execFileAsync(process.execPath, ["scripts/dag-runtime-test.mjs"]);
-assertIncludes(dagRuntime.stdout, "Canonical DAG plan and run-state schema tests OK", "canonical DAG schema tests pass");
-const dagWidget = await execFileAsync(process.execPath, ["scripts/dag-widget-test.mjs"]);
-assertIncludes(dagWidget.stdout, "DAG widget V2 tests OK", "responsive DAG widget/controller tests pass");
-const widgetPrototype = await execFileAsync(process.execPath, ["spec/prototypes/dag-widget-activity-lanes/scenario.mjs"]);
-assertIncludes(widgetPrototype.stdout, "DAG widget activity-lane prototype OK", "DAG widget visual prototype evidence still executes");
-const gitIntegration = await execFileAsync(process.execPath, ["scripts/git-integration-test.mjs"], { timeout: 300_000 });
-assertIncludes(gitIntegration.stdout, "Exact real-Git integration transaction and failpoint matrix OK", "real-Git integration failpoint matrix passes");
-const workerRuntime = await execFileAsync(process.execPath, ["scripts/worker-runtime-test.mjs"], { timeout: 10 * 60_000 });
-assertIncludes(workerRuntime.stdout, "Owned worker core, supervisor, and manager tests OK", "owned worker runtime tests pass");
-const adapterPrototype = await execFileAsync(process.execPath, ["spec/prototypes/brainstorm-pi-adapter/scenario.mjs"]);
-assertIncludes(adapterPrototype.stdout, "Brainstorm Pi adapter prototype OK", "legacy adapter evidence still executes");
-const lavishPrototype = await execFileAsync(process.execPath, ["spec/prototypes/lavish-turn-renderer/scenario.mjs"]);
-assertIncludes(lavishPrototype.stdout, "Lavish turn-renderer prototype OK", "Lavish turn-renderer prototype scenario passes");
+const extension = await import("../extensions/dag-workflow/index.ts");
+if (typeof extension.default !== "function") throw new Error("Packed DAG workflow extension entrypoint is not loadable");
+const releaseImpact = await execFileAsync(process.execPath, ["scripts/release-impact-test.mjs"]);
+assertIncludes(releaseImpact.stdout, "Release impact classification tests OK", "release impact mapping tests pass");
+if (!packageMode) {
+  const productionModel = await execFileAsync(process.execPath, ["scripts/project-model-test.mjs"]);
+  assertIncludes(productionModel.stdout, "Project model production tests OK", "production project-model tests pass");
+  const planning = await execFileAsync(process.execPath, ["scripts/dag-planning-test.mjs"]);
+  assertIncludes(planning.stdout, "planning tests passed", "strict planning store/projection tests pass");
+  const planningRuntime = await execFileAsync(process.execPath, ["scripts/dag-planning-runtime-test.mjs"]);
+  assertIncludes(planningRuntime.stdout, "DAG planning runtime adapter tests passed", "thin-plan runtime compatibility tests pass");
+  const planningCommands = await execFileAsync(process.execPath, ["scripts/dag-planning-command-test.mjs"]);
+  assertIncludes(planningCommands.stdout, "DAG planning command integration tests passed", "product plan/show/run tests pass");
+  const preparedStart = await execFileAsync(process.execPath, ["scripts/dag-prepared-start-test.mjs"]);
+  assertIncludes(preparedStart.stdout, "dag prepared start tests passed", "prepared-start crash recovery tests pass");
+  const dagRuntime = await execFileAsync(process.execPath, ["scripts/dag-runtime-test.mjs"]);
+  assertIncludes(dagRuntime.stdout, "Canonical DAG plan and run-state schema tests OK", "canonical DAG schema tests pass");
+  const dagWidget = await execFileAsync(process.execPath, ["scripts/dag-widget-test.mjs"]);
+  assertIncludes(dagWidget.stdout, "DAG widget V2 tests OK", "responsive DAG widget/controller tests pass");
+  const widgetPrototype = await execFileAsync(process.execPath, ["spec/prototypes/dag-widget-activity-lanes/scenario.mjs"]);
+  assertIncludes(widgetPrototype.stdout, "DAG widget activity-lane prototype OK", "DAG widget visual prototype evidence still executes");
+  const gitIntegration = await execFileAsync(process.execPath, ["scripts/git-integration-test.mjs"], { timeout: 300_000 });
+  assertIncludes(gitIntegration.stdout, "Exact real-Git integration transaction and failpoint matrix OK", "real-Git integration failpoint matrix passes");
+  const workerRuntime = await execFileAsync(process.execPath, ["scripts/worker-runtime-test.mjs"], { timeout: 10 * 60_000 });
+  assertIncludes(workerRuntime.stdout, "Owned worker core, supervisor, and manager tests OK", "owned worker runtime tests pass");
+  const adapterPrototype = await execFileAsync(process.execPath, ["spec/prototypes/brainstorm-pi-adapter/scenario.mjs"]);
+  assertIncludes(adapterPrototype.stdout, "Brainstorm Pi adapter prototype OK", "legacy adapter evidence still executes");
+  const lavishPrototype = await execFileAsync(process.execPath, ["spec/prototypes/lavish-turn-renderer/scenario.mjs"]);
+  assertIncludes(lavishPrototype.stdout, "Lavish turn-renderer prototype OK", "Lavish turn-renderer prototype scenario passes");
+}
 
 const sampleDag = {
   schemaVersion: 1,

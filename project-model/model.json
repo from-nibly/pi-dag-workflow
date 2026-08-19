@@ -4626,18 +4626,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-14T00:36:49.952Z",
+        "acceptedAt": "2026-08-19T15:09:18.979Z",
         "actor": "user",
-        "batchRef": "sha256:3c6050153d725d1c9267847f2b6e3ef4246f78acfa036139e2ac614788c72f0a",
-        "contentHash": "sha256:71144cb6eb653cda90bff2b63293f6d861fd44967510c460e60f0dea3f736d52",
-        "interactionRef": "lavish-feedback:review-simplified-plan-show-run-release-scope:sha256:3abdefbb7b69b6299dceb954dbeee4f472dd18a73c7586c7f5f6ea651f650dcd",
-        "mode": "accepted_existing"
+        "batchRef": "sha256:ee1e4a31c8d07ec1a6c7b4a766f27468b31e445193a7e2af23eddf194aaeaf28",
+        "contentHash": "sha256:aea153ef479d59eb642aaa8f980cb9ed1cc6444fdf7df8c263dce33a93491784",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1787152089289",
+        "mode": "direct_direction"
       },
-      "body": "F8 remains a deterministic no-edit integration-readiness seal, and canonical plan completion means changes are locally composed, landed, and verified in required combined state. For this release, add a deterministic release-readiness check covering focused suites, one true plan/show/run end-to-end fixture, reload/resume and duplicate invocation, stale baseline, worker failure/retry, plan-affecting pause, Git target drift, generated-spec drift, package dry-run and contents, documentation/version/changelog expectations, and clean Git status. A passing check means the repository is ready for an explicit human-operated push, tag, or package publication. `/dag run` never publishes remotely. Defer `/dag release`, remote push state, credential schemas, and release receipts until explicitly requested or justified by field failure.",
+      "body": "F8 remains a deterministic no-edit integration-readiness seal, and canonical plan completion means changes are locally composed, landed, and verified in required combined state. Release readiness is deterministic but impact-aware: determine changed files from an explicit release base, classify every relevant path through a fail-closed impact map, run affected focused suites and selected canonical dogfood groups, portfolio templates, and recovery drills, then run one broad smoke pass against the extracted npm artifact. Exact content-addressed scenario receipts may be reused only when all relevant source, fixture, policy, toolchain, and environment inputs are unchanged. Unknown paths and broad canonical runtime changes escalate to the full gate, and periodic full certification remains independent of ordinary low-risk releases. A passing check means the repository is ready for an explicit human-operated push, tag, or package publication. `/dag run` never publishes remotely. Defer `/dag release`, remote push state, credential schemas, and release receipts until explicitly requested or justified by field failure.",
       "createdAt": "2026-08-02T15:20:59.760Z",
       "id": "DEC-integration-ready-completion-predicate-v1",
       "introducedBy": "agent",
-      "rationale": "Release readiness is required now; remote release orchestration is a separate product feature with no demonstrated V1 need.",
+      "rationale": "Release readiness is required now; remote release orchestration is separate. Impact selection and exact evidence reuse keep most releases below one hour without allowing path heuristics or throughput to weaken runtime-critical certification.",
       "relationships": [
         {
           "kind": "addresses",
@@ -4668,7 +4668,7 @@
       ],
       "state": "accepted",
       "title": "Separate local completion and release readiness from explicit publication",
-      "updatedAt": "2026-08-14T00:36:49.952Z"
+      "updatedAt": "2026-08-19T15:09:18.979Z"
     },
     {
       "acceptance": {
@@ -14655,6 +14655,37 @@
       "state": "current",
       "title": "Current model tools require an existing model and active focus",
       "updatedAt": "2026-08-19T02:18:59.930Z"
+    },
+    {
+      "body": "The implementation adds a fail-closed changed-path classifier with full fallback, named canonical dogfood groups and scenarios, selectable portfolio templates and recovery drills, hash-validated local evidence receipts bound to relevant Git tree and executable/toolchain/environment inputs, an uncached full-certification command, and one package-mode smoke pass against the extracted npm artifact. Unit coverage proves representative path mappings and prior-tag diff selection; selected happy dogfood, one recovery drill, one two-execution portfolio template, source smoke, model/evaluation suites, and extracted-package smoke pass. A clean synthetic repository with only README changed selected no focused/dogfood/portfolio gates and completed impact-aware readiness through packed smoke.",
+      "createdAt": "2026-08-19T19:41:59.164Z",
+      "id": "EV-impact-aware-release-readiness-implementation",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-integration-ready-completion-predicate-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "command:synthetic-readme-impact-release-ready",
+        "scripts/dag-dogfood-portfolio.mjs",
+        "scripts/dag-dogfood-test.mjs",
+        "scripts/release-impact-test.mjs",
+        "scripts/release-readiness.mjs"
+      ],
+      "state": "current",
+      "title": "Impact-aware release readiness selects and verifies bounded gates",
+      "updatedAt": "2026-08-19T19:41:59.164Z"
     }
   ],
   "intents": [
@@ -15260,9 +15291,9 @@
         }
       ]
     },
-    "revision": 240,
+    "revision": 243,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-19T03:01:45.394Z"
+    "updatedAt": "2026-08-19T19:41:59.166Z"
   },
   "proposals": [
     {
@@ -20634,6 +20665,37 @@
       "state": "selected",
       "title": "Use a staged candidate, visual audit, and explicit cutover",
       "updatedAt": "2026-08-19T02:17:55.019Z"
+    },
+    {
+      "body": "Determine changed files from an explicit release base tag, map every packaged/runtime path to fail-closed test impact groups, and run only affected focused suites plus one smoke pass against the extracted npm artifact. Split canonical dogfood into named scenario groups and the paired portfolio into selectable templates and individual recovery drills. Persist content-addressed receipts for each scenario/template keyed by its exact relevant source, fixture, toolchain, and policy inputs; unchanged receipts may be reused, while unknown paths or broad shared-runtime changes escalate to the full gate. Keep a periodic full portfolio certification independent of ordinary low-risk releases.",
+      "createdAt": "2026-08-19T15:05:54.535Z",
+      "id": "PROP-impact-aware-release-readiness-v1",
+      "introducedBy": "agent",
+      "rationale": "The current release gate runs broad smoke twice and rebuilds 17 dogfood scenarios, 12 portfolio executions, and three drills sequentially for every change. Most documentation, model-presentation, widget, or worker-guidance releases do not affect canonical execution evidence. Fail-closed impact mapping and exact input hashes can reduce most releases below one hour without treating path heuristics alone as proof.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "scripts/dag-dogfood-portfolio.mjs",
+        "scripts/dag-dogfood-test.mjs",
+        "scripts/release-readiness.mjs",
+        "scripts/smoke-test.mjs",
+        "user:release-readiness-under-one-hour"
+      ],
+      "state": "recommended",
+      "title": "Make release readiness impact-aware with scenario-level evidence reuse",
+      "tradeoffs": [
+        "The impact map becomes maintained release-critical policy and must fail closed for unclassified files.",
+        "Broad runtime primitives such as reducer, store, lifecycle, scheduler, Git integration, or shared canonical hashing may still require the full multi-hour gate.",
+        "Content-addressed reuse requires recording exact environment/toolchain inputs or conservatively invalidating evidence.",
+        "Running smoke only from the packed artifact makes package construction an earlier prerequisite but removes duplicate source smoke."
+      ],
+      "updatedAt": "2026-08-19T15:05:54.535Z"
     }
   ],
   "questions": [

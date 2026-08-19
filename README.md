@@ -211,13 +211,18 @@ npm run test:dag-planning-command
 npm run test:dag-prepared-start
 npm run test:dag-runtime
 npm run test:dag-evaluation
-npm run test:dag-dogfood
-npm run test:dag-dogfood-portfolio
+npm run test:dag-dogfood -- --group lifecycle
+npm run test:dag-dogfood-portfolio -- --template recovery-sensitive --drill conductor_crash_resume
 npm run test:git-integration
 npm run test:workers
-npm run release:ready              # full deterministic matrix plus specs/package/clean-tree gates
+npm run test:release-impact
+npm run release:impact             # explain changed paths and selected release gates
+npm run release:ready              # impact-aware gates plus one packed-artifact smoke pass
+npm run release:full               # uncached full dogfood/portfolio certification
 # Only while project-model/model.json is still a non-authoritative candidate:
 node scripts/migrate-brainstorm-to-project-model.mjs --force
 ```
+
+`release:ready` compares `HEAD` with the latest prior semantic release tag (or `--base <ref>` / `PI_RELEASE_BASE`), classifies every changed path through a fail-closed impact map, and runs only affected focused suites, dogfood groups, portfolio templates, and recovery drills. It then runs one package-mode smoke pass against the extracted npm artifact to verify contents, entrypoint loading, release-impact policy, and direct package helpers without repeating the focused process/Git matrices. Unknown paths and broad canonical primitives escalate to the full gate. Successful expensive gates are reused only through hash-validated local receipts under `$XDG_CACHE_HOME/pi-dag-workflow/release-evidence-v1` (or `~/.cache/...`) bound to the exact relevant Git tree, command, executable hashes, Node/Git toolchain, kernel/platform, locale, and timezone; use `--no-cache` to bypass them. Broad smoke runs once against the extracted npm artifact. `release:full` remains the periodic uncached certification path.
 
 The production tests cover model validation, acceptance boundaries, concurrent model/focus CAS, sparse/stale review resolution, deterministic plan projections and lineage, exact command selection, real-Git source/baseline validation, crash-recoverable prepared start, canonical runtime compilation, whole-run replanning, Pi activation and fork restoration, legacy read-only compatibility, generic migration bootstrap/resume, no-overwrite staging, source and manifest freshness, preserved side-by-side specs, approved projection collisions, legacy-adapter dispatch, and authoritative-model refusal.

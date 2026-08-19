@@ -19,7 +19,10 @@
     "test:dag-dogfood-portfolio": "node scripts/dag-dogfood-portfolio.mjs",
     "test:git-integration": "node scripts/git-integration-test.mjs",
     "test:workers": "node scripts/worker-runtime-test.mjs",
+    "test:release-impact": "node scripts/release-impact-test.mjs",
+    "release:impact": "node scripts/release-impact.mjs",
     "release:ready": "node scripts/release-readiness.mjs",
+    "release:full": "node scripts/release-readiness.mjs --full --no-cache",
     "migrate:model": "node scripts/migrate-brainstorm-to-project-model.mjs",
     "pack:dry": "npm pack --dry-run"
   },

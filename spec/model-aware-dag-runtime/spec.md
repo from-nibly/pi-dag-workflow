@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:d7d3a3e6d77c331c44db3fed77677ea28a29f8b6471bd4d1b5af6800aa6b1abc -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:e955202c310953ecc59c5153e3a96596adfc4d14fbfc732047dd14a72f152c70 -->
 
 # Model-aware DAG planning and execution
 
@@ -316,9 +316,9 @@ Lifecycle limits apply only to retries. Product repair, test/review/hardening re
 
 ### Separate local completion and release readiness from explicit publication
 
-F8 remains a deterministic no-edit integration-readiness seal, and canonical plan completion means changes are locally composed, landed, and verified in required combined state. For this release, add a deterministic release-readiness check covering focused suites, one true plan/show/run end-to-end fixture, reload/resume and duplicate invocation, stale baseline, worker failure/retry, plan-affecting pause, Git target drift, generated-spec drift, package dry-run and contents, documentation/version/changelog expectations, and clean Git status. A passing check means the repository is ready for an explicit human-operated push, tag, or package publication. `/dag run` never publishes remotely. Defer `/dag release`, remote push state, credential schemas, and release receipts until explicitly requested or justified by field failure.
+F8 remains a deterministic no-edit integration-readiness seal, and canonical plan completion means changes are locally composed, landed, and verified in required combined state. Release readiness is deterministic but impact-aware: determine changed files from an explicit release base, classify every relevant path through a fail-closed impact map, run affected focused suites and selected canonical dogfood groups, portfolio templates, and recovery drills, then run one broad smoke pass against the extracted npm artifact. Exact content-addressed scenario receipts may be reused only when all relevant source, fixture, policy, toolchain, and environment inputs are unchanged. Unknown paths and broad canonical runtime changes escalate to the full gate, and periodic full certification remains independent of ordinary low-risk releases. A passing check means the repository is ready for an explicit human-operated push, tag, or package publication. `/dag run` never publishes remotely. Defer `/dag release`, remote push state, credential schemas, and release receipts until explicitly requested or justified by field failure.
 
-**Rationale.** Release readiness is required now; remote release orchestration is a separate product feature with no demonstrated V1 need.
+**Rationale.** Release readiness is required now; remote release orchestration is separate. Impact selection and exact evidence reuse keep most releases below one hour without allowing path heuristics or throughput to weaken runtime-critical certification.
 
 <a id="obj-dec-closed-atomic-dag-run-state-reducer-v1"></a>
 
