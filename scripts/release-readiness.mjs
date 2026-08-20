@@ -40,14 +40,12 @@ else {
 process.stdout.write(`${JSON.stringify({ kind: "ReleaseImpactPlanV1", version: packageJson.version, base, changedPathCount: changedPaths.length, changedPaths, impact }, null, 2)}\n`);
 
 for (const script of impact.focused) await command("npm", ["run", script], focusedTimeout(script));
-if (impact.dogfoodGroups.length) {
-  const dogfoodArgs = ["run", "test:dag-dogfood", "--", ...impact.dogfoodGroups.flatMap((group) => ["--group", group])];
-  await cachedCommand("dag-dogfood", "npm", dogfoodArgs, 90 * 60_000, ["extensions/dag-workflow/dag-runtime", "scripts/dag-dogfood-test.mjs", "package.json"]);
-}
-if (impact.portfolioTemplates.length || impact.recoveryDrills.length) {
-  const portfolioArgs = ["run", "test:dag-dogfood-portfolio", "--", ...impact.portfolioTemplates.flatMap((template) => ["--template", template]), ...impact.recoveryDrills.flatMap((drill) => ["--drill", drill])];
-  await cachedCommand("dag-dogfood-portfolio", "npm", portfolioArgs, 180 * 60_000, ["extensions/dag-workflow/dag-runtime", "scripts/dag-dogfood-test.mjs", "scripts/dag-dogfood-portfolio.mjs", "scripts/fixtures/dag-evaluation-portfolio-v1.json", "package.json"]);
-} else if (impact.portfolioIdentity) await command("npm", ["run", "test:dag-dogfood-portfolio", "--", "--portfolio-only"], 10 * 60_000);
+const dogfoodInputs = ["extensions/dag-workflow/dag-runtime", "scripts/dag-dogfood-test.mjs", "package.json"];
+for (const group of impact.dogfoodGroups) await cachedCommand(`dag-dogfood-group-${group}`, "npm", ["run", "test:dag-dogfood", "--", "--group", group], 45 * 60_000, dogfoodInputs);
+const portfolioInputs = ["extensions/dag-workflow/dag-runtime", "scripts/dag-dogfood-test.mjs", "scripts/dag-dogfood-portfolio.mjs", "scripts/fixtures/dag-evaluation-portfolio-v1.json", "package.json"];
+if (impact.portfolioIdentity) await cachedCommand("dag-dogfood-portfolio-identity", "npm", ["run", "test:dag-dogfood-portfolio", "--", "--portfolio-only"], 10 * 60_000, portfolioInputs);
+for (const template of impact.portfolioTemplates) await cachedCommand(`dag-dogfood-portfolio-template-${template}`, "npm", ["run", "test:dag-dogfood-portfolio", "--", "--template", template], 60 * 60_000, portfolioInputs);
+for (const drill of impact.recoveryDrills) await cachedCommand(`dag-dogfood-portfolio-drill-${drill}`, "npm", ["run", "test:dag-dogfood-portfolio", "--", "--drill", drill], 45 * 60_000, portfolioInputs);
 
 const packed = JSON.parse((await run("npm", ["pack", "--dry-run", "--json"], { cwd: root, maxBuffer: 8 * 1024 * 1024 })).stdout)[0];
 if (packed.version !== packageJson.version) throw new Error("npm pack version does not match package.json");
