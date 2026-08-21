@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-owned-worker-runtime; contract: 1; input: sha256:f085edc786697899b50a886b7683dcb81eea97f2cad1bbae0a151ae6d70a43ee -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-owned-worker-runtime; contract: 1; input: sha256:a436e7fd54f790060974600451c60917df478250d21120328b177365916f50f9 -->
 
 # Owned asynchronous DAG worker runtime
 
@@ -158,10 +158,10 @@ Each serial worker completion follow-up is capped at 16 KiB and includes stable 
 
 **Rationale.** A small generic worker claim plus an independently observed runtime envelope is reliable across task types and preserves provenance without DAG coupling.
 
-<a id="obj-dec-generic-worker-idempotent-consumer-contract-v1"></a>
+<a id="obj-dec-worker-exit-terminal-contract-v1"></a>
 
-### Put idempotent launch and retry-safe reconciliation in the generic worker runtime
+### Treat exact Pi-child exit as the worker terminal boundary
 
-The generic owned-worker runtime—not a DAG-only compatibility layer—owns process-shared worker-session lock/CAS; opaque caller `launchKey` plus full normalized request hash; atomic reserve-or-launch returning an existing exact attempt on replay and rejecting conflicting requests; exact storage, launch-owner-session, worker, attempt, nonce, config, supervisor, and child identities; durable result enumeration/read-by-launch-key independent of completion delivery or auto-ack; process disposition and `retrySafe` proof distinct from terminal status; preservation/quarantine of late, corrupt, conflicting, and recovery artifacts; owner-managed retry tokens that prevent unbound manual retries; and verified approved disposable working roots. These are generic delegated-process guarantees and expose no plan, DAG node, phase, gate, worktree, merge, or integration semantics. The DAG adapter binds opaque identities, validates lifecycle evidence, and remains the only interpreter of DAG success.
+The generic owned-worker runtime treats a valid immutable result written after the detached supervisor observes the exact Pi child exit as the terminal authority. `subagent_report` and `agent_settled` describe task outcome and initiate shutdown but do not establish termination. Cancellation closes RPC input, then escalates SIGTERM and SIGKILL against only the exact child PID/start identity; a signaling failure is surfaced to the top-level agent and blocks automatic retry until a terminal result exists. Retry and owned-worktree cleanup require the exact attempt-bound terminal result, not proof that no other process can edit the repository. The runtime performs no cwd, environment, uninspectable-process, process-group, or machine-wide process discovery; detached descendants are an accepted trusted-agent contract risk. PID/start identity remains only for targeted active-process cancellation and bounded crash recovery. Periodic manager reconciliation exists only while attempts are active and checks known attempt artifacts; terminal workers have zero periodic work. Process-shared session CAS, opaque idempotent launch keys, exact attempt/config/result identity, durable result lookup, owner-bound retry tokens, artifact quarantine, and disposable-root identity fencing remain generic runtime responsibilities.
 
-**Rationale.** Launch idempotency and proof that an old process can no longer mutate its cwd are process-service responsibilities. Reimplementing them in the DAG adapter would leave other consumers unsafe and create two competing recovery protocols.
+**Rationale.** The runtime is trusted local automation, not a malicious-code sandbox. Ambient process scans cannot prove repository quiescence, confused unrelated same-cwd processes with worker descendants, and consumed more than one CPU core. Exact child exit is the narrow observable fact needed for lifecycle completion while immutable attempt identities preserve crash and replay safety.

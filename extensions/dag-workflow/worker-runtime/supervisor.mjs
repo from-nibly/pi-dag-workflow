@@ -40,6 +40,7 @@ let report = null;
 let repairsUsed = 0;
 let modelError = null;
 let protocolError = null;
+let terminationFailure = null;
 let cancelRequested = false;
 let terminalIntent = null;
 let teardownForced = false;
@@ -49,6 +50,7 @@ let mailboxQueue = Promise.resolve();
 let heartbeatTimer;
 let cancelTimer;
 let forceTimer;
+let killTimer;
 const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0 };
 const eventCounts = {};
 
@@ -67,7 +69,7 @@ child = spawn(process.execPath, buildPiArgs(config), {
 });
 childIdentity = await waitForProcessIdentity(child.pid);
 await writeMailbox("running");
-heartbeatTimer = setInterval(() => { void writeMailbox(terminalIntent ? "settling" : "running"); }, 2000);
+heartbeatTimer = setInterval(() => { void writeMailbox(terminationFailure ? "termination_failed" : terminalIntent ? "settling" : "running", terminationFailure ? { error: terminationFailure } : {}); }, 2000);
 cancelTimer = setInterval(() => { void pollCancellation(); }, 400);
 
 const parser = new StrictJsonlParser(
@@ -137,12 +139,7 @@ async function handleSettled() {
 function closeChildAfterSettle() {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
   child.stdin.end();
-  forceTimer = setTimeout(() => {
-    if (child.exitCode === null && child.signalCode === null) {
-      teardownForced = true;
-      child.kill("SIGTERM");
-    }
-  }, 2000);
+  forceTimer = setTimeout(() => { void terminateChild("SIGTERM", "settled worker did not exit after RPC stdin closed"); }, 2000);
 }
 
 async function pollCancellation() {
@@ -165,12 +162,27 @@ async function requestCancellation(reason) {
   cancelRequested = true;
   await diagnostics.append({ type: "cancellation_requested", timestamp: nowIso(), reason });
   send({ id: `abort-${Date.now()}`, type: "abort" });
-  forceTimer = setTimeout(() => {
-    if (child?.exitCode === null && child?.signalCode === null) {
-      teardownForced = true;
-      child.kill("SIGTERM");
+  forceTimer = setTimeout(() => { void terminateChild("SIGTERM", "cancelled worker did not exit after RPC abort"); }, 5000);
+}
+
+async function terminateChild(signal, reason) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  teardownForced = true;
+  try {
+    const signalled = child.kill(signal);
+    await diagnostics.append({ type: "worker_termination_signal", timestamp: nowIso(), signal, reason, signalled });
+    if (!signalled) {
+      terminationFailure = `Could not deliver ${signal} to the exact Pi child`;
+      await writeMailbox("termination_failed", { error: terminationFailure, signal, reason });
     }
-  }, 5000);
+  } catch (error) {
+    protocolError = `Pi child termination failed: ${error.message}`;
+    terminationFailure = protocolError;
+    await diagnostics.append({ type: "worker_termination_error", timestamp: nowIso(), signal, reason, error: error.message });
+    await writeMailbox("termination_failed", { error: truncateUtf8(terminationFailure, 2048), signal, reason });
+    return;
+  }
+  if (signal === "SIGTERM") killTimer = setTimeout(() => { void terminateChild("SIGKILL", "worker remained alive after SIGTERM"); }, 2000);
 }
 
 function send(command) {
@@ -204,6 +216,7 @@ async function finalize(exitCode, signal) {
   clearInterval(heartbeatTimer);
   clearInterval(cancelTimer);
   clearTimeout(forceTimer);
+  clearTimeout(killTimer);
   await diagnostics.flush();
 
   let terminalStatus = terminalIntent;

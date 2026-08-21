@@ -132,8 +132,8 @@ export interface WorkerResultFactBindingV1 {
   configHash: string;
   completionId: string;
   terminalStatus: "succeeded" | "needs_attention" | "failed" | "cancelled" | "lost";
-  processDisposition: "dead" | "ambiguous";
-  retrySafe: boolean;
+  processDisposition?: "dead" | "ambiguous";
+  retrySafe?: boolean;
   outputRepositoryId: string | null;
   outputCommonDirIdentityHash: string | null;
   outputWorktreeIdentityHash: string | null;
@@ -825,7 +825,7 @@ const WorkerResultFactBindingV1Schema = StrictObject({
   launchOwnerSessionId: IdSchema, workerId: IdSchema, attemptNumber: PositiveIntegerSchema,
   attemptNonce: Type.String({ minLength: 16, maxLength: 256 }), configHash: HashSchema, completionId: IdSchema,
   terminalStatus: Type.Enum(["succeeded", "needs_attention", "failed", "cancelled", "lost"]),
-  processDisposition: Type.Enum(["dead", "ambiguous"]), retrySafe: Type.Boolean(),
+  processDisposition: Type.Optional(Type.Enum(["dead", "ambiguous"])), retrySafe: Type.Optional(Type.Boolean()),
   outputRepositoryId: Nullable(IdSchema), outputCommonDirIdentityHash: Nullable(HashSchema), outputWorktreeIdentityHash: Nullable(HashSchema),
   outputSourceBase: Nullable(GitTreeRefV1Schema), outputCommit: Nullable(GitOidSchema), outputTree: Nullable(GitOidSchema),
   outputObjectFormat: Nullable(Type.Enum(["sha1", "sha256"])), candidateObservedAt: Nullable(TimestampSchema),
@@ -835,7 +835,7 @@ const LegacyQuarantinableWorkerResultFactBindingV1Schema = StrictObject({
   launchOwnerSessionId: IdSchema, workerId: IdSchema, attemptNumber: PositiveIntegerSchema,
   attemptNonce: Type.String({ minLength: 16, maxLength: 256 }), configHash: HashSchema, completionId: IdSchema,
   terminalStatus: Type.Enum(["succeeded", "needs_attention", "failed", "cancelled", "lost"]),
-  processDisposition: Type.Enum(["dead", "ambiguous"]), retrySafe: Type.Boolean(),
+  processDisposition: Type.Optional(Type.Enum(["dead", "ambiguous"])), retrySafe: Type.Optional(Type.Boolean()),
 });
 const FindingFactBindingV1Schema = StrictObject({
   kind: Type.Literal("finding"), hash: HashSchema, planHash: HashSchema, runId: IdSchema,
@@ -1345,8 +1345,8 @@ const WorkerBindingV1Schema = StrictObject({
   heartbeatAt: Nullable(TimestampSchema),
   completionId: Nullable(IdSchema),
   resultHash: Nullable(HashSchema),
-  processDisposition: ProcessDispositionSchema,
-  retrySafe: Type.Boolean(),
+  processDisposition: Type.Optional(ProcessDispositionSchema),
+  retrySafe: Type.Optional(Type.Boolean()),
 });
 const EvidenceIndexV1Schema = StrictObject({
   stageAttemptInputs: IdMap(HashRefV1Schema),
@@ -2127,7 +2127,6 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
       const currentLaunch = state.launchIntents[binding.launchIntentId];
       pushIssue(issues, `/workerBindings/${attemptId}`, predecessorContexts.every(({ attempt: otherAttempt, launch: otherLaunch, binding: other }) => other.workerId !== binding.workerId && other.attemptNonce !== binding.attemptNonce && other.configHash !== binding.configHash && other.launchIntentId !== binding.launchIntentId && otherLaunch?.launchKey !== currentLaunch?.launchKey && otherAttempt?.stageAttemptId !== attemptForIndependence.stageAttemptId), `${attemptForIndependence.stage} requires a fresh exact worker/config/nonce and launch/intent/attempt identity distinct from predecessor implementation/evaluation/review contexts; manager storage may be shared`);
     }
-    pushIssue(issues, `/workerBindings/${attemptId}/retrySafe`, !binding.retrySafe || binding.processDisposition === "dead", "retrySafe requires proven dead process disposition");
     if (binding.resultHash) {
       const attempt = state.stageAttempts[attemptId];
       pushIssue(issues, `/workerBindings/${attemptId}/resultHash`, binding.completionId !== null && attempt?.workerResult?.hash === binding.resultHash && state.evidenceIndex.workerResults[binding.resultHash]?.hash === binding.resultHash, "must match exact attempt, completion, and indexed worker result");
@@ -2135,7 +2134,6 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
       pushIssue(issues, `/workerBindings/${attemptId}/resultHash`, resultFact?.kind === "worker_result", "requires a validated immutable generic worker-result binding");
       if (resultFact?.kind === "worker_result") {
         pushIssue(issues, `/workerBindings/${attemptId}/resultHash`, resultFact.hash === binding.resultHash && resultFact.planHash === state.identity.planHash && resultFact.runId === state.runId && resultFact.runNonce === state.runNonce && resultFact.workItemId === attempt?.workItemId && resultFact.stage === attempt?.stage && resultFact.stageAttemptId === attemptId && resultFact.launchIntentId === binding.launchIntentId && resultFact.workerStorageId === binding.workerStorageId && resultFact.launchOwnerSessionId === binding.launchOwnerSessionId && resultFact.workerId === binding.workerId && resultFact.attemptNumber === binding.attemptNumber && resultFact.attemptNonce === binding.attemptNonce && resultFact.configHash === binding.configHash && resultFact.completionId === binding.completionId, "worker result must match exact plan/run/item/stage/attempt/launch and full generic attempt ingest key");
-        pushIssue(issues, `/workerBindings/${attemptId}/resultHash`, resultFact.processDisposition === binding.processDisposition && resultFact.retrySafe === binding.retrySafe, "worker result disposition must match the current immutable process facts");
         const outputValues = [resultFact.outputRepositoryId, resultFact.outputCommonDirIdentityHash, resultFact.outputWorktreeIdentityHash, resultFact.outputSourceBase, resultFact.outputCommit, resultFact.outputTree, resultFact.outputObjectFormat, resultFact.candidateObservedAt];
         const hasOutput = outputValues.every((value) => value !== null);
         pushIssue(issues, `/workerBindings/${attemptId}/resultHash`, hasOutput || outputValues.every((value) => value === null), "worker Git output identity must be wholly present or wholly null");
@@ -2231,7 +2229,7 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
       const result = workerResultHash ? context.facts[workerResultHash] as any : undefined;
       const repositoryId = attempt ? state.workItems[attempt.workItemId]?.writeRepositoryId : undefined;
       const exactCleanupRequest = attempt && binding && result?.kind === "worker_result" ? canonicalHash({ kind: "cleanup_worktree", runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stageAttemptId: attempt.stageAttemptId, launchIntentId: binding.launchIntentId, workerStorageId: binding.workerStorageId, launchOwnerSessionId: binding.launchOwnerSessionId, workerId: binding.workerId, attemptNumber: binding.attemptNumber, attemptNonce: binding.attemptNonce, configHash: binding.configHash, workerResultHash: result.hash, repositoryId, commonDirIdentityHash: result.outputCommonDirIdentityHash, worktreeIdentityHash: result.outputWorktreeIdentityHash }) : null;
-      pushIssue(issues, `/effects/${effectId}`, Boolean(attempt?.terminalAt && binding?.resultHash === workerResultHash && result?.processDisposition === "dead" && result.retrySafe === true && result.outputRepositoryId === repositoryId && result.outputCommonDirIdentityHash !== null && result.outputWorktreeIdentityHash !== null && effect.subject.kind === "work_item" && effect.subject.id === attempt.workItemId && effect.procedureClass === "idempotent" && effect.requestHash === exactCleanupRequest), "cleanup_worktree must bind exact terminal retry-safe worker/result/repository/worktree identity");
+      pushIssue(issues, `/effects/${effectId}`, Boolean(attempt?.terminalAt && binding?.resultHash === workerResultHash && result?.outputRepositoryId === repositoryId && result.outputCommonDirIdentityHash !== null && result.outputWorktreeIdentityHash !== null && effect.subject.kind === "work_item" && effect.subject.id === attempt.workItemId && effect.procedureClass === "idempotent" && effect.requestHash === exactCleanupRequest), "cleanup_worktree must bind the exact terminal worker result and repository/worktree identity");
       if (effect.observationHash !== null) pushIssue(issues, `/effects/${effectId}/reconciliation`, ["applied_exact", "proven_absent"].includes(effect.reconciliation), "cleanup_worktree observation must be applied exactly or prove the worktree absent");
     } else {
       pushIssue(issues, `/effects/${effectId}/boundWorkerResultHash`, effect.boundWorkerResultHash == null || effect.kind === "run_procedure", "only cleanup_worktree or exact lifecycle procedure execution may bind a worker-result identity");
@@ -2935,7 +2933,7 @@ function validateNonPassStage(state: DagRunStateV1, context: DagRunValidationCon
     if (result?.terminalStatus === "cancelled") {
       const binding = state.workerBindings[attempt.stageAttemptId];
       const activeCancellation = Object.values(state.cancellations).some((cancellation) => cancellation.state !== "closed" && Object.prototype.hasOwnProperty.call(cancellation.fencedGenerations, attempt.workItemId));
-      pushIssue(issues, `${path}/currentEvidence`, Boolean(binding && binding.resultHash === result.hash && binding.processDisposition === "dead" && binding.retrySafe && result.processDisposition === "dead" && result.retrySafe && derivedDisposition === "BLOCKED"), "cancelled non-PASS authority requires exact bound retry-safe process death and canonical BLOCKED derivation");
+      pushIssue(issues, `${path}/currentEvidence`, Boolean(binding && binding.resultHash === result.hash && derivedDisposition === "BLOCKED"), "cancelled non-PASS authority requires the exact bound terminal result and canonical BLOCKED derivation");
       pushIssue(issues, `${path}/currentEvidence`, !activeCancellation, "active conductor cancellation must close through record_cancellation rather than stage sealing");
     }
   }

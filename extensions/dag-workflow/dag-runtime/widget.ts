@@ -65,13 +65,10 @@ export interface DagWidgetLayoutV2 {
   layoutHash: string;
 }
 
-const SPINNER_FRAMES_V2 = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
-
 export function renderDagWidgetV2(projection: DagExecutionProjectionV2, width: number, terminalRows: number, observationTime: string, view: DagWidgetRenderStateV2 = { animationFrame: 0, freshLiveAliases: [] }): DagWidgetLayoutV2 {
   if (!Number.isInteger(width) || width < 1 || !Number.isInteger(terminalRows) || terminalRows < 4) throw new TypeError("DAG widget requires integer width >=1 and terminalRows >=4");
   if (!Number.isFinite(Date.parse(observationTime))) throw new TypeError("DAG widget observationTime must be an explicit timestamp");
   const rowBudget = Math.max(4, Math.min(12, Math.floor(terminalRows / 3)));
-  const freshLive = new Set(view.freshLiveAliases);
   const byId = new Map(projection.nodes.map((node) => [node.workItemId, node]));
   const anchors = selectAnchorsV2(projection);
   const lines: string[] = [];
@@ -91,12 +88,12 @@ export function renderDagWidgetV2(projection: DagExecutionProjectionV2, width: n
     let used = 0;
     for (const anchor of anchors) {
       const dependents = outgoingDependentsV2(projection, anchor, byId);
-      const block = renderGraphBranchV2(anchor, dependents, width, view.animationFrame, freshLive);
+      const block = renderGraphBranchV2(anchor, dependents, width);
       if (used + block.lines.length > contentBudget) {
         if (used === 0) {
           activity.add(anchor.alias);
           selected.add(anchor.alias);
-          lines.push(renderAnchorV2(anchor, width, view.animationFrame, freshLive));
+          lines.push(renderAnchorV2(anchor, width));
           used += 1;
           if (used < contentBudget && dependents.length) {
             const compact = renderDependentRowV2(dependents, width);
@@ -166,8 +163,8 @@ function outgoingDependentsV2(projection: DagExecutionProjectionV2, anchor: DagE
     .sort(dependentOrderV2);
 }
 
-function renderGraphBranchV2(anchor: DagExecutionNodeV2, dependents: DagExecutionNodeV2[], width: number, frame: number, freshLive: Set<string>): { lines: string[]; visibleDependents: DagExecutionNodeV2[] } {
-  const anchorLine = renderAnchorV2(anchor, width, frame, freshLive);
+function renderGraphBranchV2(anchor: DagExecutionNodeV2, dependents: DagExecutionNodeV2[], width: number): { lines: string[]; visibleDependents: DagExecutionNodeV2[] } {
+  const anchorLine = renderAnchorV2(anchor, width);
   if (dependents.length === 0) return { lines: [anchorLine], visibleDependents: [] };
   const dependentRow = renderDependentRowV2(dependents, width);
   if (dependentRow.visible.length === 0) return { lines: [anchorLine], visibleDependents: [] };
@@ -180,8 +177,8 @@ function renderGraphBranchV2(anchor: DagExecutionNodeV2, dependents: DagExecutio
   return { lines: [anchorLine, connector.join("").trimEnd(), dependentRow.line], visibleDependents: dependentRow.visible };
 }
 
-function renderAnchorV2(node: DagExecutionNodeV2, width: number, frame: number, freshLive: Set<string>): string {
-  const motion = freshLive.has(node.alias) ? SPINNER_FRAMES_V2[frame % SPINNER_FRAMES_V2.length] : node.worker?.processDisposition === "live" ? "·" : " ";
+function renderAnchorV2(node: DagExecutionNodeV2, width: number): string {
+  const motion = node.worker?.terminalStatus === null ? "·" : " ";
   const progress = renderProgressV2(node, width);
   const prefix = `${motion} ${node.glyph}${node.alias} ${progress}`;
   const available = Math.max(0, width - visibleWidth(prefix) - 1);

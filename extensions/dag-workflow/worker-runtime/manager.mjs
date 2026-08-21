@@ -21,12 +21,8 @@ import {
   normalizeRuntimeId,
   nowIso,
   pathExists,
-  processGroupStatus,
   processIdentityStatus,
-  processesUsingWorkingRoot,
-  processesWithEnvironmentBinding,
   processStartIdentity,
-  uninspectableSameUidProcesses,
   readFileHead,
   readFileTail,
   readJson,
@@ -97,15 +93,9 @@ export class WorkerManager {
     await this.#claimOwnership(sessionId, sessionFile);
     await this.#migrateLegacyLaunchBindings(ctx);
     this.attached = true;
-    await this.scan();
+    await this.scan({ includeTerminal: true });
     await this.dispatchNext();
-    this.timer = setInterval(() => {
-      if (this.timerScanPending) return;
-      this.timerScanPending = true;
-      this.options.onTimerScanRequested?.();
-      void this.scan().catch((error) => { console.error(`Worker scan failed: ${error.message}`); }).finally(() => { this.timerScanPending = false; });
-    }, this.options.watchIntervalMs ?? 1000);
-    this.timer.unref?.();
+    await this.#updateScanTimer();
     return this.summary();
   }
 
@@ -121,6 +111,30 @@ export class WorkerManager {
     if (store?.queue) await store.queue;
     this.context = null;
     this.store = null;
+  }
+
+  #startScanTimer() {
+    if (this.timer || !this.attached) return;
+    this.timer = setInterval(() => {
+      if (this.timerScanPending) return;
+      this.timerScanPending = true;
+      this.options.onTimerScanRequested?.();
+      void this.scan({ includeTerminal: false }).catch((error) => { console.error(`Worker scan failed: ${error.message}`); }).finally(() => { this.timerScanPending = false; });
+    }, this.options.watchIntervalMs ?? 1000);
+    this.timer.unref?.();
+  }
+
+  #stopScanTimer() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    this.timerScanPending = false;
+  }
+
+  async #updateScanTimer() {
+    if (!this.attached || !this.store) return this.#stopScanTimer();
+    const state = await this.store.load();
+    if (Object.values(state.workers).some((worker) => !TERMINAL_STATUSES.has(worker.status))) this.#startScanTimer();
+    else this.#stopScanTimer();
   }
 
   async launch(input, ctx = this.context) {
@@ -179,8 +193,13 @@ export class WorkerManager {
     if (!existing) await this.#hitFailpoint("after_launch_reservation", { workerId, launchKey });
     const current = await this.store.load();
     const worker = current.workers[workerId];
-    if (existing && worker.currentAttempt > 0) return { workerId, launchKey, attemptNumber: worker.currentAttempt, status: worker.status, asynchronous: true, idempotentReplay: true };
-    return this.#launchAttempt(workerId, ctx, { initialOnly: true, launchKey, idempotentReplay: existing });
+    if (existing && worker.currentAttempt > 0) {
+      await this.#updateScanTimer();
+      return { workerId, launchKey, attemptNumber: worker.currentAttempt, status: worker.status, asynchronous: true, idempotentReplay: true };
+    }
+    const launched = await this.#launchAttempt(workerId, ctx, { initialOnly: true, launchKey, idempotentReplay: existing });
+    await this.#updateScanTimer();
+    return launched;
   }
 
   async launchOwnedAttempt(input, ctx = this.context) {
@@ -277,8 +296,7 @@ export class WorkerManager {
     let worker = state.workers[binding.workerId];
     if (!worker) { const record = (state.launchRecords ?? []).find((candidate) => candidate.workerId === binding.workerId); if (record?.archivedWorkerPath) worker = await readArchivedWorker(state, record); }
     const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash);
-    if (!worker || worker.launchKey !== launchKey || !attempt || !attempt.ingestedAt || attempt.processDisposition !== "dead" || attempt.retrySafe !== true) return null;
-    await assertRetrySafeProcessFact(state, worker, attempt);
+    if (!worker || worker.launchKey !== launchKey || !attempt || !attempt.ingestedAt || !attempt.resultPath) return null;
     const root = worker.normalizedRequest?.workingRoot;
     if (root?.kind !== "approved_disposable") throw new Error("Owned-worktree cleanup is not bound to an approved disposable root");
     const repositoryCommonDir = await gitCommonDir(state.repositoryRoot);
@@ -339,8 +357,7 @@ export class WorkerManager {
     const result = await readJson(resolve(repositoryRoot, attempt.resultPath), { maxBytes: MAX_RESULT_BYTES });
     assertTerminalResult(result, { recovery: resolve(repositoryRoot, attempt.resultPath) === attemptPaths(repositoryRoot, state.storageId, worker.id, attempt.attemptNumber).recoveryResult });
     if (result.storageId !== binding.workerStorageId || result.ownerSessionId !== binding.launchOwnerSessionId || result.workerId !== binding.workerId || result.attemptNumber !== binding.attemptNumber || result.attemptNonce !== binding.attemptNonce || result.configHash !== binding.configHash) throw new Error("Terminal worker result conflicts with exact DAG binding");
-      if (attempt.retrySafe === true) await assertRetrySafeProcessFact(state, worker, attempt);
-      return { completionId: result.completionId, terminalStatus: result.terminalStatus, processDisposition: attempt.processDisposition ?? "ambiguous", retrySafe: attempt.retrySafe === true };
+      return { completionId: result.completionId, terminalStatus: result.terminalStatus };
     });
   }
 
@@ -414,7 +431,6 @@ export class WorkerManager {
 
   async authorizeRetry(workerId) {
     this.#assertAttached();
-    await this.#refreshProcessDisposition(workerId);
     const token = newNonce();
     const tokenHash = sha256(token);
     const authorization = await this.store.mutate(async (draft) => {
@@ -424,8 +440,7 @@ export class WorkerManager {
       if (!attempt || !TERMINAL_STATUSES.has(worker.status)) throw new Error(`Worker ${workerId} is not terminal`);
       const maxAttempts = Math.max(1, Number(this.options.maxAttemptsPerWorker ?? 32));
       if (worker.attempts.length >= maxAttempts) throw new Error(`Worker ${workerId} reached the retained attempt limit of ${maxAttempts}`);
-      if (attempt.retrySafe !== true || attempt.processDisposition !== "dead") throw new Error(`Worker ${workerId} is not retry-safe`);
-      await assertRetrySafeProcessFact(draft, worker, attempt);
+      if (!attempt.ingestedAt || !attempt.resultPath) throw new Error(`Worker ${workerId} has no exact terminal result`);
       draft.retryAuthorizations ??= [];
       const existing = draft.retryAuthorizations.find((candidate) => candidate.workerId === workerId && candidate.attemptNumber === attempt.attemptNumber && !candidate.consumedAt);
       if (existing) throw new Error(`Worker ${workerId} already has an open retry authorization`);
@@ -439,7 +454,9 @@ export class WorkerManager {
   async retry(workerId, ctx = this.context, retryToken = null) {
     this.#assertAttached();
     const authorization = retryToken ? { retryToken } : await this.authorizeRetry(workerId);
-    return this.#launchAttempt(workerId, ctx, { retryToken: authorization.retryToken });
+    const launched = await this.#launchAttempt(workerId, ctx, { retryToken: authorization.retryToken });
+    await this.#updateScanTimer();
+    return launched;
   }
 
   async #launchAttempt(workerId, ctx, options = {}) {
@@ -461,8 +478,6 @@ export class WorkerManager {
     const request = workerBefore.normalizedRequest ?? await this.#normalizeLaunchRequest({ task: workerBefore.task, cwd: workerBefore.cwd, ...workerBefore.launchOptions }, ctx, before);
     if (!Array.isArray(request.activeTools) || !request.workingRoot) throw new Error(`Worker ${workerId} has no verified reusable launch request`);
     await this.#assertWorkingRootCurrent(before, request);
-    const uninspectableBaseline = await this.#observeUninspectableProcesses();
-    if (uninspectableBaseline.status !== "observed") throw new Error("Cannot establish the pre-launch uninspectable-process baseline");
     const config = withConfigHash({
       schemaVersion: 1,
       storageId: before.storageId,
@@ -470,7 +485,6 @@ export class WorkerManager {
       launchKey: workerBefore.launchKey,
       requestHash: request.boundConfigRequestHash ?? workerBefore.requestHash,
       launchOwner: this.#owner(before.ownerSessionId),
-      uninspectableProcessBaseline: uninspectableBaseline.processes,
       workerId,
       label: workerBefore.label,
       attemptNumber,
@@ -521,11 +535,8 @@ export class WorkerManager {
         launchKey: workerBefore.launchKey,
         requestHash: workerBefore.requestHash,
         launchOwner: config.launchOwner,
-        uninspectableProcessBaseline: config.uninspectableProcessBaseline,
         config,
         status: "planned",
-        processDisposition: "not_observed",
-        retrySafe: false,
         launchSessionId: before.ownerSessionId,
         createdAt: config.createdAt,
       });
@@ -608,8 +619,6 @@ export class WorkerManager {
           delete currentAttempt.launchReceiptPath;
           delete currentAttempt.launchReceiptHash;
           currentAttempt.status = "launch_ambiguous";
-          currentAttempt.processDisposition = "ambiguous";
-          currentAttempt.retrySafe = false;
           if (currentWorker.currentAttempt === attemptNumber) { currentWorker.status = "needs_attention"; currentWorker.updatedAt = nowIso(); }
         });
         throw new Error(`Supervisor launch receipt publication conflicted: ${error.message}`);
@@ -632,7 +641,6 @@ export class WorkerManager {
       const isTerminal = Boolean(currentAttempt.ingestedAt) || TERMINAL_STATUSES.has(currentAttempt.status);
       if (isCurrent && !isTerminal && current.status !== "cancelling") {
         currentAttempt.status = supervisorStartIdentity ? "running" : "launch_ambiguous";
-        currentAttempt.processDisposition = supervisorStartIdentity ? "live" : "ambiguous";
         current.status = supervisorStartIdentity ? "running" : "needs_attention";
         current.updatedAt = nowIso();
       }
@@ -680,11 +688,6 @@ export class WorkerManager {
     };
   }
 
-  async #observeUninspectableProcesses() {
-    if (this.options.observeUninspectableProcesses) return this.options.observeUninspectableProcesses();
-    return uninspectableSameUidProcesses([process.pid]);
-  }
-
   async #assertWorkingRootCurrent(state, request) {
     const root = request?.workingRoot;
     if (!root || root.path !== request.cwd) throw new Error("Launch request lacks an exact working-root binding");
@@ -704,13 +707,14 @@ export class WorkerManager {
     } else throw new Error("Launch working-root kind is invalid");
   }
 
-  async scan() {
+  async scan(options = { includeTerminal: true }) {
     const operation = this.scanQueue.then(async () => {
       if (!this.attached) return;
       this.scanning = true;
       try {
         const state = await this.store.load();
       for (const worker of Object.values(state.workers)) {
+        if (TERMINAL_STATUSES.has(worker.status) && !options.includeTerminal) continue;
         if (worker.currentAttempt === 0 && worker.launchKey && worker.normalizedRequest) {
           await this.#launchAttempt(worker.id, this.context, { initialOnly: true, launchKey: worker.launchKey, idempotentReplay: true });
           continue;
@@ -719,11 +723,11 @@ export class WorkerManager {
           if (attempt.ingestedAt) {
             const terminalPaths = attemptPaths(state.repositoryRoot, state.storageId, worker.id, attempt.attemptNumber);
             const ingestedPath = attempt.resultPath ? resolve(state.repositoryRoot, attempt.resultPath) : null;
-            if (ingestedPath === terminalPaths.recoveryResult && await pathExists(terminalPaths.result)) await this.#quarantineAttemptArtifact(worker.id, attempt.attemptNumber, terminalPaths.result, "late-primary-result", "Primary result appeared after recovery result adoption");
-            if (ingestedPath === terminalPaths.result && await pathExists(terminalPaths.recoveryResult)) await this.#quarantineAttemptArtifact(worker.id, attempt.attemptNumber, terminalPaths.recoveryResult, "late-recovery-result", "Recovery result appeared after primary result adoption");
-            await this.#refreshProcessDisposition(worker.id, attempt.attemptNumber);
+            if (options.includeTerminal && ingestedPath === terminalPaths.recoveryResult && await pathExists(terminalPaths.result)) await this.#quarantineAttemptArtifact(worker.id, attempt.attemptNumber, terminalPaths.result, "late-primary-result", "Primary result appeared after recovery result adoption");
+            if (options.includeTerminal && ingestedPath === terminalPaths.result && await pathExists(terminalPaths.recoveryResult)) await this.#quarantineAttemptArtifact(worker.id, attempt.attemptNumber, terminalPaths.recoveryResult, "late-recovery-result", "Recovery result appeared after primary result adoption");
             continue;
           }
+          if (attempt.attemptNumber !== worker.currentAttempt) continue;
           const paths = attemptPaths(state.repositoryRoot, state.storageId, worker.id, attempt.attemptNumber);
           if (await pathExists(paths.launchReceipt)) await this.#bindLaunchReceipt(state, worker, attempt, paths);
           if (attempt.status === "planned") {
@@ -764,10 +768,11 @@ export class WorkerManager {
                   currentWorker.updatedAt = nowIso();
                 }
               });
-              if (worker.status === "cancelling") this.#scheduleCancellationEscalation(worker.id, attempt, mailbox.supervisorPid, mailbox.supervisorStartIdentity);
+              if (mailbox.status === "termination_failed") await this.#recordTerminationFailure(worker.id, attempt, mailbox.error ?? "Supervisor could not terminate the exact Pi child");
+              else if (worker.status === "cancelling" && mailbox.childPid && mailbox.childStartIdentity) this.#scheduleCancellationEscalation(worker.id, attempt, mailbox.childPid, mailbox.childStartIdentity);
             } catch (error) {
               await this.#quarantineAttemptArtifact(worker.id, attempt.attemptNumber, paths.mailbox, "conflicting-or-corrupt-mailbox", error.message);
-              await this.#writeRecoveryResult(worker.id, attempt.attemptNumber, "lost", `Mailbox recovery failed closed: ${error.message}`);
+              await this.#terminateOrEscalateUnknownAttempt(worker, attempt, `Mailbox recovery failed: ${error.message}`);
             }
             continue;
           }
@@ -776,6 +781,7 @@ export class WorkerManager {
       }
         await this.#compactTerminalWorkers();
         await this.dispatchNext();
+        await this.#updateScanTimer();
       } finally { this.scanning = false; }
     });
     this.scanQueue = operation.then(() => undefined, () => undefined);
@@ -821,7 +827,6 @@ export class WorkerManager {
       current.launchReceiptHash = receipt.receiptHash;
       if (!current.ingestedAt && current.status === "dispatching") {
         current.status = "running";
-        current.processDisposition = "live";
         if (currentWorker.currentAttempt === current.attemptNumber && currentWorker.status !== "cancelling") { currentWorker.status = "running"; currentWorker.updatedAt = nowIso(); }
       }
       return { disposition: "hydrated" };
@@ -837,79 +842,46 @@ export class WorkerManager {
     return receipt;
   }
 
-  async #refreshProcessDisposition(workerId, attemptNumber = null) {
-    const state = await this.store.load();
-    const worker = state.workers[workerId];
-    const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === (attemptNumber ?? worker.currentAttempt));
-    if (!worker || !attempt) return null;
-    const paths = attemptPaths(state.repositoryRoot, state.storageId, workerId, attempt.attemptNumber);
-    if (await pathExists(paths.launchReceipt)) await this.#bindLaunchReceipt(state, worker, attempt, paths);
-    let supervisorPid = attempt.supervisorPid;
-    let supervisorStartIdentity = attempt.supervisorStartIdentity;
-    let childPid = attempt.childPid;
-    let childStartIdentity = attempt.childStartIdentity;
-    if (await pathExists(paths.mailbox)) {
-      try {
-        const mailbox = await readJson(paths.mailbox, { maxBytes: MAX_MAILBOX_BYTES });
-        if (!mailboxMatches(mailbox, state, worker, attempt)) throw new Error("mailbox identity mismatch");
-        supervisorPid = mailbox.supervisorPid ?? supervisorPid;
-        supervisorStartIdentity = mailbox.supervisorStartIdentity ?? supervisorStartIdentity;
-        childPid = mailbox.childPid ?? childPid;
-        childStartIdentity = mailbox.childStartIdentity ?? childStartIdentity;
-      } catch (error) {
-        await this.#quarantineAttemptArtifact(worker.id, attempt.attemptNumber, paths.mailbox, "conflicting-or-corrupt-mailbox", error.message);
-      }
-    }
-    const supervisor = await processIdentityStatus(supervisorPid, supervisorStartIdentity);
-    const child = childPid && childStartIdentity ? await processIdentityStatus(childPid, childStartIdentity) : "ambiguous";
-    const processGroup = processGroupStatus(supervisorPid);
-    const workingRootUsers = await processesUsingWorkingRoot(worker.cwd, [process.pid]);
-    const boundProcesses = await processesWithEnvironmentBinding("PI_DAG_WORKER_ATTEMPT_NONCE", attempt.attemptNonce, [process.pid]);
-    const currentUninspectable = await this.#observeUninspectableProcesses();
-    const baselineIdentities = new Set((attempt.uninspectableProcessBaseline ?? []).map((candidate) => `${candidate.pid}:${candidate.processStartIdentity}`));
-    const newUninspectable = currentUninspectable.processes.filter((candidate) => !baselineIdentities.has(`${candidate.pid}:${candidate.processStartIdentity}`));
-    let disposition = "ambiguous";
-    if (supervisor === "live" || child === "live" || processGroup === "present" || workingRootUsers.users.length || boundProcesses.users.length || newUninspectable.length) disposition = "live";
-    else if (["dead", "mismatch"].includes(supervisor) && ["dead", "mismatch"].includes(child) && processGroup === "absent" && workingRootUsers.status === "observed" && boundProcesses.status === "observed" && currentUninspectable.status === "observed") disposition = "dead";
-    const retrySafe = disposition === "dead" && workingRootUsers.status === "observed" && workingRootUsers.users.length === 0 && boundProcesses.status === "observed" && boundProcesses.users.length === 0 && currentUninspectable.status === "observed" && newUninspectable.length === 0;
-    if (attempt.processDisposition === disposition && attempt.retrySafe === retrySafe && attempt.supervisorPid === supervisorPid && attempt.supervisorStartIdentity === supervisorStartIdentity && attempt.childPid === childPid && attempt.childStartIdentity === childStartIdentity) return { disposition, retrySafe };
-    const observedAt = nowIso();
-    const factPayload = { schemaVersion: 1, kind: "worker_process_disposition", storageId: state.storageId, workerId, attemptNumber: attempt.attemptNumber, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash, supervisor: { pid: supervisorPid ?? null, processStartIdentity: supervisorStartIdentity ?? null, status: supervisor }, child: { pid: childPid ?? null, processStartIdentity: childStartIdentity ?? null, status: child }, processGroup: { leaderPid: supervisorPid ?? null, status: processGroup }, workingRoot: { path: worker.cwd, observationStatus: workingRootUsers.status, users: workingRootUsers.users }, boundProcesses: { environmentName: "PI_DAG_WORKER_ATTEMPT_NONCE", observationStatus: boundProcesses.status, users: boundProcesses.users }, uninspectableProcesses: { observationStatus: currentUninspectable.status, baseline: attempt.uninspectableProcessBaseline ?? [], newProcesses: newUninspectable }, disposition, retrySafe, observedByOwner: structuredClone(state.owner), observedAt };
-    const processFact = { ...factPayload, factHash: sha256(factPayload) };
-    const processFactPath = join(paths.processFacts, `${processFact.factHash.slice(7)}.json`);
-    await writeImmutableJson(processFactPath, processFact, { maxBytes: 64 * 1024 });
-    await this.store.mutate((draft) => {
-      const current = draft.workers[workerId]?.attempts.find((candidate) => candidate.attemptNumber === attempt.attemptNumber);
-      if (!current || current.attemptNonce !== attempt.attemptNonce) return;
-      current.supervisorPid ??= supervisorPid;
-      current.supervisorStartIdentity ??= supervisorStartIdentity;
-      current.childPid ??= childPid;
-      current.childStartIdentity ??= childStartIdentity;
-      current.processDisposition = disposition;
-      current.retrySafe = retrySafe;
-      current.processObservedAt = observedAt;
-      current.processObservation = { supervisor, child, processGroup, workingRootUsers, boundProcesses, currentUninspectable, newUninspectable };
-      current.processDispositionFactPath = relative(state.repositoryRoot, processFactPath);
-      current.processDispositionFactHash = processFact.factHash;
-    });
-    return { disposition, retrySafe };
-  }
-
   async #reconcileMissingAttempt(state, worker, attempt) {
     const age = Date.now() - Date.parse(attempt.createdAt);
     if (age < (this.options.launchGraceMs ?? 10_000)) return;
     if (!attempt.supervisorPid || !attempt.supervisorStartIdentity) {
-      await this.#writeRecoveryResult(worker.id, attempt.attemptNumber, "lost", "Launch ownership remained ambiguous after the recovery grace period", false, { requireUnbound: true, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash });
+      await this.#recordTerminationFailure(worker.id, attempt, "Launch ownership remained ambiguous after the recovery grace period; exact Pi-child termination cannot be established");
       return;
     }
     const status = await processIdentityStatus(attempt.supervisorPid, attempt.supervisorStartIdentity);
     if (status === "live") return;
-    if (status === "dead") {
-      await this.#writeRecoveryResult(worker.id, attempt.attemptNumber, "lost", "Supervisor process died without an immutable result");
-      await this.#refreshProcessDisposition(worker.id, attempt.attemptNumber);
+    if (["dead", "mismatch"].includes(status)) {
+      await this.#terminateOrEscalateUnknownAttempt(worker, attempt, `Supervisor process is ${status} without an immutable result`);
       return;
     }
-    await this.#writeRecoveryResult(worker.id, attempt.attemptNumber, "lost", `Supervisor ownership is ${status}; refusing to signal or relaunch`);
+    await this.#recordTerminationFailure(worker.id, attempt, `Supervisor ownership is ${status}; exact Pi-child termination cannot be established`);
+  }
+
+  async #terminateOrEscalateUnknownAttempt(worker, attempt, reason) {
+    if (!attempt.childPid || !attempt.childStartIdentity) {
+      await this.#recordTerminationFailure(worker.id, attempt, `${reason}; exact Pi child identity is unavailable`);
+      return;
+    }
+    const childStatus = await processIdentityStatus(attempt.childPid, attempt.childStartIdentity);
+    if (["dead", "mismatch"].includes(childStatus)) {
+      await this.#writeRecoveryResult(worker.id, attempt.attemptNumber, "lost", `${reason}; exact Pi child is ${childStatus}`);
+      return;
+    }
+    if (childStatus !== "live") {
+      await this.#recordTerminationFailure(worker.id, attempt, `${reason}; exact Pi child status is ${childStatus}`);
+      return;
+    }
+    await this.store.mutate((draft) => {
+      const currentWorker = draft.workers[worker.id];
+      const current = currentWorker?.attempts.find((candidate) => candidate.attemptNumber === attempt.attemptNumber);
+      if (!currentWorker || current?.attemptNonce !== attempt.attemptNonce || current?.configHash !== attempt.configHash || current.ingestedAt) return;
+      currentWorker.status = "cancelling";
+      currentWorker.updatedAt = nowIso();
+      current.status = "cancelling";
+      current.terminationReason = String(reason).slice(0, 2048);
+    });
+    this.#scheduleCancellationEscalation(worker.id, attempt, attempt.childPid, attempt.childStartIdentity);
   }
 
   async #quarantineAttemptArtifact(workerId, attemptNumber, sourcePath, kind, reason) {
@@ -947,12 +919,11 @@ export class WorkerManager {
     return record;
   }
 
-  async #writeRecoveryResult(workerId, attemptNumber, terminalStatus, summary, allowPrimaryResult = false, guard = null) {
+  async #writeRecoveryResult(workerId, attemptNumber, terminalStatus, summary, allowPrimaryResult = false) {
     const publication = await this.store.mutate(async (draft) => {
       const worker = draft.workers[workerId];
       const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === attemptNumber);
       if (!attempt || attempt.ingestedAt) return { published: false };
-      if (guard?.requireUnbound && (attempt.attemptNonce !== guard.attemptNonce || attempt.configHash !== guard.configHash || attempt.supervisorPid || attempt.supervisorStartIdentity)) return { published: false };
       const paths = attemptPaths(draft.repositoryRoot, draft.storageId, workerId, attemptNumber);
       if ((!allowPrimaryResult && await pathExists(paths.result)) || await pathExists(paths.recoveryResult)) return { published: false };
       const seed = sha256({ storageId: draft.storageId, workerId, attemptNumber, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash });
@@ -998,8 +969,6 @@ export class WorkerManager {
           const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === attemptNumber);
           if (!attempt || attempt.ingestedAt) return;
           attempt.status = "recovery_corrupt";
-          attempt.processDisposition = "ambiguous";
-          attempt.retrySafe = false;
           if (worker.currentAttempt === attemptNumber) { worker.status = "needs_attention"; worker.updatedAt = nowIso(); }
         });
       }
@@ -1098,7 +1067,10 @@ export class WorkerManager {
     const state = await this.store.load();
     const limit = Math.max(1, Number(this.options.maxRetainedTerminalWorkers ?? state.retentionPolicy?.maxRetainedTerminalWorkers ?? 50));
     const eligible = Object.values(state.workers)
-      .filter((worker) => TERMINAL_STATUSES.has(worker.status))
+      .filter((worker) => {
+        const attempt = worker.attempts.find((candidate) => candidate.attemptNumber === worker.currentAttempt);
+        return TERMINAL_STATUSES.has(worker.status) && Boolean(worker.completionId && attempt?.ingestedAt && attempt.resultPath);
+      })
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
     for (const worker of eligible.slice(limit)) {
       const archivedAt = worker.updatedAt;
@@ -1150,11 +1122,10 @@ export class WorkerManager {
     if (TERMINAL_STATUSES.has(worker.status)) return { workerId, status: worker.status, alreadyTerminal: true };
     const attempt = worker.attempts.find((candidate) => candidate.attemptNumber === worker.currentAttempt);
     if (!attempt) throw new Error(`Worker ${workerId} has no current attempt`);
-    let pid = attempt.supervisorPid;
-    let identity = attempt.supervisorStartIdentity;
+    const pid = attempt.childPid;
+    const identity = attempt.childStartIdentity;
     const paths = attemptPaths(state.repositoryRoot, state.storageId, workerId, attempt.attemptNumber);
     const processStatus = pid && identity ? await processIdentityStatus(pid, identity) : "unbound";
-    if (processStatus !== "live" && processStatus !== "unbound") throw new Error(`Cancellation refused: supervisor ownership is ${processStatus}`);
     const cancellationCommit = await this.store.mutate(async (draft) => {
       const current = draft.workers[workerId];
       if (!current) throw new Error(`Unknown worker: ${workerId}`);
@@ -1184,22 +1155,43 @@ export class WorkerManager {
   #scheduleCancellationEscalation(workerId, attempt, pid, identity) {
     const key = `${workerId}:${attempt.attemptNumber}:${attempt.attemptNonce}`;
     if (this.cancellationTimers.has(key)) return;
-    const timer = setTimeout(async () => {
-      this.cancellationTimers.delete(key);
-      if (!this.attached || !this.store) return;
-      try {
-        const state = await this.store.load();
-        const worker = state.workers[workerId];
-        const current = worker?.attempts.find((candidate) => candidate.attemptNumber === attempt.attemptNumber);
-        if (!worker || worker.status !== "cancelling" || worker.currentAttempt !== attempt.attemptNumber || current?.attemptNonce !== attempt.attemptNonce) return;
-        if (await processIdentityStatus(pid, identity) !== "live") return;
-        process.kill(-pid, "SIGTERM");
-      } catch (error) {
-        if (error?.code !== "ESRCH") console.error(`Worker cancellation escalation failed for ${workerId}: ${error.message}`);
-      }
-    }, this.options.cancelEscalationMs ?? 8000);
-    timer.unref?.();
-    this.cancellationTimers.set(key, timer);
+    const schedule = (signal, delay, nextSignal = null) => {
+      const timer = setTimeout(async () => {
+        this.cancellationTimers.delete(key);
+        if (!this.attached || !this.store) return;
+        try {
+          const state = await this.store.load();
+          const worker = state.workers[workerId];
+          const current = worker?.attempts.find((candidate) => candidate.attemptNumber === attempt.attemptNumber);
+          if (!worker || worker.status !== "cancelling" || worker.currentAttempt !== attempt.attemptNumber || current?.attemptNonce !== attempt.attemptNonce) return;
+          if (await processIdentityStatus(pid, identity) !== "live") return;
+          process.kill(pid, signal);
+          if (nextSignal) schedule(nextSignal, this.options.cancelKillEscalationMs ?? 2000);
+        } catch (error) {
+          if (error?.code === "ESRCH") return;
+          await this.#recordTerminationFailure(workerId, attempt, `${signal} delivery to exact Pi child failed: ${error.message}`);
+        }
+      }, delay);
+      timer.unref?.();
+      this.cancellationTimers.set(key, timer);
+    };
+    schedule("SIGTERM", this.options.cancelEscalationMs ?? 8000, "SIGKILL");
+  }
+
+  async #recordTerminationFailure(workerId, attempt, message) {
+    let notify = false;
+    await this.store.mutate((draft) => {
+      const worker = draft.workers[workerId];
+      const current = worker?.attempts.find((candidate) => candidate.attemptNumber === attempt.attemptNumber);
+      if (!worker || current?.attemptNonce !== attempt.attemptNonce || current?.configHash !== attempt.configHash || current.ingestedAt) return;
+      current.terminationError = String(message).slice(0, 2048);
+      current.terminationFailedAt = nowIso();
+      current.status = "termination_failed";
+      worker.status = "needs_attention";
+      worker.updatedAt = nowIso();
+      if (!current.terminationFailureNotifiedAt) { current.terminationFailureNotifiedAt = nowIso(); notify = true; }
+    });
+    if (notify) this.pi.sendMessage({ customType: "subagent-termination-failed", content: `Worker ${workerId} could not terminate its exact Pi child. Automatic retry is blocked until the attempt reaches a terminal result. ${message}`, display: true, details: { workerId, attemptNumber: attempt.attemptNumber } }, { deliverAs: "followUp", triggerTurn: true });
   }
 
   async listResults(options = {}) {
@@ -1217,8 +1209,7 @@ export class WorkerManager {
         const result = await readJson(resolve(state.repositoryRoot, attempt.resultPath), { maxBytes: MAX_RESULT_BYTES });
         assertTerminalResult(result, { recovery: resolve(state.repositoryRoot, attempt.resultPath) === attemptPaths(state.repositoryRoot, state.storageId, worker.id, attempt.attemptNumber).recoveryResult });
         if (result.storageId !== state.storageId || result.workerId !== worker.id || result.attemptNumber !== attempt.attemptNumber || result.attemptNonce !== attempt.attemptNonce || result.configHash !== attempt.configHash) throw new Error(`Stored result identity mismatch for ${worker.id}/${attempt.attemptNumber}`);
-        if (attempt.retrySafe === true) await assertRetrySafeProcessFact(state, worker, attempt);
-        results.push({ launchKey: worker.launchKey ?? null, requestHash: worker.requestHash ?? null, workerId: worker.id, attemptNumber: attempt.attemptNumber, completionId: result.completionId, resultHash: result.resultHash, terminalStatus: result.terminalStatus, processDisposition: attempt.processDisposition ?? "ambiguous", retrySafe: attempt.retrySafe === true, processDispositionFactHash: attempt.processDispositionFactHash ?? null, resultPath: attempt.resultPath });
+        results.push({ launchKey: worker.launchKey ?? null, requestHash: worker.requestHash ?? null, workerId: worker.id, attemptNumber: attempt.attemptNumber, completionId: result.completionId, resultHash: result.resultHash, terminalStatus: result.terminalStatus, resultPath: attempt.resultPath });
       }
     }
     return results.sort((left, right) => left.workerId.localeCompare(right.workerId) || left.attemptNumber - right.attemptNumber);
@@ -1239,7 +1230,7 @@ export class WorkerManager {
         const state = await this.store.load(); if (state.storageId !== binding.workerStorageId) return null;
         let worker = state.workers[binding.workerId]; if (!worker) { const record = (state.launchRecords ?? []).find(({ workerId }) => workerId === binding.workerId); if (record?.archivedWorkerPath) worker = await readArchivedWorker(state, record); }
         const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash); if (!attempt) return null; const config = await readJson(resolve(repositoryRoot, attempt.configPath)); if (config.ownerSessionId !== binding.launchOwnerSessionId) return null;
-        return { storageId: state.storageId, launchOwnerSessionId: config.ownerSessionId, workerId: worker.id, attemptNumber: attempt.attemptNumber, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash, terminalStatus: attempt.ingestedAt ? attempt.status : null, processDisposition: attempt.processDisposition ?? "ambiguous", retrySafe: Boolean(attempt.retrySafe), resultHash: attempt.resultHash ?? null };
+        return { storageId: state.storageId, launchOwnerSessionId: config.ownerSessionId, workerId: worker.id, attemptNumber: attempt.attemptNumber, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash, terminalStatus: attempt.ingestedAt ? attempt.status : null, resultHash: attempt.resultHash ?? null };
       });
       if (output) outputs.push(output);
     }
@@ -1651,15 +1642,6 @@ async function syncDirectory(path) {
   try { await handle.sync(); } finally { await handle.close(); }
 }
 
-async function assertRetrySafeProcessFact(state, worker, attempt) {
-  if (typeof attempt.processDispositionFactPath !== "string" || typeof attempt.processDispositionFactHash !== "string") throw new Error("Retry-safe process disposition is missing its immutable proof");
-  const path = resolve(state.repositoryRoot, attempt.processDispositionFactPath);
-  assertCwdWithin(state.repositoryRoot, path);
-  const fact = await readJson(path, { maxBytes: 64 * 1024 });
-  const { factHash, ...payload } = fact ?? {};
-  if (factHash !== attempt.processDispositionFactHash || sha256(payload) !== factHash || fact.kind !== "worker_process_disposition" || fact.storageId !== state.storageId || fact.workerId !== worker.id || fact.attemptNumber !== attempt.attemptNumber || fact.attemptNonce !== attempt.attemptNonce || fact.configHash !== attempt.configHash || fact.disposition !== "dead" || fact.retrySafe !== true) throw new Error("Retry-safe process disposition proof is corrupt or conflicts with the exact attempt");
-}
-
 function assertWorkingRootApprovalState(state, request) {
   const root = request?.workingRoot;
   if (root?.kind !== "approved_disposable") return;
@@ -1741,10 +1723,8 @@ function assertCwdWithin(repositoryRoot, cwd) {
   if (rel.startsWith("..") || isAbsolute(rel)) throw new Error("Worker cwd must stay within the repository root");
 }
 
-async function verifiedWorkerSummary(state, worker) {
-  const attempt = worker.attempts?.find((candidate) => candidate.attemptNumber === worker.currentAttempt);
-  if (attempt?.retrySafe === true) await assertRetrySafeProcessFact(state, worker, attempt);
-  return { id: worker.id, label: worker.label, launchKey: worker.launchKey ?? null, status: worker.status, currentAttempt: worker.currentAttempt, completionId: worker.completionId ?? null, processDisposition: attempt?.processDisposition ?? null, retrySafe: attempt?.retrySafe === true, processDispositionFactHash: attempt?.processDispositionFactHash ?? null, createdAt: worker.createdAt, updatedAt: worker.updatedAt };
+async function verifiedWorkerSummary(_state, worker) {
+  return { id: worker.id, label: worker.label, launchKey: worker.launchKey ?? null, status: worker.status, currentAttempt: worker.currentAttempt, completionId: worker.completionId ?? null, createdAt: worker.createdAt, updatedAt: worker.updatedAt };
 }
 
 function truncateUtf8(value, maxBytes) {

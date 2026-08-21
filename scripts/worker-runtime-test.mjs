@@ -319,7 +319,7 @@ try {
   assert((await manager.summary()).inFlightCompletionId === null, "first settle automatically acknowledges the in-flight completion");
   const retiredApproval = await manager.retireDisposableWorkingRoot(disposableApproval.disposableRootToken);
   assert(retiredApproval.approvalId === disposableApproval.approvalId, "owner can retire an approved disposable root only after its worker becomes terminal");
-  await waitFor(async () => { await manager.scan(); return (await manager.status(launched.workerId)).retrySafe; }, 15_000);
+  assert((await manager.status(launched.workerId)).status === "succeeded", "terminal result is sufficient for disposable-root retirement without ambient process proof");
 
   process.env.FAKE_WORKER_RPC_MODE = "hang";
   const live = await manager.launch({ task: "Wait for cancellation.", label: "transfer worker" });
@@ -334,16 +334,6 @@ try {
   await waitFor(async () => parentPi.messages.length >= 3);
   await manager.onAgentSettled();
 
-  await waitFor(async () => { await manager.scan(); return (await manager.status(live.workerId)).retrySafe; }, 15_000);
-  const retrySafeState = await manager.store.load();
-  const retrySafeAttempt = retrySafeState.workers[live.workerId].attempts.find((attempt) => attempt.attemptNumber === retrySafeState.workers[live.workerId].currentAttempt);
-  const retrySafeFactPath = resolve(retrySafeState.repositoryRoot, retrySafeAttempt.processDispositionFactPath);
-  const retrySafeFact = await readJson(retrySafeFactPath);
-  await rm(retrySafeFactPath);
-  let missingRetryProofRejected = false;
-  try { await manager.authorizeRetry(live.workerId); } catch { missingRetryProofRejected = true; }
-  assert(missingRetryProofRejected, "retry authorization requires immutable process-death proof liveness");
-  await writeImmutableJson(retrySafeFactPath, retrySafeFact);
   const retryAuthorization = await manager.authorizeRetry(live.workerId);
   let unboundRetryRejected = false;
   try { await manager.retry(live.workerId, undefined, `${retryAuthorization.retryToken}-wrong`); } catch { unboundRetryRejected = true; }
@@ -661,22 +651,21 @@ try {
   await waitFor(async () => { try { return (await readFile(join(descendantRoot, "detached-grandchild-writes.txt"))).length > 0; } catch { return false; } });
   await descendantManager.scan();
   const descendantStatus = await descendantManager.status(descendantLaunch.workerId);
-  assert(descendantStatus.status === "succeeded" && !descendantStatus.retrySafe, "detached descendant retaining the cwd blocks retry safety after direct-child success");
+  assert(descendantStatus.status === "succeeded" && !("retrySafe" in descendantStatus), "direct Pi-child exit is terminal without ambient descendant discovery");
   const firstDescendantWrites = (await readFile(join(descendantRoot, "detached-grandchild-writes.txt"))).length;
   await new Promise((resolveWait) => setTimeout(resolveWait, 150));
   const secondDescendantWrites = (await readFile(join(descendantRoot, "detached-grandchild-writes.txt"))).length;
-  assert(secondDescendantWrites > firstDescendantWrites, "detached descendant remains able to mutate the cwd while retry is fenced");
-  await waitFor(async () => { await descendantManager.scan(); return (await descendantManager.status(descendantLaunch.workerId)).retrySafe; }, 5000);
+  assert(secondDescendantWrites > firstDescendantWrites, "detached descendant risk is explicit and no longer represented as a machine-wide retry fence");
+  assert((await descendantManager.authorizeRetry(descendantLaunch.workerId)).retryToken, "exact terminal result authorizes retry without scanning unrelated processes");
   process.env.FAKE_WORKER_RPC_MODE = "detached-uninspectable";
   const uninspectableLaunch = await descendantManager.launch({ task: "Spawn an inspectability-denying descendant.", launchKey: "uninspectable-descendant" });
   await waitFor(async () => { try { return (await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length > 0; } catch { return false; } });
   await descendantManager.scan();
   const uninspectableStatus = await descendantManager.status(uninspectableLaunch.workerId);
-  assert(uninspectableStatus.status === "succeeded" && !uninspectableStatus.retrySafe, "new same-UID process denying cwd/environment inspection blocks retry safety");
+  assert(uninspectableStatus.status === "succeeded" && !("retrySafe" in uninspectableStatus), "uninspectable same-UID processes are outside the trusted worker contract");
   const firstUninspectableWrites = (await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length;
   await waitFor(async () => (await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length > firstUninspectableWrites, 2000);
-  assert((await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length > firstUninspectableWrites, "inspectability-denying descendant remains a live cwd writer while retry is fenced");
-  await waitFor(async () => { await descendantManager.scan(); return (await descendantManager.status(uninspectableLaunch.workerId)).retrySafe; }, 10_000);
+  assert((await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length > firstUninspectableWrites, "accepted descendant risk does not trigger process-table discovery");
   await descendantManager.detach();
   delete process.env.FAKE_WORKER_RPC_MODE;
 
@@ -717,7 +706,7 @@ try {
     await corruptRetentionManager.scan();
   }
   const corruptRetentionState = await corruptRetentionManager.store.load();
-  assert(Object.keys(corruptRetentionState.workers).length <= 2 && corruptRetentionState.launchRecords.filter((record) => record.archivedWorkerPath).length >= 2, "terminal workers without completion IDs are bounded by immutable worker archives");
+  assert(Object.keys(corruptRetentionState.workers).length === 4 && corruptRetentionState.launchRecords.every((record) => !record.archivedWorkerPath), "attempts without exact terminal results remain visible for explicit recovery instead of being archived as complete");
   await corruptRetentionManager.detach();
 
   const scanQueueRoot = join(root, "scan-queue-root");
@@ -727,28 +716,19 @@ try {
   let timerScanRequests = 0;
   const scanQueueManager = new WorkerManager(createFakeParentPi(), { piCliPath: resolve("scripts/fixtures/fake-worker-rpc.mjs"), watchIntervalMs: 5, onTimerScanRequested: () => { timerScanRequests += 1; } });
   await scanQueueManager.attach(managerContext(scanQueueRoot, "scan-queue-parent", scanQueueSessionFile));
-  const originalScanLoad = scanQueueManager.store.load.bind(scanQueueManager.store);
-  let scanLoadCount = 0;
-  let releaseFirstScanLoad;
-  let firstScanLoadStarted;
-  const firstScanLoadGate = new Promise((resolveGate) => { releaseFirstScanLoad = resolveGate; });
-  const firstScanStarted = new Promise((resolveStarted) => { firstScanLoadStarted = resolveStarted; });
-  scanQueueManager.store.load = async () => {
-    scanLoadCount += 1;
-    if (scanLoadCount === 1) { firstScanLoadStarted(); await firstScanLoadGate; }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 5));
-    return originalScanLoad();
-  };
-  timerScanRequests = 0;
-  const firstQueuedScan = scanQueueManager.scan();
-  await firstScanStarted;
-  const explicitScanBacklog = Array.from({ length: 20 }, () => scanQueueManager.scan());
-  await waitFor(() => timerScanRequests >= 1 && scanQueueManager.timerScanPending, 2000);
-  assert(timerScanRequests >= 1 && scanQueueManager.timerScanPending, "timer scan is retained and coalesced while explicit scan traffic is backlogged");
-  releaseFirstScanLoad();
-  await Promise.all([firstQueuedScan, ...explicitScanBacklog]);
-  assert(scanLoadCount >= 21, "every overlapping explicit scan waits for a distinct serialized pass beginning after its request");
+  assert(scanQueueManager.timer === null, "manager has no periodic scan when every known attempt is terminal or absent");
+  process.env.FAKE_WORKER_RPC_MODE = "hang";
+  const activeTimerLaunch = await scanQueueManager.launch({ task: "Keep the active-only reconciliation timer alive.", launchKey: "active-timer" });
+  await waitFor(() => scanQueueManager.timer !== null && timerScanRequests > 0, 2000);
+  assert(scanQueueManager.timer !== null, "manager reconciles known artifacts only while an attempt is active");
+  await scanQueueManager.cancel(activeTimerLaunch.workerId, "finish active-only timer test");
+  await waitFor(async () => { await scanQueueManager.scan(); return (await scanQueueManager.status(activeTimerLaunch.workerId)).status === "cancelled"; });
+  await waitFor(() => scanQueueManager.timer === null, 2000);
+  const terminalTimerRequests = timerScanRequests;
+  await new Promise((resolveWait) => setTimeout(resolveWait, 30));
+  assert(timerScanRequests === terminalTimerRequests, "terminal workers perform zero periodic reconciliation");
   await scanQueueManager.detach();
+  delete process.env.FAKE_WORKER_RPC_MODE;
 
   for (const failpoint of ["after_launch_reservation", "after_attempt_reservation", "after_config_publication", "after_dispatch_claim", "after_launch_receipt_publication", "after_supervisor_spawn"]) {
     const crashRoot = join(root, `manager-crash-${failpoint}`);
@@ -763,10 +743,10 @@ try {
     await waitFor(async () => {
       await recoveredManager.scan();
       const workers = await recoveredManager.status();
-      return workers.length === 1 && ["succeeded", "lost"].includes(workers[0].status);
+      return workers.length === 1 && ["succeeded", "needs_attention"].includes(workers[0].status);
     });
     const recoveredStatus = (await recoveredManager.status())[0];
-    if (failpoint === "after_dispatch_claim") assert(recoveredStatus.status === "lost" && !recoveredStatus.retrySafe, "ambiguous dispatch crash fails closed without authorizing retry");
+    if (failpoint === "after_dispatch_claim") assert(recoveredStatus.status === "needs_attention" && recoveredPi.messages.some(({ message }) => message.customType === "subagent-termination-failed"), "ambiguous dispatch crash reports missing exact Pi-child termination without authorizing retry");
     else assert(recoveredStatus.status === "succeeded", `manager resumes durable launch after ${failpoint}`);
     if (failpoint === "after_launch_receipt_publication") {
       const recoveredState = await recoveredManager.store.load();

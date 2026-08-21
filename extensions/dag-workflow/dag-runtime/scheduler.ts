@@ -94,8 +94,6 @@ export interface DagWorkerProjectionInputV1 {
     attemptNonce: string;
     configHash: string;
     terminalStatus: string | null;
-    processDisposition: string;
-    retrySafe: boolean;
     resultHash: string | null;
   }>;
 }
@@ -119,7 +117,7 @@ export interface DagExecutionNodeV1 {
   retryCount: number;
   findingCount: number;
   integrationPosition: number | null;
-  worker: null | { workerId: string; attemptNumber: number; terminalStatus: string | null; retrySafe: boolean };
+  worker: null | { workerId: string; attemptNumber: number; terminalStatus: string | null };
 }
 
 export interface DagExecutionProjectionV1 {
@@ -154,7 +152,7 @@ export interface DagExecutionStageV2 {
 export interface DagExecutionNodeV2 extends Omit<DagExecutionNodeV1, "worker"> {
   candidateGeneration: number;
   stages: DagExecutionStageV2[];
-  worker: null | { workerId: string; attemptNumber: number; terminalStatus: string | null; processDisposition: string; retrySafe: boolean };
+  worker: null | { workerId: string; attemptNumber: number; terminalStatus: string | null };
 }
 
 export interface DagExecutionProjectionV2 extends Omit<DagExecutionProjectionV1, "schemaVersion" | "kind" | "projectionVersion" | "nodes" | "projectionHash"> {
@@ -241,7 +239,7 @@ export function projectDagExecutionV1(plan: CanonicalDagPlanV1, state: DagRunSta
   if (decision.inputSnapshotHash !== state.snapshotHash || decision.planHash !== plan.planHash) throw new Error("Execution projection requires one exact plan/run/scheduler join");
   const slots = new Map(decision.frontier.map((slot) => [slot.workItemId, slot])); const schedulerOrder = new Map(decision.frontier.map((slot, index) => [slot.workItemId, index]));
   const width = Math.max(2, String(plan.workItems.length).length);
-  let omittedWorkers = 0; const joinedWorkerFacts: Array<{ storageId: string; launchOwnerSessionId: string; workerId: string; attemptNumber: number; attemptNonce: string; configHash: string; terminalStatus: string | null; processDisposition: string; retrySafe: boolean; resultHash: string | null }> = [];
+  let omittedWorkers = 0; const joinedWorkerFacts: Array<{ storageId: string; launchOwnerSessionId: string; workerId: string; attemptNumber: number; attemptNonce: string; configHash: string; terminalStatus: string | null; resultHash: string | null }> = [];
   const nodes = plan.workItems.map((planItem, ordinal) => {
     const item = state.workItems[planItem.workItemId]; const slot = slots.get(planItem.workItemId);
     const currentAttempt = item.currentStage ? state.stageAttempts[item.stages[item.currentStage].currentAttemptId ?? ""] : undefined;
@@ -253,8 +251,8 @@ export function projectDagExecutionV1(plan: CanonicalDagPlanV1, state: DagRunSta
     const binding = currentAttempt ? state.workerBindings[currentAttempt.stageAttemptId] : undefined;
     let worker: DagExecutionNodeV1["worker"] = null;
     if (binding && workerInput) {
-      const exact = workerInput.workers.find((candidate) => candidate.storageId === binding.workerStorageId && candidate.launchOwnerSessionId === binding.launchOwnerSessionId && candidate.workerId === binding.workerId && candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash && candidate.resultHash === binding.resultHash && candidate.processDisposition === binding.processDisposition);
-      if (exact) { worker = { workerId: exact.workerId, attemptNumber: exact.attemptNumber, terminalStatus: exact.terminalStatus, retrySafe: exact.retrySafe }; joinedWorkerFacts.push(exact); } else omittedWorkers += 1;
+      const exact = workerInput.workers.find((candidate) => candidate.storageId === binding.workerStorageId && candidate.launchOwnerSessionId === binding.launchOwnerSessionId && candidate.workerId === binding.workerId && candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash && candidate.resultHash === binding.resultHash);
+      if (exact) { worker = { workerId: exact.workerId, attemptNumber: exact.attemptNumber, terminalStatus: exact.terminalStatus }; joinedWorkerFacts.push(exact); } else omittedWorkers += 1;
     }
     const train = state.integrationTrains[item.writeRepositoryId]; const entryId = item.integrationEntryId; const position = entryId ? train?.entryOrder.indexOf(entryId) ?? -1 : -1;
     const retryCount = Object.values(state.retryLedger).filter((entry) => entry.workItemId === item.workItemId).reduce((sum, entry) => sum + entry.count, 0);
@@ -287,12 +285,10 @@ export function projectDagExecutionV2(plan: CanonicalDagPlanV1, state: DagRunSta
   const nodes = v1.nodes.map((node): DagExecutionNodeV2 => {
     const item = state.workItems[node.workItemId];
     const currentAttempt = item.currentStage ? state.stageAttempts[item.stages[item.currentStage].currentAttemptId ?? ""] : undefined;
-    const binding = currentAttempt ? state.workerBindings[currentAttempt.stageAttemptId] : undefined;
     return {
       ...node,
       candidateGeneration: item.candidateGeneration,
       stages: PLAN_STAGE_IDS.map((stage) => ({ stage, state: item.stages[stage].state })),
-      worker: node.worker && binding ? { ...node.worker, processDisposition: binding.processDisposition } : null,
     };
   });
   const core = {

@@ -27,7 +27,7 @@ Tracked Markdown under `spec/` is a deterministic readable projection of accepte
 ## Install
 
 ```nu
-pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.1.9
+pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.2.0
 ```
 
 ## Project-model migration
@@ -146,6 +146,8 @@ Equivalent user commands are `/workers list|inspect|tail|cancel|retry`.
 
 Runtime state lives under `.ai/worker-sessions/`. One atomic `worker-session.json` belongs to each top-level Pi session; detached supervisors write bounded mailboxes, a diagnostic log capped at 50 MiB, and immutable terminal results. Child processes inherit ordinary active tools but omit `subagent*`, `dag_*`, and `dag_model_*` orchestration surfaces except for `subagent_report`. Full transcripts and cumulative `message_update` events are never persisted.
 
+A worker becomes terminal only after its supervisor observes the exact Pi child exit and publishes the bound immutable result. Report delivery initiates shutdown but is not itself completion. Cancellation escalates from RPC abort to `SIGTERM` and `SIGKILL` against the exact child identity; failure is reported to the parent and blocks automatic retry. Retry and owned-worktree cleanup require the exact terminal result, not machine-wide proof that no unrelated process can edit the repository. The manager checks known attempt artifacts only while workers are active and never discovers workers by scanning process cwd or environments.
+
 Direct forks and clones transfer the complete worker session and completion queue when source ownership can be proven. Ambiguous, corrupt, stale-live, PID-reused, or conflicting ownership fails closed rather than signaling or relaunching an unproven process.
 
 Obsolete `pi-subagents` artifacts are not adopted or deleted automatically. Historical sibling directories named `*-dag-subagents` and temporary `/tmp/pi-subagents-*` trees may be removed manually only after confirming that no legacy worker process still owns them.
@@ -169,7 +171,7 @@ Guarded mutation tools:
 - `dag_run_retry`
 - `dag_run_reattach`
 
-Every post-start mutation carries the exact run nonce, owner epoch, revision, snapshot hash, command/idempotency identity, and explicit timestamp; start itself binds immutable plan/genesis/context artifacts and an explicit run identity. Interactive TUI sessions show a passive bounded DAG widget; headless modes expose the same semantic projection without rendering a widget.
+Every post-start mutation carries the exact run nonce, owner epoch, revision, snapshot hash, command/idempotency identity, and explicit timestamp; start itself binds immutable plan/genesis/context artifacts and an explicit run identity. Interactive TUI sessions show a passive bounded DAG widget with static activity marks and render deduplication; headless modes expose the same semantic projection without rendering a widget.
 
 The deterministic scheduler separates correctness readiness from lane/resource/mutex admission. `maxActiveNodes` lanes remain sticky through phase waits, repairs, blocking, and integration. Generic worker status affects DAG projection only through an exact run-state worker binding.
 

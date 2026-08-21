@@ -49,8 +49,6 @@ export interface DagOwnedWorkerLaunchObservationV1 {
 export interface DagOwnedWorkerTerminalObservationV1 {
   completionId: string;
   terminalStatus: "succeeded" | "needs_attention" | "failed" | "cancelled" | "lost";
-  processDisposition: "dead" | "ambiguous";
-  retrySafe: boolean;
   workerOutput?: DagCandidateSealingResultV1["workerOutput"];
 }
 
@@ -213,13 +211,13 @@ export class DagLifecycleRuntimeV1 {
       const disposition = effect.state === "reconciled" ? effect.reconciliation as "applied_exact" | "proven_absent" : await this.options.worker.cancelExact(binding, { effectId: effect.effectId, requestHash: effect.requestHash }, state);
       if (!disposition || !["applied_exact", "proven_absent"].includes(disposition)) return { state, progressed: false, waiting: true, reason: `worker cancellation is pending for ${attempt.stageAttemptId}` };
       const terminal = await this.options.worker.readTerminalExact(binding, state);
-      if (!terminal || terminal.processDisposition !== "dead" || !terminal.retrySafe) return { state, progressed: false, waiting: true, reason: `worker cancellation lacks retry-safe terminal process proof for ${attempt.stageAttemptId}` };
+      if (!terminal) return { state, progressed: false, waiting: true, reason: `worker cancellation awaits the exact terminal result for ${attempt.stageAttemptId}` };
       const result = withHash({
         kind: "worker_result", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce,
         workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, launchIntentId: binding.launchIntentId,
         workerStorageId: binding.workerStorageId, launchOwnerSessionId: binding.launchOwnerSessionId, workerId: binding.workerId,
         attemptNumber: binding.attemptNumber, attemptNonce: binding.attemptNonce, configHash: binding.configHash,
-        completionId: terminal.completionId, terminalStatus: terminal.terminalStatus, processDisposition: terminal.processDisposition, retrySafe: terminal.retrySafe,
+        completionId: terminal.completionId, terminalStatus: terminal.terminalStatus,
         ...(terminal.workerOutput ?? { outputRepositoryId: null, outputCommonDirIdentityHash: null, outputWorktreeIdentityHash: null, outputSourceBase: null, outputCommit: null, outputTree: null, outputObjectFormat: null, candidateObservedAt: null }),
       });
       workerResults.push({ stageAttemptId: attempt.stageAttemptId, result: await this.publishRef("worker_result", terminal.completionId, result) });
@@ -405,7 +403,7 @@ export class DagLifecycleRuntimeV1 {
       stageAttemptId: attempt.stageAttemptId, launchIntentId: launch.launchIntentId, workerStorageId: observation.workerStorageId, launchOwnerSessionId: observation.launchOwnerSessionId,
       workerId: observation.workerId, attemptNumber: observation.attemptNumber, attemptNonce: observation.attemptNonce, configHash: observation.configHash, configRef,
       supervisorPid: observation.supervisorPid, supervisorStartIdentity: observation.supervisorStartIdentity, childPid: observation.childPid, childStartIdentity: observation.childStartIdentity,
-      mailboxHash: observation.mailboxHash, heartbeatAt: occurredAt, completionId: null, resultHash: null, processDisposition: "live", retrySafe: false,
+      mailboxHash: observation.mailboxHash, heartbeatAt: occurredAt, completionId: null, resultHash: null,
     };
     const launchObservationCore = {
       kind: "worker_launch_observation", planHash: fresh.identity.planHash, runId: fresh.runId, runNonce: fresh.runNonce, authorizationSetHash: fresh.identity.authorizationSet.hash,
@@ -439,7 +437,6 @@ export class DagLifecycleRuntimeV1 {
       if (!binding) return { state, progressed: false, waiting: true, reason: "owned-worker binding unavailable" };
       const terminal = await this.options.worker.readTerminalExact(binding, state);
       if (!terminal) return { state, progressed: false, waiting: true, reason: "owned worker still active" };
-      if (terminal.processDisposition !== "dead" || !terminal.retrySafe) return { state, progressed: false, waiting: true, reason: "terminal worker generation is not durably retry-safe" };
       let workerOutput: DagCandidateSealingResultV1["workerOutput"] | null = terminal.workerOutput ?? null;
       if (terminal.terminalStatus === "succeeded" && ["F1", "F3"].includes(attempt.stage)) {
         if (!this.options.candidate) return { state, progressed: false, waiting: true, reason: `${attempt.stage} candidate output observation adapter unavailable` };
@@ -467,8 +464,6 @@ export class DagLifecycleRuntimeV1 {
         configHash: binding.configHash,
         completionId: terminal.completionId,
         terminalStatus: terminal.terminalStatus,
-        processDisposition: terminal.processDisposition,
-        retrySafe: terminal.retrySafe,
         ...(workerOutput ?? nullOutput),
       };
       const fact = withHash(resultCore);

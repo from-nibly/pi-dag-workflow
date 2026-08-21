@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { access, link, mkdir, open, readFile, readdir, readlink, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { access, link, mkdir, open, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { StringDecoder } from "node:string_decoder";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 export const WORKER_SESSION_SCHEMA_VERSION = 1;
 export const WORKER_CONFIG_SCHEMA_VERSION = 1;
@@ -207,102 +207,6 @@ export async function processIdentityStatus(pid, expectedStartIdentity) {
   return actual === expectedStartIdentity ? "live" : "mismatch";
 }
 
-export async function processesUsingWorkingRoot(workingRoot, excludedPids = []) {
-  const root = resolve(workingRoot);
-  const excluded = new Set(excludedPids.filter((pid) => Number.isInteger(pid)));
-  const users = [];
-  let entries;
-  try { entries = await readdir("/proc", { withFileTypes: true }); }
-  catch { return { status: "ambiguous", users: [] }; }
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
-    const pid = Number(entry.name);
-    if (excluded.has(pid)) continue;
-    try {
-      const processInfo = await stat(`/proc/${pid}`);
-      if (typeof process.getuid === "function" && processInfo.uid !== process.getuid()) continue;
-      const cwd = (await readlink(`/proc/${pid}/cwd`)).replace(/ \(deleted\)$/, "");
-      const rel = relative(root, resolve(cwd));
-      if (cwd === root || (rel && !rel.startsWith("..") && !isAbsolute(rel))) {
-        const identity = await processStartIdentity(pid);
-        if (!identity) return { status: "ambiguous", users };
-        users.push({ pid, processStartIdentity: identity, cwd });
-      }
-    } catch {
-      // Processes that disappear or deny inspection without matching cwd evidence are unrelated.
-    }
-  }
-  users.sort((left, right) => left.pid - right.pid);
-  return { status: "observed", users };
-}
-
-export async function processesWithEnvironmentBinding(name, value, excludedPids = []) {
-  const expected = Buffer.from(`${name}=${value}`);
-  const excluded = new Set(excludedPids.filter((pid) => Number.isInteger(pid)));
-  const users = [];
-  let entries;
-  try { entries = await readdir("/proc", { withFileTypes: true }); }
-  catch { return { status: "ambiguous", users: [] }; }
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
-    const pid = Number(entry.name);
-    if (excluded.has(pid)) continue;
-    try {
-      const processInfo = await stat(`/proc/${pid}`);
-      if (typeof process.getuid === "function" && processInfo.uid !== process.getuid()) continue;
-      const environment = await readFile(`/proc/${pid}/environ`);
-      if (environment.toString("utf8").split("\0").some((entryValue) => Buffer.from(entryValue).equals(expected))) {
-        const identity = await processStartIdentity(pid);
-        if (!identity) return { status: "ambiguous", users };
-        users.push({ pid, processStartIdentity: identity });
-      }
-    } catch {
-      // Processes that disappear or deny inspection without matching evidence are unrelated.
-    }
-  }
-  users.sort((left, right) => left.pid - right.pid);
-  return { status: "observed", users };
-}
-
-export async function uninspectableSameUidProcesses(excludedPids = []) {
-  const excluded = new Set(excludedPids.filter((pid) => Number.isInteger(pid)));
-  const processes = [];
-  let entries;
-  try { entries = await readdir("/proc", { withFileTypes: true }); }
-  catch { return { status: "ambiguous", processes: [] }; }
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
-    const pid = Number(entry.name);
-    if (excluded.has(pid)) continue;
-    try {
-      const processInfo = await stat(`/proc/${pid}`);
-      if (typeof process.getuid === "function" && processInfo.uid !== process.getuid()) continue;
-      let denied = false;
-      try { await readlink(`/proc/${pid}/cwd`); } catch (error) { if (["EACCES", "EPERM"].includes(error?.code)) denied = true; else if (error?.code !== "ENOENT") throw error; }
-      try { await readFile(`/proc/${pid}/environ`); } catch (error) { if (["EACCES", "EPERM"].includes(error?.code)) denied = true; else if (error?.code !== "ENOENT") throw error; }
-      if (denied) {
-        const processStart = await processStartIdentity(pid);
-        if (!processStart) continue;
-        processes.push({ pid, processStartIdentity: processStart });
-      }
-    } catch (error) {
-      if (error?.code !== "ENOENT") return { status: "ambiguous", processes };
-    }
-  }
-  processes.sort((left, right) => left.pid - right.pid);
-  return { status: "observed", processes };
-}
-
-export function processGroupStatus(groupLeaderPid) {
-  if (!Number.isInteger(groupLeaderPid) || groupLeaderPid < 1) return "ambiguous";
-  try { process.kill(-groupLeaderPid, 0); return "present"; }
-  catch (error) {
-    if (error?.code === "ESRCH") return "absent";
-    if (error?.code === "EPERM") return "present";
-    return "ambiguous";
-  }
-}
-
 export class StrictJsonlParser {
   constructor(onRecord, onError) {
     this.onRecord = onRecord;
@@ -426,7 +330,6 @@ export function validateWorkerSession(state) {
               catch { errors.push(`worker attempt config is invalid: ${workerId}/${attempt.attemptNumber}`); }
               if (attempt.config.storageId !== state.storageId || attempt.config.workerId !== workerId || attempt.config.attemptNumber !== attempt.attemptNumber || attempt.config.attemptNonce !== attempt.attemptNonce || attempt.config.configHash !== attempt.configHash) errors.push(`worker attempt config binding is invalid: ${workerId}/${attempt.attemptNumber}`);
             }
-            if (attempt?.retrySafe === true && (attempt.processDisposition !== "dead" || typeof attempt.processDispositionFactPath !== "string" || typeof attempt.processDispositionFactHash !== "string")) errors.push(`retry-safe attempt lacks process proof binding: ${workerId}/${attempt.attemptNumber}`);
           }
           if (worker.currentAttempt !== undefined && (!Number.isInteger(worker.currentAttempt) || worker.currentAttempt < 0 || (worker.currentAttempt > 0 && !attempts.has(worker.currentAttempt)))) errors.push(`worker currentAttempt is invalid: ${workerId}`);
         }
@@ -478,7 +381,6 @@ export function validateAttemptConfig(config) {
   for (const field of ["storageId", "ownerSessionId", "workerId", "attemptNonce", "repositoryRoot", "cwd", "task", "configHash", "piCliPath"]) if (typeof config[field] !== "string" || !config[field]) errors.push(`${field} is required`);
   if (!Number.isInteger(config.attemptNumber) || config.attemptNumber < 1) errors.push("attemptNumber must be positive");
   if (!Array.isArray(config.activeTools) || config.activeTools.some((name) => typeof name !== "string")) errors.push("activeTools must be a string array");
-  if (config.uninspectableProcessBaseline !== undefined && (!Array.isArray(config.uninspectableProcessBaseline) || config.uninspectableProcessBaseline.some((processEntry) => !Number.isInteger(processEntry?.pid) || typeof processEntry?.processStartIdentity !== "string"))) errors.push("uninspectableProcessBaseline must contain exact process identities");
   const hasLaunchBinding = config.launchKey !== undefined || config.requestHash !== undefined || config.launchOwner !== undefined;
   if (hasLaunchBinding) {
     if (typeof config.launchKey !== "string" || !config.launchKey) errors.push("launchKey is required when launch identity is present");

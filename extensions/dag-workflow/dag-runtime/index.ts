@@ -138,7 +138,6 @@ export {
   type DagWidgetRenderStateV2,
 } from "./widget.ts";
 export {
-  DAG_WIDGET_ANIMATION_INTERVAL_MS_V2,
   DAG_WIDGET_LIVENESS_FRESHNESS_MS_V2,
   DAG_WIDGET_REFRESH_INTERVAL_MS_V2,
   DagWidgetControllerV2,

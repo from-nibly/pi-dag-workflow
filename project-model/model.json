@@ -8069,6 +8069,77 @@
       "state": "accepted",
       "title": "Stage migration candidate, reuse the model loop, audit in Lavish, and cut over exactly",
       "updatedAt": "2026-08-19T02:25:11.574Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-21T14:46:59.432Z",
+        "actor": "user",
+        "batchRef": "sha256:97a414c92ac39d4d2d9e880a7fd0c771eb878dc1061180b4a93a40309e1ede07",
+        "contentHash": "sha256:a0a9f3688dd4bf41e3698efb25efb36917aefcb1acc7776893f22faae5838685",
+        "interactionRef": "pi-session:01a020d1-8b5c-7a71-9978-d05647f57945:worker-runtime-simplification",
+        "mode": "direct_direction"
+      },
+      "body": "DagExecutionProjectionV2 preserves the exact plan/run/scheduler/worker join and exposes each bound worker terminal status without process-disposition or retry-safety fields. The session-scoped controller serializes and coalesces status reads, retains last-good fail-closed behavior, and requests a TUI render only when the projection hash or visible diagnostic changes. Active workers use a static activity mark. The widget has no liveness window, animation frame, or animation timer, and unchanged periodic refreshes produce no terminal output.",
+      "createdAt": "2026-08-21T14:46:59.432Z",
+      "id": "DEC-static-deduplicated-dag-widget-v1",
+      "introducedBy": "user",
+      "rationale": "A 120 ms animation timer repeatedly redrew the full Pi TUI and amplified into thousands of PTY writes per second. Motion adds no lifecycle authority; a static mark and change-driven rendering preserve useful state while making idle output quiescent.",
+      "relationships": [
+        {
+          "kind": "supersedes",
+          "targetId": "DEC-dag-widget-balanced-motion-timing-v1"
+        },
+        {
+          "kind": "supersedes",
+          "targetId": "DEC-orthogonal-widget-activity-cell-v1"
+        },
+        {
+          "kind": "supersedes",
+          "targetId": "DEC-versioned-widget-projection-serialized-controller-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "accepted",
+      "title": "Use static worker activity and deduplicate DAG widget renders",
+      "updatedAt": "2026-08-21T14:46:59.432Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-21T14:46:59.432Z",
+        "actor": "user",
+        "batchRef": "sha256:97a414c92ac39d4d2d9e880a7fd0c771eb878dc1061180b4a93a40309e1ede07",
+        "contentHash": "sha256:8bf26a65f188f25ae6da141afd262af733629de767e228b42e02159e10db6f24",
+        "interactionRef": "pi-session:01a020d1-8b5c-7a71-9978-d05647f57945:worker-runtime-simplification",
+        "mode": "direct_direction"
+      },
+      "body": "The generic owned-worker runtime treats a valid immutable result written after the detached supervisor observes the exact Pi child exit as the terminal authority. `subagent_report` and `agent_settled` describe task outcome and initiate shutdown but do not establish termination. Cancellation closes RPC input, then escalates SIGTERM and SIGKILL against only the exact child PID/start identity; a signaling failure is surfaced to the top-level agent and blocks automatic retry until a terminal result exists. Retry and owned-worktree cleanup require the exact attempt-bound terminal result, not proof that no other process can edit the repository. The runtime performs no cwd, environment, uninspectable-process, process-group, or machine-wide process discovery; detached descendants are an accepted trusted-agent contract risk. PID/start identity remains only for targeted active-process cancellation and bounded crash recovery. Periodic manager reconciliation exists only while attempts are active and checks known attempt artifacts; terminal workers have zero periodic work. Process-shared session CAS, opaque idempotent launch keys, exact attempt/config/result identity, durable result lookup, owner-bound retry tokens, artifact quarantine, and disposable-root identity fencing remain generic runtime responsibilities.",
+      "createdAt": "2026-08-21T14:46:59.432Z",
+      "id": "DEC-worker-exit-terminal-contract-v1",
+      "introducedBy": "user",
+      "rationale": "The runtime is trusted local automation, not a malicious-code sandbox. Ambient process scans cannot prove repository quiescence, confused unrelated same-cwd processes with worker descendants, and consumed more than one CPU core. Exact child exit is the narrow observable fact needed for lifecycle completion while immutable attempt identities preserve crash and replay safety.",
+      "relationships": [
+        {
+          "kind": "supersedes",
+          "targetId": "DEC-generic-worker-idempotent-consumer-contract-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "accepted",
+      "title": "Treat exact Pi-child exit as the worker terminal boundary",
+      "updatedAt": "2026-08-21T14:46:59.432Z"
     }
   ],
   "discoveries": [
@@ -15118,7 +15189,8 @@
                 "DEC-responsive-nine-stage-progress-encoding-v1",
                 "DEC-responsive-horizontal-graph-branches-v1",
                 "DEC-dag-widget-balanced-motion-timing-v1",
-                "DEC-dag-widget-nonblocking-incident-reproduction-v1"
+                "DEC-dag-widget-nonblocking-incident-reproduction-v1",
+                "DEC-static-deduplicated-dag-widget-v1"
               ],
               "title": "Accepted planning and execution direction"
             },
@@ -15163,7 +15235,8 @@
                 "DEC-two-default-report-repair-turns",
                 "DEC-compact-subagent-completion-message",
                 "DEC-minimal-subagent-terminal-result-contract",
-                "DEC-generic-worker-idempotent-consumer-contract-v1"
+                "DEC-generic-worker-idempotent-consumer-contract-v1",
+                "DEC-worker-exit-terminal-contract-v1"
               ],
               "title": "Accepted runtime direction"
             }
@@ -15291,9 +15364,9 @@
         }
       ]
     },
-    "revision": 243,
+    "revision": 244,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-19T19:41:59.166Z"
+    "updatedAt": "2026-08-21T14:46:59.432Z"
   },
   "proposals": [
     {

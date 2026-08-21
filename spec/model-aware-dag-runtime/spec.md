@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:e955202c310953ecc59c5153e3a96596adfc4d14fbfc732047dd14a72f152c70 -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:85fe6bb641ba4fb57f6ce0f56a3898dc680d9064e944f133ffe7f55c7160e8a6 -->
 
 # Model-aware DAG planning and execution
 
@@ -512,22 +512,6 @@ A node progress bar has nine canonical segments for F0 through F8. Passed stages
 
 **Rationale.** Stage completion is already authoritative, understandable, and intentionally non-monotonic under iteration.
 
-<a id="obj-dec-versioned-widget-projection-serialized-controller-v1"></a>
-
-### Use a versioned widget projection and serialized disposable controller
-
-Implement the activity-centered DAG widget through two explicit layers. DagExecutionProjectionV2 preserves the exact plan/run/scheduler/worker join and adds each node's ordered F0–F8 stage states, candidate generation, and exact joined worker process disposition; V1 is not silently widened. A session-scoped disposable controller owns at most one status read, coalesced successor refreshes, the last successful liveness-observation time, animation frames, stable render state, generation-fenced publication, and idempotent teardown. The pure renderer consumes semantic projection plus ephemeral view state, honors the exact supplied width, and never treats animation ticks as semantic progress.
-
-**Rationale.** The accepted progress and motion semantics require omitted canonical fields, while the observed corruption requires lifecycle and concurrency control outside the pure projection.
-
-<a id="obj-dec-orthogonal-widget-activity-cell-v1"></a>
-
-### Render live-worker motion in a separate activity cell
-
-Each selected node lane reserves a leading activity cell distinct from the stable ten-state primary glyph. The cell animates only while the serialized controller holds a recent successful exact observation that the node's bound worker process disposition is live. When that observation becomes stale or non-live, the cell freezes to a static mark or blank according to the responsive width policy. The primary glyph continues to represent canonical node state and never changes merely to animate. The activity cell may be omitted only in the subminimum fallback, where no motion claim is shown.
-
-**Rationale.** Worker liveness, freshness, and canonical node state are orthogonal facts with different clocks.
-
 <a id="obj-dec-responsive-nine-stage-progress-encoding-v1"></a>
 
 ### Render nine-stage progress with deterministic width fallbacks
@@ -544,14 +528,6 @@ Each selected activity or attention anchor renders its activity cell, stable pri
 
 **Rationale.** The iterated prototype made causal topology substantially easier to read than a flat list while retaining horizontal efficiency and predictable responsive behavior.
 
-<a id="obj-dec-dag-widget-balanced-motion-timing-v1"></a>
-
-### Use a 2.5-second liveness window and 120 ms active-only animation
-
-An exact successful observation of a bound worker with processDisposition=live authorizes activity-cell motion for 2.5 seconds from the controller observation time. Spinner frames advance every 120 ms only while at least one selected node remains freshly live; otherwise the animation timer is stopped. A successful non-live observation freezes immediately. Failed, stale, or cancelled refreshes never extend freshness, and animation frames never mutate semantic projection state.
-
-**Rationale.** This tolerates one delayed one-second safety scan without preserving a cached live claim for many seconds.
-
 <a id="obj-dec-dag-widget-nonblocking-incident-reproduction-v1"></a>
 
 ### Do not gate widget replacement on reproducing the exact historical incident
@@ -559,6 +535,14 @@ An exact successful observation of a bound worker with processDisposition=live a
 Proceed with Projection V2, the serialized disposable controller, exact-width Graph branches renderer, and regression harness while the exact historical editor-scrambling transition remains open diagnostic research. Capture PI_TUI_WRITE_LOG, terminal dimensions, projection revisions, and controller generation if the incident recurs; add any newly proven transition to the regression suite. The implementation must already cover exact-width resize, overlapping refresh, variable-height breakpoint changes, stale liveness, and publication after disposal.
 
 **Rationale.** A definite width-contract violation is already actionable and the accepted safety architecture prevents every currently plausible corruption class.
+
+<a id="obj-dec-static-deduplicated-dag-widget-v1"></a>
+
+### Use static worker activity and deduplicate DAG widget renders
+
+DagExecutionProjectionV2 preserves the exact plan/run/scheduler/worker join and exposes each bound worker terminal status without process-disposition or retry-safety fields. The session-scoped controller serializes and coalesces status reads, retains last-good fail-closed behavior, and requests a TUI render only when the projection hash or visible diagnostic changes. Active workers use a static activity mark. The widget has no liveness window, animation frame, or animation timer, and unchanged periodic refreshes produce no terminal output.
+
+**Rationale.** A 120 ms animation timer repeatedly redrew the full Pi TUI and amplified into thousands of PTY writes per second. Motion adds no lifecycle authority; a static mark and change-driven rendering preserve useful state while making idle output quiescent.
 
 ## Accepted representative failure scenarios
 

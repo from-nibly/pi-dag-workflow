@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
-  DAG_WIDGET_ANIMATION_INTERVAL_MS_V2,
-  DAG_WIDGET_LIVENESS_FRESHNESS_MS_V2,
   DagWidgetControllerV2,
   registerCanonicalDagRuntime,
   renderDagWidgetV2,
@@ -30,7 +28,7 @@ const nodeBase = {
   worker: null,
 };
 const nodes = [
-  { ...nodeBase, alias: "N01", workItemId: "item-live", title: "Verify domain changes", stage: "F3", glyph: "*", activeLane: true, laneAdmissionSequence: 1, worker: { workerId: "worker-live", attemptNumber: 1, terminalStatus: null, processDisposition: "live", retrySafe: false }, stages: stageStates(3, 3) },
+  { ...nodeBase, alias: "N01", workItemId: "item-live", title: "Verify domain changes", stage: "F3", glyph: "*", activeLane: true, laneAdmissionSequence: 1, worker: { workerId: "worker-live", attemptNumber: 1, terminalStatus: null }, stages: stageStates(3, 3) },
   { ...nodeBase, alias: "N02", workItemId: "item-static", title: "Migrate authority model", stage: "F1", glyph: ":", activeLane: true, laneAdmissionSequence: 2, stages: stageStates(1, 1) },
   { ...nodeBase, alias: "N03", workItemId: "item-dependent-a", title: "Dependent A", stage: "F0", glyph: ">", schedulerOrder: 1, stages: stageStates(0, 0) },
   { ...nodeBase, alias: "N04", workItemId: "item-dependent-b", title: "Dependent B", stage: "F0", glyph: ">", schedulerOrder: 2, stages: stageStates(0, 0) },
@@ -84,8 +82,8 @@ assert(wide.lines.some((line) => line.includes("F3 [■■■▶·····]")), 
 
 const movingA = renderDagWidgetV2(projection, 80, 24, "2026-08-18T00:00:00.000Z", { animationFrame: 0, freshLiveAliases: ["N01"] });
 const movingB = renderDagWidgetV2(projection, 80, 24, "2026-08-18T00:00:00.000Z", { animationFrame: 1, freshLiveAliases: ["N01"] });
-assert.notEqual(movingA.lines.find((line) => line.includes("*N01")), movingB.lines.find((line) => line.includes("*N01")), "fresh exact-live lane animates");
-assert.equal(movingA.lines.find((line) => line.includes(":N02")), movingB.lines.find((line) => line.includes(":N02")), "non-live lane remains static across animation frames");
+assert.equal(movingA.lines.find((line) => line.includes("*N01")), movingB.lines.find((line) => line.includes("*N01")), "active lane remains static across obsolete animation frames");
+assert.equal(movingA.lines.find((line) => line.includes(":N02")), movingB.lines.find((line) => line.includes(":N02")), "non-worker lane remains static");
 const frozen = renderDagWidgetV2(projection, 80, 24, "2026-08-18T00:00:00.000Z", { animationFrame: 4, freshLiveAliases: [], diagnostic: "STALE READ-ONLY | source r20" });
 assert(frozen.lines.find((line) => line.includes("*N01"))?.startsWith("· "), "stale live disposition freezes instead of claiming motion");
 assert(frozen.lines.at(-1).includes("STALE READ-ONLY | source r20"), "stale last-good projection keeps its bounded source diagnostic visible");
@@ -114,7 +112,6 @@ class FakeIntervals {
   count(milliseconds) { return [...this.entries.values()].filter((entry) => entry.milliseconds === milliseconds).length; }
 }
 
-let now = 0;
 let releaseFirst;
 const firstRead = new Promise((resolve) => { releaseFirst = resolve; });
 let readCalls = 0;
@@ -133,7 +130,6 @@ const controller = new DagWidgetControllerV2({
     } finally { inFlight -= 1; }
   },
   requestRender() { renderRequests += 1; },
-  now: () => now,
   scheduleInterval: intervals.schedule,
   clearScheduledInterval: intervals.clear,
 });
@@ -146,15 +142,11 @@ await Promise.all([refreshA, refreshB]);
 assert.equal(readCalls, 2, "an overlapping refresh coalesces into one successor read");
 assert.equal(maxInFlight, 1, "status reads are serialized");
 controller.noteSelectedAliases(["N01", "N02"]);
-assert.deepEqual(controller.snapshot().freshLiveAliases, ["N01"], "only selected exact-live aliases receive fresh motion authority");
-assert.equal(intervals.count(DAG_WIDGET_ANIMATION_INTERVAL_MS_V2), 1, "animation timer starts only after a fresh live lane is selected");
-const requestsBeforeFrame = renderRequests;
-intervals.fire(DAG_WIDGET_ANIMATION_INTERVAL_MS_V2);
-assert(renderRequests > requestsBeforeFrame && controller.snapshot().animationFrame === 1, "active animation tick requests a lightweight rerender");
-now = DAG_WIDGET_LIVENESS_FRESHNESS_MS_V2;
-intervals.fire(DAG_WIDGET_ANIMATION_INTERVAL_MS_V2);
-assert.deepEqual(controller.snapshot().freshLiveAliases, [], "freshness expires at the exact 2.5-second boundary");
-assert.equal(intervals.count(DAG_WIDGET_ANIMATION_INTERVAL_MS_V2), 0, "expired liveness stops the animation timer");
+assert.deepEqual(controller.snapshot().freshLiveAliases, [], "controller grants no animation authority");
+assert.equal(renderRequests, 1, "coalesced identical projections request one initial render");
+await controller.refresh();
+assert.equal(renderRequests, 1, "unchanged projection hash and diagnostic request no additional render");
+assert.equal(intervals.entries.size, 0, "controller creates no animation interval");
 controller.dispose();
 
 const staleIntervals = new FakeIntervals();
@@ -168,10 +160,10 @@ const staleController = new DagWidgetControllerV2({
 });
 await staleController.refresh();
 staleController.noteSelectedAliases(["N01"]);
-assert.deepEqual(staleController.snapshot().freshLiveAliases, ["N01"]);
+assert.deepEqual(staleController.snapshot().freshLiveAliases, []);
 await staleController.refresh();
-assert.deepEqual(staleController.snapshot().freshLiveAliases, [], "a stale projection freezes motion immediately instead of reusing prior freshness");
-assert.equal(staleIntervals.count(DAG_WIDGET_ANIMATION_INTERVAL_MS_V2), 0, "stale projection stops active animation");
+assert.equal(staleController.snapshot().diagnostic, "STALE READ-ONLY", "changed diagnostic updates the static projection");
+assert.equal(staleIntervals.entries.size, 0, "stale projection creates no animation interval");
 staleController.dispose();
 
 let releaseLate;
@@ -249,4 +241,4 @@ assert.equal(firstSessionCalls.some(({ value }) => typeof value === "function"),
 assert.equal(secondSessionCalls.filter(({ value }) => typeof value === "function").length, 1, "the current session alone installs a widget after overlapping startup");
 for (const handler of overlapPi.handlers.get("session_shutdown") ?? []) await handler();
 
-console.log("DAG widget V2 tests OK: responsive graph layout, progress, exact-live motion, serialized refresh, and disposal fencing pass");
+console.log("DAG widget V2 tests OK: responsive graph layout, static activity, deduplicated refresh, and disposal fencing pass");
