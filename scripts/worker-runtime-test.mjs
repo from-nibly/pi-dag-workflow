@@ -283,6 +283,9 @@ try {
   const manager = new WorkerManager(parentPi, { piCliPath: resolve("scripts/fixtures/fake-worker-rpc.mjs"), watchIntervalMs: 20, launchGraceMs: 500, observeUninspectableProcesses: async () => ({ status: "observed", processes: [] }) });
   const terminalEvents = [];
   manager.onTerminalResult((event) => { terminalEvents.push(event); });
+  let releaseTerminalBarrier; let terminalBarrierEntered = false;
+  const terminalBarrier = new Promise((resolve) => { releaseTerminalBarrier = resolve; });
+  const removeTerminalBarrier = manager.onTerminalResult(async () => { terminalBarrierEntered = true; await terminalBarrier; });
   process.env.FAKE_WORKER_RPC_MODE = "valid";
   await manager.attach(managerContext(managerRoot, "manager-source", sourceSessionFile));
   const unsafeDisposableRoot = join(root, "src");
@@ -307,6 +310,9 @@ try {
   let conflictingLaunchRejected = false;
   try { await manager.launch({ ...launchRequest, task: "Conflicting request" }); } catch (error) { conflictingLaunchRejected = error.message.includes("Launch key conflict"); }
   assert(conflictingLaunchRejected, "same launch key with a different normalized request fails closed");
+  await waitFor(() => terminalBarrierEntered);
+  assert(parentPi.messages.length === 0, "terminal reconciliation listeners finish before the completion follow-up can trigger orchestration");
+  releaseTerminalBarrier(); removeTerminalBarrier();
   await waitFor(async () => { await manager.scan(); return parentPi.messages.length === 1; });
   const firstMessage = parentPi.messages[0];
   assert(firstMessage.message.content.includes("Fake worker completed.") && firstMessage.options.deliverAs === "followUp" && firstMessage.options.triggerTurn, "manager delivers one compact triggered follow-up");

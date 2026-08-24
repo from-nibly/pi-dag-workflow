@@ -219,7 +219,15 @@ export async function scenario(parent, name, options) {
       const reconciled = await lifecycle.reconcileOne(AT);
       state = await store.read(context);
       if (state.revision !== before.revision || state.snapshotHash !== before.snapshotHash || reconciled.progressed) continue;
-      if (reconciled.waiting) throw new Error(`Dogfood lifecycle stalled: ${reconciled.reason}`);
+      if (reconciled.waiting) {
+        const readyPackets = await lifecycle.readyPackets(state);
+        if (readyPackets.length) {
+          await lifecycle.dispatch(readyPackets[0], null, AT);
+          state = await store.read(context);
+          continue;
+        }
+        throw new Error(`Dogfood lifecycle stalled: ${reconciled.reason}`);
+      }
       const decision = scheduleDagRunV1(plan, state);
       if (!decision.selected.length) throw new Error(`Dogfood scheduler stalled: ${decision.notice}`);
       const payload = { decisionHash: decision.decisionHash, decisionSequence: decision.decisionSequence, policyHash: decision.policyHash, normalizedIndexHash: decision.normalizedIndexHash, inputSnapshotHash: state.snapshotHash, reservations: decision.selected, bypassSlotIds: decision.bypassIncrements };
@@ -397,7 +405,7 @@ function scriptedLifecycle(repo, options) {
           }
           if (request.label.endsWith("/F3")) candidate = await gitTree(workspace, "HEAD");
           const attemptNonce = `nonce-${request.workerId}-0123456789`;
-          const config = { storageId: `scripted-storage-${state.runId}`, ownerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, launchKey: request.launchKey, requestHash: request.configRequestHash, launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity }, fixtureIdentity };
+          const config = { storageId: `scripted-storage-${state.runId}`, ownerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, launchKey: request.launchKey, requestHash: request.configRequestHash, task: request.task, launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity }, fixtureIdentity };
           const configHash = canonicalHash(config);
           const configCore = { kind: "worker_config", configHash, config };
           const observation = { workerStorageId: config.storageId, launchOwnerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, configHash, configFact: withHash(configCore), supervisorPid: process.pid, supervisorStartIdentity: processStartIdentity, childPid: null, childStartIdentity: null, mailboxHash: null, heartbeatAt: AT };

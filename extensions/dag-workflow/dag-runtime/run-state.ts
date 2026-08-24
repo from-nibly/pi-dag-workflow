@@ -1322,6 +1322,12 @@ const LaunchIntentProjectionV1Schema = StrictObject({
   taskPacketHash: HashSchema,
   cwdRepositoryId: IdSchema,
   configRequestHash: HashSchema,
+  dispatchProtocolVersion: Type.Optional(Type.Literal(1)),
+  readyPacketHash: Type.Optional(HashSchema),
+  normalizedDirective: Type.Optional(Type.Union([Type.String({ maxLength: 2_000 }), Type.Null()])),
+  directiveHash: Type.Optional(HashSchema),
+  promptHash: Type.Optional(HashSchema),
+  dispatchConfigRequestHash: Type.Optional(HashSchema),
   dispatchCount: NonNegativeIntegerSchema,
   lastDispatchAt: Nullable(TimestampSchema),
   boundAt: Nullable(TimestampSchema),
@@ -2101,6 +2107,19 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     const launchEffect = state.effects[launch.effectId];
     pushIssue(issues, `/launchIntents/${launchId}/effectId`, launchEffect?.kind === "launch_worker", "must reference a launch_worker effect intent");
     pushIssue(issues, `/launchIntents/${launchId}/dispatchCount`, launch.dispatchCount === (launchEffect?.dispatchCount ?? -1) && launch.lastDispatchAt === (launchEffect?.lastDispatchAt ?? null), "must mirror exact durable launch-effect dispatch authority");
+    if (launch.dispatchProtocolVersion === 1) {
+      const dispatchHashes = [launch.readyPacketHash, launch.directiveHash, launch.promptHash, launch.dispatchConfigRequestHash];
+      const directiveBound = Object.prototype.hasOwnProperty.call(launch, "normalizedDirective") && (launch.normalizedDirective === null || typeof launch.normalizedDirective === "string");
+      const envelopeAbsent = dispatchHashes.every((value) => value === undefined) && !Object.prototype.hasOwnProperty.call(launch, "normalizedDirective");
+      const envelopeBound = dispatchHashes.every((value) => typeof value === "string") && directiveBound;
+      pushIssue(issues, `/launchIntents/${launchId}/dispatchProtocolVersion`, envelopeAbsent || envelopeBound, "modern dispatch envelope identity must be wholly absent before dispatch or wholly bound afterwards");
+      if (envelopeBound) {
+        const normalized = launch.normalizedDirective;
+        const directiveExact = normalized === null || typeof normalized === "string" && normalized.length <= 2_000 && Buffer.byteLength(normalized, "utf8") <= 8_192 && normalized === normalized.normalize("NFC").trim() && ![...normalized].some((character) => { const code = character.codePointAt(0)!; return (code < 32 && code !== 9 && code !== 10) || code === 127; });
+        pushIssue(issues, `/launchIntents/${launchId}/normalizedDirective`, directiveExact && launch.directiveHash === canonicalHash({ schemaVersion: 1, directive: normalized }), "bound tactical directive must be exact normalized bounded data matching its durable hash");
+      }
+      pushIssue(issues, `/launchIntents/${launchId}/state`, launch.dispatchCount === 0 ? ["dispatchable", "not_started", "closed"].includes(launch.state) && envelopeAbsent : envelopeBound, "modern launch is dispatchable/proven-never-started before authority and identity-bound after dispatch");
+    } else pushIssue(issues, `/launchIntents/${launchId}/dispatchProtocolVersion`, launch.readyPacketHash === undefined && launch.normalizedDirective === undefined && launch.directiveHash === undefined && launch.promptHash === undefined && launch.dispatchConfigRequestHash === undefined, "legacy launch intents cannot carry a modern dispatch envelope");
     if (["bound", "closed"].includes(launch.state)) pushIssue(issues, `/launchIntents/${launchId}/state`, launch.dispatchCount > 0 && launchEffect?.observationHash !== null && launchEffect?.reconciliation === "applied_exact", "bound/closed launch requires positive dispatch and immutable exact launch observation");
     if (launch.state === "not_started") pushIssue(issues, `/launchIntents/${launchId}/state`, launch.dispatchCount === 0 && ["cancelled", "reconciled"].includes(launchEffect?.state ?? "") && launchEffect?.reconciliation === "proven_absent" && !state.workerBindings[launch.stageAttemptId], "not-started launch requires exact never-dispatched proven-absent closure without a worker binding");
     pushIssue(issues, `/launchIntents/${launchId}/cwdRepositoryId`, Boolean(state.repositories[launch.cwdRepositoryId]), "references an unknown repository");
@@ -2117,7 +2136,7 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     const configFact = context.facts[binding.configRef.hash] as any;
     const config = configFact?.kind === "worker_config" ? configFact.config : null;
     pushIssue(issues, `/workerBindings/${attemptId}/configRef`, binding.configRef.kind === "worker_config" && configFact?.hash === binding.configRef.hash && configFact?.hash === hashWithoutField(configFact as Record<string, unknown>, "hash") && configFact?.configHash === binding.configHash && canonicalHash(config) === binding.configHash, "must resolve a readable canonical immutable worker config artifact");
-    pushIssue(issues, `/workerBindings/${attemptId}/configRef`, Boolean(config && config.storageId === binding.workerStorageId && config.ownerSessionId === binding.launchOwnerSessionId && config.workerId === binding.workerId && config.attemptNumber === binding.attemptNumber && config.attemptNonce === binding.attemptNonce && config.launchKey === launch?.launchKey && config.requestHash === launch?.configRequestHash), "worker config must bind the exact launch and generic worker attempt identity");
+    pushIssue(issues, `/workerBindings/${attemptId}/configRef`, Boolean(config && config.storageId === binding.workerStorageId && config.ownerSessionId === binding.launchOwnerSessionId && config.workerId === binding.workerId && config.attemptNumber === binding.attemptNumber && config.attemptNonce === binding.attemptNonce && config.launchKey === launch?.launchKey && config.requestHash === (launch?.dispatchConfigRequestHash ?? launch?.configRequestHash) && (launch?.dispatchProtocolVersion !== 1 || canonicalHash(config.task) === launch.promptHash && canonicalHash({ protocolVersion: 1, launchKey: launch.launchKey, workerId: launch.workerId, taskPacketHash: launch.taskPacketHash, directiveHash: launch.directiveHash, promptHash: launch.promptHash }) === launch.dispatchConfigRequestHash)), "worker config must bind the exact launch and generic worker attempt identity");
     const attemptForIndependence = state.stageAttempts[attemptId];
     if (attemptForIndependence && ["F2", "F5"].includes(attemptForIndependence.stage)) {
       const predecessorContexts = Object.entries(state.workerBindings).filter(([otherId]) => {

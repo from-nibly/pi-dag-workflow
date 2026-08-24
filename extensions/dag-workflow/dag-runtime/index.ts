@@ -110,12 +110,16 @@ export {
 } from "./conductor.ts";
 export {
   DagLifecycleRuntimeV1,
+  buildDagOwnedWorkerPromptV1,
+  normalizeDagTacticalDirectiveV1,
   type DagCandidateSealingAdapterV1,
   type DagCandidateSealingResultV1,
   type DagIntegrationReconciliationAdapterV1,
   type DagLifecycleReconcileResultV1,
   type DagLifecycleRuntimeOptionsV1,
   type DagOwnedWorkerAdapterV1,
+  type DagOwnedWorkerDispatchResultV1,
+  type DagOwnedWorkerReadyPacketV1,
   type DagOwnedWorkerLaunchObservationV1,
   type DagOwnedWorkerLaunchRequestV1,
   type DagOwnedWorkerTerminalObservationV1,

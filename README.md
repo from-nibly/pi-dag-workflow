@@ -27,7 +27,7 @@ Tracked Markdown under `spec/` is a deterministic readable projection of accepte
 ## Install
 
 ```nu
-pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.2.0
+pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.3.0
 ```
 
 ## Project-model migration
@@ -79,7 +79,9 @@ Thin plans live under ignored `.ai/dag-plans-v1/`. Each head has immutable retai
 
 `/dag show` is read-only. A current-session live run wins by default; otherwise one session-bound or unambiguous active-focus static plan is required. Static Markdown, graph, node, and lineage views are deterministic projections. Live views resolve only the exact current-session run binding.
 
-`/dag run` revalidates the clean Git baseline, target branch, authoritative model objects, generated specification bytes, approval, and authorization before creating run authority. It internally compiles the thin plan into the existing canonical F0–F8 contracts, generates UUID occurrence identities, durably records a recoverable start intent, binds the run to the current session, and only then permits scheduling. A repeated command advances the bound run without restarting or implicitly unpausing it. A process crash during start is recovered from the exact unfinished intent.
+`/dag run` revalidates the clean Git baseline, target branch, authoritative model objects, generated specification bytes, approval, and authorization before creating run authority. It internally compiles the thin plan into the existing canonical F0–F8 contracts, generates UUID occurrence identities, durably records a recoverable start intent, binds the run to the current session, and then starts an agent orchestration turn. A repeated command reconciles the bound run without restarting or implicitly unpausing it. A process crash during start is recovered from the exact unfinished intent.
+
+Canonical worker dispatch is agent-driven. `dag_run_status` returns exact `readyPackets`; the top-level agent launches one unchanged packet at a time with `dag_run_dispatch`, optionally adding a bounded tactical directive, then refreshes status before the next launch. The protected prompt retains the canonical objective, stage role, worktree/edit boundaries, checks, and completion contract while hashing the normalized directive and final prompt into launch authority. Generic `subagent` calls cannot consume canonical DAG work. Timer, session, `agent_end`, and worker-completion wakes reconcile durable state and prepare packets but never launch a fresh canonical worker. When progress depends on running workers, the agent ends its turn and completion follow-ups resume orchestration automatically.
 
 ## Model tools
 
@@ -133,9 +135,9 @@ There is no generated-file ownership manifest, editable generated region, revers
 
 The extension owns a generic worker runtime; it does not depend on `pi-subagents`. Every launch returns immediately while a detached supervisor runs the exact installed Pi CLI in RPC mode. Launch output gives the parent an explicit dependency-barrier rule: continue only independent work, then keep the parent task in progress and end the turn immediately when remaining work depends on the worker. The completion follow-up starts the next turn automatically without user action; status, inspection, result lookup, and diagnostic tails must not be used for completion waiting. Workers survive top-level Pi reload or exit, report through a terminating `subagent_report` tool, and deliver bounded completions serially when the owning session reconnects.
 
-Top-level agent tools:
+Top-level generic-worker tools (canonical DAG packets use `dag_run_dispatch` instead):
 
-- `subagent` — launch an asynchronous worker;
+- `subagent` — launch a DAG-unbound asynchronous worker;
 - `subagent_status` — diagnostically list or summarize workers, never wait for completion;
 - `subagent_inspect` — read a bounded immutable result for diagnosis or recovery;
 - `subagent_tail` — read selected bounded diagnostics, never wait for completion;

@@ -48,7 +48,11 @@ const SetDesiredPayloadSchema = StrictObject({
   requestedBy: Type.Enum(["user", "conductor", "successor_plan"]),
 });
 const PutEffectPayloadSchema = StrictObject({ effect: EffectProjectionV1Schema });
-const MarkEffectDispatchingPayloadSchema = StrictObject({ effectId: IdSchema, expectedDispatchCount: NonNegativeIntegerSchema });
+const MarkEffectDispatchingPayloadSchema = StrictObject({
+  effectId: IdSchema,
+  expectedDispatchCount: NonNegativeIntegerSchema,
+  ownedWorkerDispatch: Type.Optional(StrictObject({ readyPacketHash: HashSchema, normalizedDirective: Type.Union([Type.String({ maxLength: 2_000 }), Type.Null()]), directiveHash: HashSchema, promptHash: HashSchema, dispatchConfigRequestHash: HashSchema })),
+});
 const RetryEffectDispatchPayloadSchema = StrictObject({ effectId: IdSchema, expectedDispatchCount: PositiveIntegerSchema, reason: Type.Literal("uncertain_acknowledgement") });
 const RecordEffectExecutionPayloadSchema = StrictObject({ effectId: IdSchema, executionObservationHash: HashSchema });
 const RecordEffectObservationPayloadSchema = StrictObject({
@@ -99,7 +103,7 @@ const AcceptIntegrationReceiptPayloadSchema = StrictObject({ integrationAttemptI
 const LaunchIntentInputSchema = StrictObject({
   launchIntentId: IdSchema, effectId: IdSchema, state: Type.Literal("reserved"), adapter: Type.Literal("owned-worker-v1"),
   launchKey: IdSchema, workerId: IdSchema, expectedAttemptNumber: PositiveIntegerSchema, taskPacketHash: HashSchema,
-  cwdRepositoryId: IdSchema, configRequestHash: HashSchema, dispatchCount: Type.Literal(0), lastDispatchAt: Type.Null(),
+  cwdRepositoryId: IdSchema, configRequestHash: HashSchema, dispatchProtocolVersion: Type.Optional(Type.Literal(1)), dispatchCount: Type.Literal(0), lastDispatchAt: Type.Null(),
   boundAt: Type.Null(), ambiguityReason: Type.Null(),
 });
 const WorkerBindingInputSchema = StrictObject({
@@ -502,7 +506,7 @@ function applyInput(
         if (!launch || !effect || state.launchIntents[launch.launchIntentId] || state.effects[effect.effectId] || launch.effectId !== effect.effectId || launch.workerId.length === 0 || launch.cwdRepositoryId !== item.writeRepositoryId) return precondition("owned-worker begin requires one pristine launch identity and effect");
         if (effect.kind !== "launch_worker" || effect.subject.kind !== "work_item" || effect.subject.id !== item.workItemId || effect.state !== "intended" || effect.dispatchCount !== 0 || effect.createdRevision !== state.revision + 1 || effect.createdAt !== input.occurredAt || effect.boundOwnerEpoch !== state.owner.ownerEpoch || effect.boundAuthorizationSetHash !== state.identity.authorizationSet.hash || effect.boundFreshnessReceiptHash !== state.freshness.receipt.hash || effect.boundCandidateGeneration !== item.candidateGeneration || effect.observationHash !== null || effect.reconciliation !== "not_started") return precondition("owned-worker launch effect must be a pristine current-authority intent");
         state.effects[effect.effectId] = structuredClone(effect);
-        state.launchIntents[launch.launchIntentId] = { ...structuredClone(launch), stageAttemptId: payload.stageAttemptId };
+        state.launchIntents[launch.launchIntentId] = { ...structuredClone(launch), stageAttemptId: payload.stageAttemptId, ...(launch.dispatchProtocolVersion === 1 ? { state: "dispatchable" } : {}) };
       } else if (payload.launchIntent !== null || payload.launchEffect !== null) return precondition("non-worker stage attempt cannot create worker launch authority");
       for (const leaseId of reservation.leaseIds) {
         const lease = state.leases[leaseId];
@@ -510,7 +514,7 @@ function applyInput(
         lease.holderStageAttemptId = payload.stageAttemptId;
       }
       const launchIntentId = payload.launchIntent?.launchIntentId ?? null;
-      state.stageAttempts[payload.stageAttemptId] = { stageAttemptId: payload.stageAttemptId, workItemId: item.workItemId, stage: reservation.stage, ordinal: reservation.attemptOrdinal, producerKind, implementationLineageHash: inputFact.implementationLineageHash, inputGeneration: inputFact.candidateGeneration, reservedOutputGeneration: null, attemptInput: structuredClone(payload.attemptInput), authorizationSetHash: state.identity.authorizationSet.hash, state: producerKind === "owned_worker" ? "launching" : "running", launchIntentId, leaseIds: [...reservation.leaseIds].sort(), workerResult: null, evidence: null, failure: null, createdAt: input.occurredAt, updatedAt: input.occurredAt, terminalAt: null };
+      state.stageAttempts[payload.stageAttemptId] = { stageAttemptId: payload.stageAttemptId, workItemId: item.workItemId, stage: reservation.stage, ordinal: reservation.attemptOrdinal, producerKind, implementationLineageHash: inputFact.implementationLineageHash, inputGeneration: inputFact.candidateGeneration, reservedOutputGeneration: null, attemptInput: structuredClone(payload.attemptInput), authorizationSetHash: state.identity.authorizationSet.hash, state: producerKind === "owned_worker" ? payload.launchIntent?.dispatchProtocolVersion === 1 ? "dispatchable" : "launching" : "running", launchIntentId, leaseIds: [...reservation.leaseIds].sort(), workerResult: null, evidence: null, failure: null, createdAt: input.occurredAt, updatedAt: input.occurredAt, terminalAt: null };
       state.evidenceIndex.stageAttemptInputs[payload.stageAttemptId] = structuredClone(payload.attemptInput);
       stage.state = "active"; stage.attemptIds = [...stage.attemptIds, payload.stageAttemptId].sort(); stage.currentAttemptId = payload.stageAttemptId; stage.currentEvidence = null; stage.lastDisposition = null;
       item.current = "active"; item.currentStage = reservation.stage;
@@ -530,7 +534,7 @@ function applyInput(
       const launchOwnerProven = exactOwnerLineageIncludes(state, context, configFact?.config?.launchOwner, binding.launchOwnerSessionId);
       if (binding.stageAttemptId !== attempt.stageAttemptId || binding.launchIntentId !== launch.launchIntentId || !launchOwnerProven || binding.launchOwnerSessionId !== observation?.launchOwnerSessionId || binding.workerId !== launch.workerId || binding.attemptNumber !== launch.expectedAttemptNumber || binding.heartbeatAt !== input.occurredAt || binding.supervisorPid <= 0 || binding.supervisorStartIdentity === null) return precondition("worker binding does not match the exact current or proven prior launch owner/config/attempt identity");
       const config = configFact?.config;
-      if (!config || configFact.configHash !== binding.configHash || canonicalHash(config) !== binding.configHash || config.storageId !== binding.workerStorageId || config.ownerSessionId !== binding.launchOwnerSessionId || config.workerId !== binding.workerId || config.attemptNumber !== binding.attemptNumber || config.attemptNonce !== binding.attemptNonce || config.launchKey !== launch.launchKey || config.requestHash !== launch.configRequestHash || config.launchOwner?.sessionId !== binding.launchOwnerSessionId) return precondition("immutable worker config does not bind the exact launch owner, request, process, and attempt");
+      if (!config || configFact.configHash !== binding.configHash || canonicalHash(config) !== binding.configHash || config.storageId !== binding.workerStorageId || config.ownerSessionId !== binding.launchOwnerSessionId || config.workerId !== binding.workerId || config.attemptNumber !== binding.attemptNumber || config.attemptNonce !== binding.attemptNonce || config.launchKey !== launch.launchKey || config.requestHash !== (launch.dispatchConfigRequestHash ?? launch.configRequestHash) || (launch.dispatchProtocolVersion === 1 && (canonicalHash(config.task) !== launch.promptHash || canonicalHash({ protocolVersion: 1, launchKey: launch.launchKey, workerId: launch.workerId, taskPacketHash: launch.taskPacketHash, directiveHash: launch.directiveHash, promptHash: launch.promptHash }) !== launch.dispatchConfigRequestHash)) || config.launchOwner?.sessionId !== binding.launchOwnerSessionId) return precondition("immutable worker config does not bind the exact launch owner, request, process, and attempt");
       const observedBinding = { workerStorageId: binding.workerStorageId, launchOwnerSessionId: binding.launchOwnerSessionId, workerId: binding.workerId, attemptNumber: binding.attemptNumber, attemptNonce: binding.attemptNonce, configHash: binding.configHash, supervisorPid: binding.supervisorPid, supervisorStartIdentity: binding.supervisorStartIdentity };
       if (!observation || observation.ownerEpoch !== state.owner.ownerEpoch || observation.authorizationSetHash !== state.identity.authorizationSet.hash || observation.effectId !== effect.effectId || observation.requestHash !== effect.requestHash || observation.launchIntentId !== launch.launchIntentId || observation.launchKey !== launch.launchKey || Object.entries(observedBinding).some(([key, value]) => observation[key] !== value) || observation.observedAt !== input.occurredAt) return precondition("launch observation does not bind the exact dispatched worker identity");
       if (!item || (ordinaryLaunch ? item.candidateGeneration !== attempt.inputGeneration : cancellation!.fencedGenerations[attempt.workItemId] !== item.candidateGeneration) || attempt.authorizationSetHash !== state.identity.authorizationSet.hash) return precondition("worker binding is stale for the current or exactly fenced item generation/authorization");
@@ -872,10 +876,19 @@ function applyInput(
       if (effect && stageAttempt && !isPostTerminalClosureEffect(effect.kind) && !isExactOpenStageEffectBoundary(state, stageAttempt)) return precondition("stage-bound execution effect cannot dispatch after its exact attempt evidence seal");
       const exactPersistedExecution = effect && ((effect.kind === "run_procedure" && effect.boundStageAttemptId != null) || (effect.kind === "verify_prefix" && effect.boundIntegrationAttemptId != null));
       if (!effect || effect.state !== "intended" || effect.dispatchCount !== payload.expectedDispatchCount || (!exactPersistedExecution && effect.boundOwnerEpoch !== state.owner.ownerEpoch) || effect.executionObservationHash != null) return precondition("effect is not dispatchable at the expected count and current owner authority");
+      const launch = Object.values(state.launchIntents).find((candidate) => candidate.effectId === effect.effectId);
+      const launchAttempt = launch ? state.stageAttempts[launch.stageAttemptId] : undefined;
+      if (launch?.dispatchProtocolVersion === 1) {
+        const attempt = launchAttempt;
+        const dispatch = payload.ownedWorkerDispatch;
+        if (!dispatch || attempt?.state !== "dispatchable" || launch.state !== "dispatchable" || effect.dispatchCount !== 0 || launch.readyPacketHash || Object.prototype.hasOwnProperty.call(launch, "normalizedDirective") || launch.directiveHash || launch.promptHash || launch.dispatchConfigRequestHash) return precondition("modern owned-worker launch requires one pristine exact agent dispatch envelope");
+        launch.readyPacketHash = dispatch.readyPacketHash; launch.normalizedDirective = dispatch.normalizedDirective; launch.directiveHash = dispatch.directiveHash; launch.promptHash = dispatch.promptHash; launch.dispatchConfigRequestHash = dispatch.dispatchConfigRequestHash;
+        attempt.state = "launching"; attempt.updatedAt = input.occurredAt;
+      } else if (payload.ownedWorkerDispatch) return precondition("legacy/non-worker effects cannot acquire a modern owned-worker dispatch envelope");
+      else if (launch && launchAttempt?.producerKind === "owned_worker" && ["preparing", "launching"].includes(launchAttempt.state) && launch.state === "reserved") { launchAttempt.state = "launching"; launchAttempt.updatedAt = input.occurredAt; }
       if (state.desired.run !== "running" && !["cancel_worker", "cleanup_worktree", "reconcile_external_effect"].includes(effect.kind)) return precondition("paused/cancelling/terminal run blocks new non-recovery dispatch");
       if (effect.subject.kind === "work_item" && ["cancel", "supersede"].includes(state.workItems[effect.subject.id]?.desired) && !["cancel_worker", "cleanup_worktree", "reconcile_external_effect"].includes(effect.kind)) return precondition("fenced work item blocks new non-recovery dispatch");
       effect.state = "dispatching"; effect.dispatchCount += 1; effect.lastDispatchAt = input.occurredAt;
-      const launch = Object.values(state.launchIntents).find((candidate) => candidate.effectId === effect.effectId);
       if (launch) { launch.state = "dispatching"; launch.dispatchCount = effect.dispatchCount; launch.lastDispatchAt = input.occurredAt; }
       effects.push({ effectId: effect.effectId, kind: effect.kind, requestHash: effect.requestHash });
       notices.push(notice(state, "effect_dispatching", effect.effectId, effect.requestHash));

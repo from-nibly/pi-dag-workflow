@@ -11,6 +11,14 @@ const Hash = Type.String({ pattern: "^sha256:[0-9a-f]{64}$" });
 const Timestamp = Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?Z$" });
 const strict = <T extends Record<string, any>>(properties: T) => Type.Object(properties, { additionalProperties: false });
 const ReadBinding = strict({ runId: RunId });
+const ReadyPacket = strict({
+  schemaVersion: Type.Literal(1), kind: Type.Literal("DagOwnedWorkerReadyPacketV1"), runId: RunId, runNonce: Type.String({ minLength: 16, maxLength: 256 }),
+  expectedRevision: Type.Integer({ minimum: 0 }), expectedSnapshotHash: Hash, ownerEpoch: Type.Integer({ minimum: 1 }),
+  reservationId: Id, stageAttemptId: Id, launchIntentId: Id, effectId: Id, workItemId: Id,
+  stage: Type.Enum(["F1", "F2", "F3", "F5", "F6"]), taskPacketHash: Hash, configRequestHash: Hash, requestHash: Hash,
+  packet: Type.Record(Type.String({ minLength: 1, maxLength: 256 }), Type.Unknown()), dispatchProtocolVersion: Type.Union([Type.Literal(0), Type.Literal(1)]),
+  recoveryDirective: Type.Optional(Type.Union([Type.String({ maxLength: 2_000 }), Type.Null()])), readyPacketHash: Hash,
+});
 const MutationGuard = {
   runId: RunId, runNonce: Type.String({ minLength: 16, maxLength: 256 }), expectedRevision: Type.Integer({ minimum: 0 }), expectedSnapshotHash: Hash,
   ownerEpoch: Type.Integer({ minimum: 0 }), commandId: Id, idempotencyKey: Type.String({ minLength: 1, maxLength: 256 }), occurredAt: Timestamp,
@@ -108,6 +116,20 @@ export function registerCanonicalDagRuntime(pi: ExtensionAPI, service = new DagC
     controller.start();
     await controller.refresh();
   });
+  pi.on("before_agent_start", async (event: any, ctx: any) => {
+    const binding = await service.binding(ctx).catch(() => null);
+    if (!binding) return;
+    const status = await service.status(ctx, binding.runId).catch(() => null);
+    if (!status || status.stale || status.state.completion.state !== "open") return;
+    const guidance = [
+      "CANONICAL DAG ORCHESTRATION MODE:",
+      `Bound run: ${binding.runId}. Call dag_run_status to read its exact current readyPackets and reconciliation state.`,
+      "Owned-worker launches are agent-driven only. For each actionable packet, call dag_run_dispatch with that one unchanged packet and an optional bounded tactical directive, then refresh status before dispatching another packet.",
+      "Never use generic subagent tools for canonical DAG work. Timer, session, agent_end, and worker-completion wakes only reconcile durable state and never launch a fresh worker.",
+      "Continue only orchestration work independent of running workers. When remaining progress depends on them, keep the parent task in progress and end the turn; completion follow-ups resume orchestration automatically.",
+    ].join("\n");
+    return { systemPrompt: `${event.systemPrompt}\n\n${guidance}` };
+  });
   pi.on("agent_end", async () => { await advanceConductor(); await refreshWidget(); });
   pi.on("session_shutdown", async () => {
     if (conductorTimer) clearInterval(conductorTimer);
@@ -123,7 +145,17 @@ export function registerCanonicalDagRuntime(pi: ExtensionAPI, service = new DagC
     async execute(_id, params, _signal, _update, ctx) {
       const result = await service.status(ctx, params.runId);
       const summary = result.projection.summary;
-      return ok(`DAG ${params.runId} r${result.state.revision} ${result.state.current.run}/${result.state.completion.state}\nready=${summary.ready} active=${summary.activeLanes} attention=${summary.attention} integrationReady=${summary.integrationReady} complete=${summary.complete}`, result as any);
+      const dispatch = result.readyPackets.length ? `\nownedWorkerReady=${result.readyPackets.length}; dispatch one unchanged readyPacket with dag_run_dispatch, then refresh dag_run_status before another (never generic subagent)` : "\nownedWorkerReady=0; no owned-worker dispatch is currently actionable";
+      return ok(`DAG ${params.runId} r${result.state.revision} ${result.state.current.run}/${result.state.completion.state}\nready=${summary.ready} active=${summary.activeLanes} attention=${summary.attention} integrationReady=${summary.integrationReady} complete=${summary.complete}${dispatch}`, result as any);
+    },
+  });
+  pi.registerTool({
+    name: "dag_run_dispatch", label: "Canonical DAG Owned-Worker Dispatch", description: "The only operation allowed to cross exact mark-dispatching, owned-worker launch, and binding for one unchanged agent-visible ready packet. Dispatch one packet, then refresh dag_run_status before dispatching another. Replays are idempotent only with the identical normalized tactical directive and canonical prompt.",
+    parameters: strict({ readyPacket: ReadyPacket, tacticalDirective: Type.Optional(Type.String({ maxLength: 2_000 })), occurredAt: Timestamp }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const result = await service.dispatch(ctx, params.readyPacket as any, params.tacticalDirective, params.occurredAt);
+      await refreshWidget();
+      return ok(`${result.idempotentReplay ? "Replayed" : "Dispatched"} exact owned worker ${result.binding.workerId} for ${result.binding.stageAttemptId}; durable binding at r${result.state.revision}. End the turn at the dependency barrier; the completion follow-up will resume canonical orchestration after durable reconciliation.`, result as any);
     },
   });
   pi.registerTool({
@@ -154,7 +186,7 @@ export function registerCanonicalDagRuntime(pi: ExtensionAPI, service = new DagC
   pi.registerTool({
     name: "dag_run_start", label: "Canonical DAG Run Start", description: "Initialize and bind one pre-authorized canonical DAG run from exact repository-local plan, genesis, and context artifacts.",
     parameters: strict({ runId: RunId, runNonce: Type.String({ minLength: 16, maxLength: 256 }), planHash: Hash, planPath: Type.String({ minLength: 1, maxLength: 1024 }), genesisPath: Type.String({ minLength: 1, maxLength: 1024 }), contextPath: Type.String({ minLength: 1, maxLength: 1024 }), maxActiveNodes: Type.Integer({ minimum: 1 }), occurredAt: Timestamp }),
-    async execute(_id, params, _signal, _update, ctx) { const result = await service.start(ctx, params); await refreshWidget(); return ok(`Started canonical DAG ${result.state.runId} at r${result.state.revision}; ${result.decision.notice}`, result as any); },
+    async execute(_id, params, _signal, _update, ctx) { const result = await service.start(ctx, params); await refreshWidget(); return ok(`Initialized canonical DAG ${result.state.runId} at r${result.state.revision}. Inspect dag_run_status, dispatch one actionable readyPacket, then refresh status before another; never use generic subagent. Scheduler notice: ${result.decision.notice}`, result as any); },
   });
   pi.registerTool({
     name: "dag_run_control", label: "Canonical DAG Run Control", description: "Compile explicit pause, resume, or cancel intent to the guarded closed run reducer.", parameters: strict({ ...MutationGuard, action: Type.Enum(["pause", "resume", "cancel"]), reason: Type.String({ minLength: 1, maxLength: 4096 }) }),

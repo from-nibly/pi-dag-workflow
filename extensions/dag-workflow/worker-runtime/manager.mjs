@@ -64,8 +64,9 @@ export class WorkerManager {
     return () => this.terminalResultListeners.delete(listener);
   }
 
-  #notifyTerminalResult(event) {
-    for (const listener of this.terminalResultListeners) queueMicrotask(() => Promise.resolve(listener(event)).catch((error) => console.error(`Worker terminal-result listener failed: ${error.message}`)));
+  async #notifyTerminalResult(event) {
+    const settled = await Promise.allSettled([...this.terminalResultListeners].map((listener) => Promise.resolve().then(() => listener(event))));
+    for (const result of settled) if (result.status === "rejected") console.error(`Worker terminal-result listener failed: ${result.reason?.message ?? result.reason}`);
   }
 
   async attach(ctx) {
@@ -1021,7 +1022,7 @@ export class WorkerManager {
       await this.#quarantineAttemptArtifact(workerId, attemptNumber, path, "late-post-cancellation-result", "Non-cancelled terminal result did not precede the serialized cancellation intent");
       await this.#writeRecoveryResult(workerId, attemptNumber, "lost", "Non-cancelled terminal result conflicted with serialized cancellation authority", true);
       if (await pathExists(paths.recoveryResult)) await this.#ingestResult(workerId, attemptNumber, paths.recoveryResult, true);
-    } else if (ingestion.result?.adopted) this.#notifyTerminalResult({ workerId, attemptNumber, completionId: result.completionId, terminalStatus: result.terminalStatus });
+    } else if (ingestion.result?.adopted) await this.#notifyTerminalResult({ workerId, attemptNumber, completionId: result.completionId, terminalStatus: result.terminalStatus });
   }
 
   async dispatchNext() {
@@ -1110,7 +1111,8 @@ export class WorkerManager {
     ];
     if (result.artifacts?.length) lines.push("", "Artifacts:", ...result.artifacts.map((artifact) => `- ${artifact.path}${artifact.label ? ` — ${artifact.label}` : ""}`));
     if (result.report?.nextSteps?.length) lines.push("", "Next steps:", ...result.report.nextSteps.map((step) => `- ${step}`));
-    lines.push("", `Use subagent_inspect({ workerId: \"${worker.id}\" }) for the full bounded result or subagent_tail for diagnostics.`);
+    if (worker.normalizedRequest?.ownedWorktree) lines.push("", "Canonical DAG orchestration: call dag_run_status now and dispatch any exact readyPacket with dag_run_dispatch. Do not use subagent inspection, status, results, tails, or generic subagent launch for canonical progress.");
+    else lines.push("", `Use subagent_inspect({ workerId: \"${worker.id}\" }) for the full bounded result or subagent_tail for diagnostics.`);
     return truncateUtf8(lines.join("\n"), MAX_COMPLETION_MESSAGE_BYTES);
   }
 

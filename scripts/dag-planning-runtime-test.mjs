@@ -8,9 +8,14 @@ import { promisify } from "node:util";
 import { validationExecutableIdentityMatchesV1 } from "../extensions/dag-workflow/dag-runtime/integration-driver.ts";
 import {
   canonicalHash,
+  canonicalStringify,
+  buildDagOwnedWorkerPromptV1,
+  normalizeDagTacticalDirectiveV1,
+  DagConductorServiceV1,
   DagRunSnapshotStoreV1,
   parseStrictJson,
   validateCanonicalDagPlanV1,
+  validateDagRunStateShapeV1,
   validateDagRunStateV1,
 } from "../extensions/dag-workflow/dag-runtime/index.ts";
 import { semanticHash } from "../extensions/dag-workflow/project-model/model.ts";
@@ -104,6 +109,191 @@ function attempt(stage, workerResult = null) {
     evidence: null, failure: null, createdAt: AT, updatedAt: AT, terminalAt: AT,
   };
 }
+
+test("agent dispatch is the sole fresh-launch boundary with exact CAS, replay, prompt, completion, and legacy compatibility", async () => {
+  const fx = await fixture();
+  try {
+    const prepared = await prepareDagRunV1(prepareInput(fx));
+    const ctx = { cwd: fx.root, sessionManager: { getSessionId: () => "dispatch-session", getSessionFile: () => null, getHeader: () => ({ type: "session", id: "dispatch-session", cwd: fx.root }) } };
+    let launches = 0;
+    let terminal = null;
+    let capturedRequest = null;
+    let crashAfterMark = false;
+    const procedure = createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root });
+    const lifecycle = {
+      procedure,
+      candidate: {
+        async inspectAndSealCandidate({ plan, state, attempt, repositoryId }) {
+          const item = state.workItems[attempt.workItemId]; const base = plan.repositories.find((repository) => repository.repositoryId === repositoryId).baseline;
+          const git = { repositoryId, commit: fx.baselineCommit, tree: fx.baselineTree };
+          const core = { kind: "candidate", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: item.workItemId, generation: item.candidateGeneration + 1, candidateId: `candidate-${attempt.stageAttemptId}`, base, git, patchIdentityHash: canonicalHash({ base, git }), producedByStageAttemptId: attempt.stageAttemptId, lineageHash: item.implementationLineageHash };
+          return { candidate: { ...core, hash: canonicalHash(core) }, workerOutput: terminal?.workerOutput };
+        },
+      },
+      worker: {
+        async launchExact(request, state) {
+          launches += 1; capturedRequest = structuredClone(request);
+          const attemptNonce = `dispatch-attempt-nonce-${request.workerId}`;
+          const config = { storageId: "dispatch-store", ownerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, launchKey: request.launchKey, requestHash: request.configRequestHash, task: request.task, launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity } };
+          const configHash = canonicalHash(config); const configCore = { kind: "worker_config", configHash, config };
+          return { workerStorageId: config.storageId, launchOwnerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, configHash, configFact: { ...configCore, hash: canonicalHash(configCore) }, supervisorPid: process.pid, supervisorStartIdentity: `test-process-${process.pid}`, childPid: null, childStartIdentity: null, mailboxHash: null, heartbeatAt: AT };
+        },
+        async readTerminalExact() { return terminal; },
+      },
+      failpoint(point) { if (crashAfterMark && point === "after_owned_dispatch_mark") { crashAfterMark = false; throw new Error("simulated crash after agent dispatch mark"); } },
+    };
+    let service = new DagConductorServiceV1({ lifecycle });
+    await service.startPrepared(ctx, { runId: prepared.genesis.runId, runNonce: prepared.genesis.runNonce, planHash: prepared.canonicalPlan.planHash, maxActiveNodes: prepared.genesis.scheduler.maxActiveNodes, occurredAt: AT, plan: prepared.canonicalPlan, genesis: prepared.genesis, context: prepared.context, seedFacts: [...prepared.seedFacts], sourcePlanningPlanId: "thin-runtime", sourcePlanningPlanHash: canonicalHash({ source: "thin-runtime" }) });
+    await service.activate(ctx, prepared.genesis.runId, AT);
+    const ready = await service.status(ctx, prepared.genesis.runId);
+    assert.equal(ready.readyPackets.length, 1, "F0 reconciles and leaves one exact agent-visible F1 ready packet");
+    const packet = ready.readyPackets[0];
+    assert.equal(launches, 0, "start/session-style conductor activation never launches a fresh owned worker");
+    await service.activate(ctx, prepared.genesis.runId, AT);
+    assert.equal(launches, 0, "repeated background-style wakes remain reconciliation-only");
+
+    await assert.rejects(() => service.dispatch(ctx, { ...packet, expectedRevision: packet.expectedRevision - 1 }, null, AT), /stale|does not match/, "stale ready packet revision is rejected before launch");
+    await assert.rejects(() => service.dispatch(ctx, { ...packet, expectedSnapshotHash: canonicalHash({ stale: true }) }, null, AT), /stale|does not match/, "stale ready packet snapshot CAS is rejected before launch");
+    await assert.rejects(() => service.dispatch(ctx, { ...packet, ownerEpoch: packet.ownerEpoch + 1 }, null, AT), /owner authority|stale/, "stale ready packet owner CAS is rejected before launch");
+    assert.equal(launches, 0);
+
+    const directive = "  Prefer the existing module boundary.\r\nKeep diagnostics bounded.  ";
+    crashAfterMark = true;
+    await assert.rejects(() => service.dispatch(ctx, packet, directive, AT), /simulated crash after agent dispatch mark/);
+    assert.equal(launches, 0, "a crash after durable mark never launches in a background recovery path");
+    await service.detach();
+    service = new DagConductorServiceV1({ lifecycle });
+    await service.resumeBound(ctx, new Date(Date.parse(AT) + 1).toISOString());
+    const recovery = await service.status(ctx, packet.runId);
+    assert.equal(recovery.readyPackets.length, 1, "the successor owner receives one exact agent-visible in-flight recovery packet");
+    assert.equal(recovery.readyPackets[0].ownerEpoch, packet.ownerEpoch + 1);
+    assert.equal(recovery.readyPackets[0].recoveryDirective, normalizeDagTacticalDirectiveV1(directive), "the bounded normalized directive survives owner transfer for exact replay");
+    const firstDispatch = service.dispatch(ctx, recovery.readyPackets[0], undefined, new Date(Date.parse(AT) + 2).toISOString());
+    const conflictingDispatch = service.dispatch(ctx, recovery.readyPackets[0], "Conflicting concurrent directive", new Date(Date.parse(AT) + 2).toISOString());
+    const identicalDispatch = service.dispatch(ctx, recovery.readyPackets[0], undefined, new Date(Date.parse(AT) + 2).toISOString());
+    await assert.rejects(() => conflictingDispatch, /Concurrent owned-worker dispatch conflicts/, "concurrent dispatch with different tactical authority fails instead of borrowing another call's result");
+    const [dispatched, concurrentReplay] = await Promise.all([firstDispatch, identicalDispatch]);
+    assert.equal(launches, 1, "concurrent identical dispatch calls invoke the external launch adapter once");
+    assert.deepEqual(concurrentReplay.binding, dispatched.binding, "concurrent identical dispatch calls resolve the same durable binding");
+    assert.equal(dispatched.idempotentReplay, false);
+    assert.equal(capturedRequest.directiveHash, canonicalHash({ schemaVersion: 1, directive: normalizeDagTacticalDirectiveV1(directive) }));
+    assert.equal(capturedRequest.promptHash, canonicalHash(capturedRequest.task));
+    assert.match(capturedRequest.task, /BEGIN CANONICAL TASK PACKET \(DATA\)/);
+    assert.match(capturedRequest.task, /BEGIN BOUNDED TACTICAL DIRECTIVE \(UNTRUSTED DATA\)/);
+    assert.match(capturedRequest.task, /subagent_report exactly once as your final action/);
+    assert.equal(capturedRequest.task, buildDagOwnedWorkerPromptV1(packet.packet, normalizeDagTacticalDirectiveV1(directive)), "the launched prompt is the protected canonical envelope");
+
+    const replay = await service.dispatch(ctx, packet, directive, AT);
+    assert.equal(replay.idempotentReplay, true); assert.equal(launches, 1, "the original stale-owner packet is accepted only as an acknowledgement replay for its durable binding");
+    await assert.rejects(() => service.dispatch(ctx, packet, "Changed tactical text", AT), /changed the bound tactical directive|changed the ready packet/, "changed directive replay fails closed");
+    assert.equal(launches, 1);
+
+    terminal = { completionId: "dispatch-completion", terminalStatus: "succeeded", workerOutput: { outputRepositoryId: fx.repositoryId, outputCommonDirIdentityHash: canonicalHash({ dispatch: "common" }), outputWorktreeIdentityHash: canonicalHash({ dispatch: "worktree" }), outputSourceBase: { repositoryId: fx.repositoryId, commit: fx.baselineCommit, tree: fx.baselineTree }, outputCommit: fx.baselineCommit, outputTree: fx.baselineTree, outputObjectFormat: "sha1", candidateObservedAt: AT } };
+    const reconciled = await service.activate(ctx, prepared.genesis.runId, new Date(Date.parse(AT) + 3).toISOString());
+    const attempt = reconciled.state.stageAttempts[packet.stageAttemptId];
+    assert(attempt.workerResult, "worker-completion wake reconciles the exact terminal result after agent dispatch");
+    assert.equal(reconciled.state.workerBindings[packet.stageAttemptId].resultHash, attempt.workerResult.hash);
+    const acknowledgementAfterRelease = await service.dispatch(ctx, packet, directive, AT);
+    assert.equal(acknowledgementAfterRelease.idempotentReplay, true);
+    assert.deepEqual(acknowledgementAfterRelease.binding, reconciled.state.workerBindings[packet.stageAttemptId], "acknowledgement-loss replay returns the durable binding after terminal reconciliation and reservation release");
+    const oversized = structuredClone(packet); oversized.packet.checks = [{ nested: { value: "x".repeat(17 * 1024) } }];
+    await assert.rejects(() => service.dispatch(ctx, oversized, directive, AT), /oversized string|bounded canonical/, "nested packet data is bounded before dispatch hashing");
+    const tooDeep = structuredClone(packet); let nested = {}; tooDeep.packet.checks = [nested];
+    for (let depth = 0; depth < 20; depth += 1) { nested.child = {}; nested = nested.child; }
+    await assert.rejects(() => service.dispatch(ctx, tooDeep, directive, AT), /bounded nested schema complexity/, "deep packet data is rejected by iterative bounds before dispatch hashing");
+    await assert.rejects(() => service.dispatch(ctx, packet, "x".repeat(100_000), AT), /Tactical directive exceeds the bounded canonical dispatch limit/, "an unbounded directive is normalized and rejected before conductor request hashing");
+
+    const legacy = structuredClone(ready.state); const legacyAttempt = legacy.stageAttempts[packet.stageAttemptId]; const legacyLaunch = legacy.launchIntents[legacyAttempt.launchIntentId];
+    delete legacyLaunch.dispatchProtocolVersion; delete legacyLaunch.readyPacketHash; delete legacyLaunch.normalizedDirective; delete legacyLaunch.directiveHash; delete legacyLaunch.promptHash; delete legacyLaunch.dispatchConfigRequestHash;
+    legacyAttempt.state = "launching"; legacyLaunch.state = "reserved"; legacy.snapshotHash = canonicalHash(Object.fromEntries(Object.entries(legacy).filter(([key]) => key !== "snapshotHash")));
+    const legacyValidation = validateDagRunStateShapeV1(legacy);
+    assert.equal(legacyValidation.ok, true, JSON.stringify(legacyValidation.issues));
+  } finally { await rm(fx.root, { recursive: true, force: true }); }
+});
+
+test("launch-before-bind owner transfer exposes exact agent recovery without autonomous relaunch", async () => {
+  const fx = await fixture();
+  try {
+    const prepared = await prepareDagRunV1(prepareInput(fx));
+    const ctx = { cwd: fx.root, sessionManager: { getSessionId: () => "launch-bind-recovery", getSessionFile: () => null, getHeader: () => ({ type: "session", id: "launch-bind-recovery", cwd: fx.root }) } };
+    let crashAfterLaunch = true; let adapterCalls = 0; let physicalLaunches = 0; let durableObservation = null; const requests = [];
+    const lifecycle = {
+      procedure: createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }),
+      worker: {
+        async launchExact(request, state) {
+          adapterCalls += 1; requests.push(structuredClone(request));
+          if (durableObservation) return durableObservation;
+          physicalLaunches += 1;
+          const attemptNonce = `launch-bind-nonce-${request.workerId}`;
+          const config = { storageId: "launch-bind-store", ownerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, launchKey: request.launchKey, requestHash: request.configRequestHash, task: request.task, launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity } };
+          const configHash = canonicalHash(config); const core = { kind: "worker_config", configHash, config };
+          durableObservation = { workerStorageId: config.storageId, launchOwnerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, configHash, configFact: { ...core, hash: canonicalHash(core) }, supervisorPid: process.pid, supervisorStartIdentity: `launch-bind-process-${process.pid}`, childPid: null, childStartIdentity: null, mailboxHash: null, heartbeatAt: AT };
+          return durableObservation;
+        },
+        async readTerminalExact() { return null; },
+      },
+      failpoint(point) { if (crashAfterLaunch && point === "after_owned_worker_launch") { crashAfterLaunch = false; throw new Error("simulated crash after launch before bind"); } },
+    };
+    let service = new DagConductorServiceV1({ lifecycle });
+    await service.startPrepared(ctx, { runId: prepared.genesis.runId, runNonce: prepared.genesis.runNonce, planHash: prepared.canonicalPlan.planHash, maxActiveNodes: prepared.genesis.scheduler.maxActiveNodes, occurredAt: AT, plan: prepared.canonicalPlan, genesis: prepared.genesis, context: prepared.context, seedFacts: [...prepared.seedFacts], sourcePlanningPlanId: "thin-runtime", sourcePlanningPlanHash: canonicalHash({ source: "thin-runtime" }) });
+    await service.activate(ctx, prepared.genesis.runId, AT); const initial = (await service.status(ctx, prepared.genesis.runId)).readyPackets[0];
+    await assert.rejects(() => service.dispatch(ctx, initial, "Retain this exact directive.", AT), /simulated crash after launch before bind/);
+    assert.equal(physicalLaunches, 1); assert.equal(Object.keys((await service.status(ctx, initial.runId)).state.workerBindings).length, 0);
+    await service.activate(ctx, initial.runId, AT); assert.equal(adapterCalls, 1, "background reconciliation never invokes the launch adapter at the pre-bind boundary");
+    await service.detach(); service = new DagConductorServiceV1({ lifecycle });
+    await service.resumeBound(ctx, new Date(Date.parse(AT) + 1).toISOString());
+    const recovery = await service.status(ctx, initial.runId);
+    assert.equal(recovery.readyPackets.length, 1); assert.equal(recovery.readyPackets[0].recoveryDirective, "Retain this exact directive.");
+    assert.equal(physicalLaunches, 1, "owner transfer only prepares recovery authority");
+    const rebound = await service.dispatch(ctx, recovery.readyPackets[0], undefined, new Date(Date.parse(AT) + 2).toISOString());
+    assert(rebound.state.workerBindings[initial.stageAttemptId], "explicit successor-epoch dispatch binds the exact already-launched worker");
+    assert.equal(adapterCalls, 2); assert.equal(physicalLaunches, 1, "opaque adapter replay recovers rather than physically relaunching");
+    assert.equal(requests[1].configRequestHash, requests[0].configRequestHash); assert.equal(requests[1].task, requests[0].task, "prompt and directive identity remain exact across launch-before-bind owner recovery");
+  } finally { await rm(fx.root, { recursive: true, force: true }); }
+});
+
+test("legacy pre-bind snapshots require explicit agent dispatch and preserve the old request identity", async () => {
+  const fx = await fixture();
+  try {
+    const prepared = await prepareDagRunV1(prepareInput(fx));
+    const ctx = { cwd: fx.root, sessionManager: { getSessionId: () => "legacy-dispatch-session", getSessionFile: () => null, getHeader: () => ({ type: "session", id: "legacy-dispatch-session", cwd: fx.root }) } };
+    let launches = 0; let captured = null;
+    const service = new DagConductorServiceV1({ lifecycle: {
+      procedure: createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }),
+      worker: {
+        async launchExact(request, state) {
+          launches += 1; captured = structuredClone(request);
+          const attemptNonce = `legacy-attempt-nonce-${request.workerId}`;
+          const config = { storageId: "legacy-dispatch-store", ownerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, launchKey: request.launchKey, requestHash: request.configRequestHash, task: request.task, launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity } };
+          const configHash = canonicalHash(config); const core = { kind: "worker_config", configHash, config };
+          return { workerStorageId: config.storageId, launchOwnerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, configHash, configFact: { ...core, hash: canonicalHash(core) }, supervisorPid: process.pid, supervisorStartIdentity: `legacy-process-${process.pid}`, childPid: null, childStartIdentity: null, mailboxHash: null, heartbeatAt: AT };
+        },
+        async readTerminalExact() { return null; },
+      },
+    } });
+    await service.startPrepared(ctx, { runId: prepared.genesis.runId, runNonce: prepared.genesis.runNonce, planHash: prepared.canonicalPlan.planHash, maxActiveNodes: prepared.genesis.scheduler.maxActiveNodes, occurredAt: AT, plan: prepared.canonicalPlan, genesis: prepared.genesis, context: prepared.context, seedFacts: [...prepared.seedFacts], sourcePlanningPlanId: "thin-runtime", sourcePlanningPlanHash: canonicalHash({ source: "thin-runtime" }) });
+    await service.activate(ctx, prepared.genesis.runId, AT);
+    const modern = await service.status(ctx, prepared.genesis.runId); const modernPacket = modern.readyPackets[0];
+    const legacy = structuredClone(modern.state); const legacyAttempt = legacy.stageAttempts[modernPacket.stageAttemptId]; const legacyLaunch = legacy.launchIntents[legacyAttempt.launchIntentId];
+    delete legacyLaunch.dispatchProtocolVersion; delete legacyLaunch.readyPacketHash; delete legacyLaunch.normalizedDirective; delete legacyLaunch.directiveHash; delete legacyLaunch.promptHash; delete legacyLaunch.dispatchConfigRequestHash;
+    legacyAttempt.state = "launching"; legacyLaunch.state = "reserved";
+    legacy.snapshotHash = canonicalHash(Object.fromEntries(Object.entries(legacy).filter(([key]) => key !== "snapshotHash")));
+    const store = new DagRunSnapshotStoreV1(join(fx.root, ".ai", "dag-runs-v1"), legacy.runId); const bytes = canonicalStringify(legacy);
+    await writeFile(join(store.snapshotsDirectory, `${legacy.snapshotHash.slice(7)}.json`), bytes);
+    await writeFile(store.statePath, bytes);
+
+    await service.activate(ctx, legacy.runId, AT);
+    assert.equal(launches, 0, "legacy recovery wakes never launch autonomously");
+    const status = await service.status(ctx, legacy.runId);
+    assert.equal(status.readyPackets.length, 1, "legacy launching/reserved authority is upgraded to one explicit agent-visible recovery packet");
+    assert.equal(status.readyPackets[0].dispatchProtocolVersion, 0);
+    const dispatched = await service.dispatch(ctx, status.readyPackets[0], null, AT);
+    assert.equal(launches, 1, "only explicit dag_run_dispatch crosses the legacy fresh-launch boundary");
+    assert.equal(captured.configRequestHash, legacyLaunch.configRequestHash, "legacy dispatch preserves the old config request identity");
+    assert.equal(captured.task, canonicalStringify(status.readyPackets[0].packet), "legacy dispatch preserves the original canonical packet task rather than upgrading its prompt identity");
+    assert(dispatched.state.workerBindings[modernPacket.stageAttemptId], "legacy explicit dispatch executes through durable binding");
+  } finally { await rm(fx.root, { recursive: true, force: true }); }
+});
 
 test("prepares a valid canonical plan, scheduler context, genesis, and strict validation command", async () => {
   const fx = await fixture();

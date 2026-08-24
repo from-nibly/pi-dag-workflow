@@ -687,6 +687,13 @@ if (dispatchedPreBindCancellation.accepted) {
   const forbiddenAbsenceClose = reduceDagRunV1(dispatchedPreBindCancellation.state, reducerInput(dispatchedPreBindCancellation.state, "record_cancellation", { ...forbiddenAbsenceCorePayload, resultHash: canonicalHash(forbiddenAbsenceCorePayload) }, { commandId: "command-forbid-dispatched-absence", idempotencyKey: "forbid-dispatched-absence", kind: "observation" }), forbiddenAbsenceContext);
   assert.equal(forbiddenAbsenceClose.accepted, false, "even a self-consistent absence fact cannot bypass exact recovery/binding for a durably dispatched launch operation");
   const restartedDispatched = parseDagRunStateV1(canonicalStringify(dispatchedPreBindCancellation.state), activeCancellationContext);
+  const legacyCancellationRuntime = new DagLifecycleRuntimeV1({
+    async read() { return restartedDispatched; },
+    async readImmutableFact(hash) { return activeCancellationContext.facts[hash] ?? null; },
+  }, plan, activeCancellationContext, dagRunStoreLockIdentityFromOwner(restartedDispatched.owner), process.cwd());
+  const legacyCancellationPackets = await legacyCancellationRuntime.readyPackets(restartedDispatched);
+  assert.equal(legacyCancellationPackets.length, 1, "legacy dispatched pre-bind cancellation exposes one explicit recovery packet");
+  assert.equal(legacyCancellationPackets[0].dispatchProtocolVersion, 0, "legacy cancellation recovery preserves its original dispatch protocol identity");
   const recoveredLaunchObservationCore = { ...activeLaunchObservationCore, ownerEpoch: restartedDispatched.owner.ownerEpoch, observedAt: NOW }; const recoveredLaunchObservation = { ...recoveredLaunchObservationCore, hash: canonicalHash(recoveredLaunchObservationCore) };
   const recoveredLaunchContext = { ...activeCancellationContext, facts: { ...activeCancellationContext.facts, [recoveredLaunchObservation.hash]: recoveredLaunchObservation } };
   const recoveredBindPayload = { stageAttemptId: f1AttemptId, binding: activeBinding, launchObservation: { ...ref("worker_launch_observation", "recovered-cancel-launch", recoveredLaunchObservation.hash), bytes: Buffer.byteLength(canonicalStringify(recoveredLaunchObservation)) } };
@@ -1320,7 +1327,7 @@ for (const stage of PLAN_STAGE_IDS) {
   }
   let workerResult = null;
   if (owned) {
-    lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "mark_effect_dispatching", { effectId: launchEffectId, expectedDispatchCount: 0 }, { commandId: `lifecycle-${stage}-launch-dispatch`, idempotencyKey: `lifecycle-${stage}-launch-dispatch` }), lifecycleContext); assert.equal(lifecycleTransition.accepted, true, `${stage} persists exact launch dispatch before external observation`); lifecycleState = lifecycleTransition.state;
+    lifecycleTransition = reduceDagRunV1(lifecycleState, reducerInput(lifecycleState, "mark_effect_dispatching", { effectId: launchEffectId, expectedDispatchCount: 0 }, { commandId: `lifecycle-${stage}-launch-dispatch`, idempotencyKey: `lifecycle-${stage}-launch-dispatch` }), lifecycleContext); assert.equal(lifecycleTransition.accepted, true, `${stage} persists exact launch dispatch before external observation: ${JSON.stringify(lifecycleTransition)}`); lifecycleState = lifecycleTransition.state;
     const attemptNonce = `nonce-${stage.toLowerCase()}-0123456789`; const workerStorageId = "lifecycle-manager-storage"; const config = { storageId: workerStorageId, ownerSessionId: lifecycleState.owner.sessionId, workerId: launchIntent.workerId, attemptNumber: 1, attemptNonce, launchKey: launchIntent.launchKey, requestHash: launchIntent.configRequestHash, launchOwner: { sessionId: lifecycleState.owner.sessionId, pid: lifecycleState.owner.pid, processStartIdentity: lifecycleState.owner.processStartIdentity } }; const configHash = canonicalHash(config); const configFactCore = { kind: "worker_config", configHash, config }; const configFact = { ...configFactCore, hash: canonicalHash(configFactCore) }; lifecycleContext.facts[configFact.hash] = configFact;
     const binding = { stageAttemptId: attemptId, launchIntentId, workerStorageId, launchOwnerSessionId: lifecycleState.owner.sessionId, workerId: launchIntent.workerId, attemptNumber: 1, attemptNonce, configHash, configRef: lifecycleRef("worker_config", `config-${stage.toLowerCase()}`, configFact), supervisorPid: process.pid, supervisorStartIdentity: PROCESS_START_IDENTITY, childPid: process.pid + 1, childStartIdentity: `child-${stage}`, mailboxHash: H("6"), heartbeatAt: NOW, completionId: null, resultHash: null };
     const dispatchedEffect = lifecycleState.effects[launchEffectId]; const launchObservationCore = { kind: "worker_launch_observation", planHash: plan.planHash, runId: lifecycleState.runId, runNonce: lifecycleState.runNonce, authorizationSetHash: lifecycleState.identity.authorizationSet.hash, ownerEpoch: lifecycleState.owner.ownerEpoch, effectId: launchEffectId, requestHash: dispatchedEffect.requestHash, launchIntentId, launchKey: launchIntent.launchKey, workerStorageId, launchOwnerSessionId: binding.launchOwnerSessionId, workerId: binding.workerId, attemptNumber: 1, attemptNonce, configHash, supervisorPid: binding.supervisorPid, supervisorStartIdentity: binding.supervisorStartIdentity, reconciliation: "applied_exact", observedAt: NOW }; const launchObservation = { ...launchObservationCore, hash: canonicalHash(launchObservationCore) }; lifecycleContext.facts[launchObservation.hash] = launchObservation;
@@ -2006,7 +2013,7 @@ try {
     worker: {
       async launchExact(request, state) {
         launches += 1;
-        const attemptNonce = `nonce-${request.workerId}-0123456789`; const config = { storageId: "deterministic-manager-storage", ownerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, launchKey: request.launchKey, requestHash: request.configRequestHash, launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity } };
+        const attemptNonce = `nonce-${request.workerId}-0123456789`; const config = { storageId: "deterministic-manager-storage", ownerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, launchKey: request.launchKey, requestHash: request.configRequestHash, task: request.task, launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity } };
         const configHash = canonicalHash(config); const configFactCore = { kind: "worker_config", configHash, config };
         return { workerStorageId: config.storageId, launchOwnerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, configHash, configFact: { ...configFactCore, hash: canonicalHash(configFactCore) }, supervisorPid: process.pid, supervisorStartIdentity: PROCESS_START_IDENTITY, childPid: null, childStartIdentity: null, mailboxHash: null, heartbeatAt: NOW };
       },
@@ -2105,13 +2112,20 @@ try {
     } finally { identityChild?.kill("SIGKILL"); await rm(root, { recursive: true, force: true }); }
   };
   await exerciseCrossProcessAdapterWindow("procedure");
-  await exerciseCrossProcessAdapterWindow("worker");
+  // Owned-worker launch recovery is intentionally excluded here: stale owner packets fail closed and
+  // only a current agent-visible dag_run_dispatch packet may cross the fresh-launch boundary.
   await exerciseCrossProcessAdapterWindow("procedure", null, true);
   for (const boundary of ["after_owner_transfer", "after_owner_binding", "after_owner_start_identity"]) await exerciseCrossProcessAdapterWindow("procedure", boundary, true);
 
   const conductorStarted = await conductor.start(conductorCtx, { runId: conductorGenesis.runId, runNonce: conductorGenesis.runNonce, planHash: plan.planHash, planPath: ".ai/start-artifacts/plan.json", genesisPath: ".ai/start-artifacts/genesis.json", contextPath: ".ai/start-artifacts/context.json", maxActiveNodes: 1, occurredAt: NOW });
   assert.equal(conductorStarted.state.owner.ownerEpoch, 1, "conductor emits the fully chained epoch-one ownership receipt");
   assert.equal(conductorStarted.state.owner.sessionId, "session-conductor");
+  for (let pass = 0; pass < 100 && integrationDelegations === 0; pass += 1) {
+    const status = await conductor.status(conductorCtx, conductorGenesis.runId);
+    for (const packet of status.readyPackets) await conductor.dispatch(conductorCtx, packet, null, NOW);
+    await conductor.activate(conductorCtx, conductorGenesis.runId, NOW);
+  }
+  assert(integrationDelegations > 0, "explicit agent dispatches advance owned stages until integration reconciliation is actionable");
 
   const conductorStore = new DagRunSnapshotStoreV1(join(conductorRoot, ".ai", "dag-runs-v1"), conductorGenesis.runId);
   const persistedConductorContext = parseStrictJson(await readFile(join(conductorStore.runDirectory, "authority", "context.json"), "utf8"));
@@ -2201,19 +2215,27 @@ async function exerciseRealManagerLifecycle(label, terminalOverrides = {}, launc
         return observation;
       };
     }
-    let state; let crashError = null;
-    try { state = (await conductor.start(ctx, { runId: genesis.runId, runNonce: genesis.runNonce, planHash: exactPlan.planHash, planPath: ".ai/start-artifacts/plan.json", genesisPath: ".ai/start-artifacts/genesis.json", contextPath: ".ai/start-artifacts/context.json", maxActiveNodes: 1, occurredAt: NOW })).state; }
-    catch (error) {
-      if (!launchCrash || !launchCrashTriggered || !/simulated crash/.test(error.message)) throw error;
-      crashError = error; state = (await conductor.status(ctx, genesis.runId)).state;
-    }
+    let state; let crashError = null; let crashPacket = null;
+    state = (await conductor.start(ctx, { runId: genesis.runId, runNonce: genesis.runNonce, planHash: exactPlan.planHash, planPath: ".ai/start-artifacts/plan.json", genesisPath: ".ai/start-artifacts/genesis.json", contextPath: ".ai/start-artifacts/context.json", maxActiveNodes: 1, occurredAt: NOW })).state;
+    const dispatchReady = async () => {
+      const status = await conductor.status(ctx, genesis.runId);
+      for (const packet of status.readyPackets) {
+        try { state = (await conductor.dispatch(ctx, packet, null, NOW)).state; }
+        catch (error) {
+          if (!launchCrash || !launchCrashTriggered || !/simulated crash/.test(error.message)) throw error;
+          crashError = error; crashPacket = packet; state = (await conductor.status(ctx, genesis.runId)).state; return;
+        }
+      }
+    };
+    await dispatchReady();
     if (!crashError) for (let pass = 0; pass < 150; pass += 1) {
       const done = terminalOverrides.F1 === "cancelled" ? state.workItems["item-api"].stages.F1.state === "blocked" : state.workItems["item-api"].stages.F5.state === "passed";
       if (done) break;
       await new Promise((resolveWait) => setTimeout(resolveWait, 20));
       state = (await conductor.advance(ctx, genesis.runId, NOW)).state;
+      await dispatchReady();
     }
-    return { root, manager, ctx, exactPlan, exactContext, conductor, adapters, state, priorMode, crashError };
+    return { root, manager, ctx, exactPlan, exactContext, conductor, adapters, state, priorMode, crashError, crashPacket };
   } catch (error) {
     if (manager) await manager.detach();
     await rm(root, { recursive: true, force: true });
@@ -2257,16 +2279,19 @@ for (const launchCrash of ["dispatch_recorded", "launch_returned"]) {
     const attempt = recoveryLifecycle.state.stageAttempts[attemptId]; const launch = recoveryLifecycle.state.launchIntents[attempt.launchIntentId]; const launchEffectBeforeCancellation = recoveryLifecycle.state.effects[launch.effectId];
     assert.equal(launchEffectBeforeCancellation.state, "dispatching"); assert.equal(launchEffectBeforeCancellation.dispatchCount, 1); assert.equal(recoveryLifecycle.state.workerBindings[attemptId], undefined, `${launchCrash} crash leaves durable dispatch authority without a DAG worker binding`);
     const restarted = recoveryLifecycle.conductor;
-    const guard = { runId: recoveryLifecycle.state.runId, runNonce: recoveryLifecycle.state.runNonce, expectedRevision: recoveryLifecycle.state.revision, expectedSnapshotHash: recoveryLifecycle.state.snapshotHash, ownerEpoch: recoveryLifecycle.state.owner.ownerEpoch, commandId: `cancel-prebind-${launchCrash}`, idempotencyKey: `cancel-prebind-${launchCrash}`, occurredAt: NOW };
-    let cancelled = await restarted.control(recoveryLifecycle.ctx, guard, "cancel", `recover ${launchCrash} launch only to cancel its exact worker`);
+    const recoveryStatus = await restarted.status(recoveryLifecycle.ctx, recoveryLifecycle.state.runId);
+    const recoveryPacket = recoveryStatus.readyPackets.find((packet) => packet.stageAttemptId === attemptId);
+    assert(recoveryPacket, `${launchCrash} exposes an exact current agent-visible recovery packet without a background launch`);
+    const reconciledDispatch = await restarted.dispatch(recoveryLifecycle.ctx, recoveryPacket, undefined, NOW);
+    assert(reconciledDispatch.state.workerBindings[attemptId], `${launchCrash} exact agent dispatch replay binds the one intended worker before cancellation`);
+    const guard = { runId: reconciledDispatch.state.runId, runNonce: reconciledDispatch.state.runNonce, expectedRevision: reconciledDispatch.state.revision, expectedSnapshotHash: reconciledDispatch.state.snapshotHash, ownerEpoch: reconciledDispatch.state.owner.ownerEpoch, commandId: `cancel-prebind-${launchCrash}`, idempotencyKey: `cancel-prebind-${launchCrash}`, occurredAt: NOW };
+    let cancelled = await restarted.control(recoveryLifecycle.ctx, guard, "cancel", `cancel the exact agent-dispatch-recovered worker after ${launchCrash}`);
     const cancellationId = `cancel-${guard.commandId}`;
-    assert.equal(cancelled.effects[launch.effectId].state, "ambiguous"); assert.equal(cancelled.blockers[`cancellation-effect-${launch.effectId}`].active, true, "dispatched launch is never inferred absent when cancellation starts");
     for (let pass = 0; pass < 150 && cancelled.cancellations[cancellationId].state !== "closed"; pass += 1) {
       await new Promise((resolveWait) => setTimeout(resolveWait, 20));
-      const recover = pass === 0 ? restarted.retryActivation.bind(restarted) : restarted.activate.bind(restarted);
-      cancelled = (await recover(recoveryLifecycle.ctx, cancelled.runId, new Date(Date.parse(cancelled.updatedAt) + 1).toISOString())).state;
+      cancelled = (await restarted.activate(recoveryLifecycle.ctx, cancelled.runId, new Date(Date.parse(cancelled.updatedAt) + 1).toISOString())).state;
     }
-    assert.equal(cancelled.cancellations[cancellationId].state, "closed", `${launchCrash} restart recovers, binds, cancels, and exactly closes the pre-bind worker`);
+    assert.equal(cancelled.cancellations[cancellationId].state, "closed", `${launchCrash} agent replay recovers, binds, cancels, and exactly closes the pre-bind worker`);
     assert.equal(cancelled.effects[launch.effectId].reconciliation, "applied_exact", "the original launch effect is reconciled under its unchanged durable identity");
     const exactBinding = cancelled.workerBindings[attemptId]; assert(exactBinding, "cancellation recovery binds the exact worker attempt before issuing cancellation");
     const cancellationEffects = cancelled.cancellations[cancellationId].effectIds.map((effectId) => cancelled.effects[effectId]);
@@ -2330,10 +2355,14 @@ try {
 const conductorPi = { tools: [], handlers: new Map(), registerTool(tool) { this.tools.push(tool); }, on(event, handler) { this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]); } };
 let conductorResumeCalls = 0;
 registerCanonicalDagRuntime(conductorPi, { async binding() { return null; }, async resumeBound() { conductorResumeCalls += 1; return null; }, detach() {} });
-assert.deepEqual(conductorPi.tools.map(({ name }) => name).sort(), ["dag_run_control", "dag_run_diagram", "dag_run_explain", "dag_run_inspect", "dag_run_reattach", "dag_run_retry", "dag_run_start", "dag_run_status", "dag_run_tail"], "conductor exposes exactly five read-only and four guarded mutation tools");
-assert(conductorPi.tools.every(({ parameters }) => parameters.additionalProperties === false), "all nine conductor tools reject unknown fields");
+assert.deepEqual(conductorPi.tools.map(({ name }) => name).sort(), ["dag_run_control", "dag_run_diagram", "dag_run_dispatch", "dag_run_explain", "dag_run_inspect", "dag_run_reattach", "dag_run_retry", "dag_run_start", "dag_run_status", "dag_run_tail"], "conductor exposes exact read tools, guarded mutations, and the dedicated owned-worker dispatch tool");
+assert(conductorPi.tools.every(({ parameters }) => parameters.additionalProperties === false), "all ten conductor tools reject unknown fields");
 for (const handler of conductorPi.handlers.get("session_start") ?? []) await handler({}, { hasUI: false, cwd: "/tmp", sessionManager: { getSessionId: () => "headless" }, ui: {} });
 assert(conductorResumeCalls >= 1, "session attachment wakes the coalesced conductor resume path instead of calling raw advancement");
+const guidancePi = { tools: [], handlers: new Map(), registerTool(tool) { this.tools.push(tool); }, on(event, handler) { this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]); } };
+registerCanonicalDagRuntime(guidancePi, { async binding() { return { runId: "run-guidance" }; }, async status() { return { stale: null, state: { completion: { state: "open" } }, readyPackets: [{ kind: "DagOwnedWorkerReadyPacketV1", stageAttemptId: "attempt-guidance" }] }; }, async resumeBound() {}, detach() {} });
+const guidanceHandler = guidancePi.handlers.get("before_agent_start")?.[0]; const guided = await guidanceHandler({ systemPrompt: "base" }, { cwd: "/tmp", sessionManager: { getSessionId: () => "guidance" } });
+assert.match(guided.systemPrompt, /Call dag_run_status/); assert.match(guided.systemPrompt, /call dag_run_dispatch/); assert.match(guided.systemPrompt, /Never use generic subagent/); assert.doesNotMatch(guided.systemPrompt, /attempt-guidance/, "before-agent guidance directs an exact status read without copying large or stale packets into the system prompt");
 const tuiCalls = []; const tuiContext = { hasUI: true, mode: "tui", cwd: "/tmp", sessionManager: { getSessionId: () => "tui-session" }, ui: { setWidget(id, value) { tuiCalls.push({ id, value }); } } }; for (const handler of conductorPi.handlers.get("session_start") ?? []) { await handler({}, tuiContext); await handler({}, tuiContext); } assert.equal(tuiCalls.filter(({ value }) => typeof value === "function").length, 2, "unbound TUI sessions install the passive widget and repeated session starts replace it deterministically"); for (const handler of conductorPi.handlers.get("session_start") ?? []) await handler({}, { hasUI: false, mode: "rpc", cwd: "/tmp", sessionManager: { getSessionId: () => "headless-after-tui" }, ui: {} }); assert.equal(tuiCalls.at(-1).value, undefined, "a subsequent headless session start removes the prior TUI widget before returning"); for (const handler of conductorPi.handlers.get("session_shutdown") ?? []) await handler(); assert.equal(tuiCalls.at(-1).value, undefined, "session shutdown tears down the installed widget after clearing the current timer");
 const failClosedPi = { tools: [], handlers: new Map(), registerTool(tool) { this.tools.push(tool); }, on(event, handler) { this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler]); } }; let statusReads = 0; registerCanonicalDagRuntime(failClosedPi, { async binding() { return { runId: executionProjectionV2.runId }; }, async resumeBound() {}, detach() {}, async status() { statusReads += 1; if (statusReads > 1) throw new Error("identity mismatch/corrupt projection"); return { projection: executionProjectionV2, stale: null, state: { completion: { state: "open" }, current: { run: "active" } } }; } }); let widgetFactory = null; const failClosedContext = { hasUI: true, mode: "tui", cwd: "/tmp", sessionManager: { getSessionId: () => "fail-closed" }, ui: { setWidget(_id, value) { if (typeof value === "function") widgetFactory = value; } } }; for (const handler of failClosedPi.handlers.get("session_start") ?? []) await handler({}, failClosedContext); const failClosedComponent = widgetFactory({ terminal: { rows: 24 }, requestRender() {} }); assert(failClosedComponent.render(120).some((line) => line.startsWith("DAG ")), "widget renders a valid exact projection before a read error"); for (const handler of failClosedPi.handlers.get("agent_end") ?? []) await handler(); const failedLines = failClosedComponent.render(120); assert(failedLines.some((line) => line.includes("FAIL-CLOSED")) && !failedLines.some((line) => line.includes(" | lanes ") || line.startsWith("read-only;")), "corruption and identity errors suppress the prior graph instead of mixing it with diagnostics"); for (const handler of failClosedPi.handlers.get("session_shutdown") ?? []) await handler();
 

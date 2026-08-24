@@ -24,7 +24,7 @@ function waitingWorkerAdapter(launches, onTerminalRead = null) {
       const config = {
         storageId: `command-test-storage-${state.runId}`, ownerSessionId: state.owner.sessionId,
         workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce,
-        launchKey: request.launchKey, requestHash: request.configRequestHash,
+        launchKey: request.launchKey, requestHash: request.configRequestHash, task: request.task,
         launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity },
       };
       const configHash = canonicalHash(config);
@@ -228,6 +228,9 @@ test("run starts once and duplicate invocation advances the exact binding withou
     assert.equal(fx.conductor.starts, 1);
     assert.equal(fx.conductor.advances, 1);
     assert.match(fx.ui.messages.at(-1).text, /DAG run run-/);
+    assert.equal(fx.pi.messages.at(-1).message.customType, "dag-run-orchestration-kickoff");
+    assert.equal(fx.pi.messages.at(-1).options.triggerTurn, true);
+    assert.match(fx.pi.messages.at(-1).message.content, /dag_run_status[\s\S]*dag_run_dispatch[\s\S]*Never use generic subagent/);
     await fx.integration.handleCommand("run", "--plan delivery@3", fx.ctx);
     assert.equal(fx.conductor.starts, 1, "bound duplicate does not call startPrepared");
     assert.equal(fx.conductor.advances, 2);
@@ -293,14 +296,19 @@ test("plan, show, and run reach the real canonical runtime through the prepared 
     if (boundaryWake) await boundaryWake;
     const binding = await conductor.binding(fx.ctx);
     assert(binding, "the product run command publishes a real current-session binding");
-    const status = await conductor.status(fx.ctx, binding.runId);
+    let status = await conductor.status(fx.ctx, binding.runId);
     assert.equal(status.state.identity.planId, "delivery");
     assert.equal(status.state.workItems.commands.stages.F0.state, "passed", "the real hidden lifecycle completes F0");
     assert.equal(status.state.workItems.commands.currentStage, "F1", "the real runtime reaches the owned implementation boundary");
-    assert.equal(launches.length, 1, "post-F0 advancement dispatches the ready F1 worker without another run command");
-    assert(terminalReads >= 2, "a wake published after the pump quiescence check hands off to a successor pass");
-    assert.equal(observedPumpTimes.at(-1), settlementWakeAt, "the successor pass preserves the latest dirty wake occurrence time");
-    assert(status.state.workerBindings[Object.keys(status.state.stageAttempts).find((id) => status.state.stageAttempts[id].stage === "F1")], "the F1 attempt has an exact worker binding");
+    assert.equal(launches.length, 0, "post-F0 command and background wakes never launch the ready F1 worker");
+    assert.equal(status.readyPackets.length, 1, "the exact F1 packet is agent-visible and actionable");
+    await conductor.dispatch(fx.ctx, status.readyPackets[0], null, new Date().toISOString());
+    await conductor.activate(fx.ctx, binding.runId, new Date().toISOString());
+    status = await conductor.status(fx.ctx, binding.runId);
+    assert.equal(launches.length, 1, "only dedicated agent dispatch launches the F1 worker");
+    assert(terminalReads >= 1, "post-dispatch reconciliation reads the exact bound worker without launching another");
+    assert.equal(observedPumpTimes.includes(settlementWakeAt), true, "the successor pass preserves the latest dirty wake occurrence time");
+    assert(status.state.workerBindings[Object.keys(status.state.stageAttempts).find((id) => status.state.stageAttempts[id].stage === "F1")], "the explicitly dispatched F1 attempt has an exact worker binding");
   } finally { await rm(fx.root, { recursive: true, force: true }); }
 });
 
@@ -336,12 +344,15 @@ test("delayed procedure recovery closes evidence at durable reconciliation time"
     const effect = Object.values(recovered.state.effects).find((candidate) => candidate.boundStageAttemptId === sealedF0.stageAttemptId);
     const reconciliation = await new DagRunSnapshotStoreV1(join(fx.root, ".ai", "dag-runs-v1"), binding.runId).readImmutableFact(effect.observationHash);
     assert.equal(evidence.producedAt, reconciliation.closedAt, "closed evidence uses the durable reconciliation closure time");
-    assert.equal(launches.length, 1, "delayed F0 recovery reaches exact F1 dispatch");
+    assert.equal(launches.length, 0, "delayed F0 recovery prepares F1 without a background launch");
+    const ready = await resumed.status(fx.ctx, binding.runId); assert.equal(ready.readyPackets.length, 1);
+    await resumed.dispatch(fx.ctx, ready.readyPackets[0], null, new Date(Date.parse(recovered.state.updatedAt) + 2_000).toISOString());
+    assert.equal(launches.length, 1, "dedicated dispatch launches the exact delayed-recovery F1 packet");
     await resumed.detach();
   } finally { await rm(fx.root, { recursive: true, force: true }); }
 });
 
-test("a fresh conductor service fences the stale wrapper generation and resumes post-F0 dispatch", async () => {
+test("an Operant-r24-shaped reconciled F0 path seals after owner fencing and prepares agent dispatch", async () => {
   const fx = await fixture("service-resume");
   try {
     const launches = [];
@@ -372,8 +383,11 @@ test("a fresh conductor service fences the stale wrapper generation and resumes 
     await first.detach();
     let recovered = await activeService.retryActivation(fx.ctx, binding.runId, recoveryAt);
     assert.equal(recovered.state.owner.ownerEpoch, interruptedState.owner.ownerEpoch + 1, "fresh same-session service CAS-transfers to a new fencing epoch despite the live wrapper PID");
-    assert.equal(launches.length, 1, "service recovery seals F0 and dispatches the ready F1 worker");
+    assert.equal(launches.length, 0, "service recovery seals F0 but remains reconciliation-only at ready F1");
     assert.equal(recovered.state.workItems.commands.stages.F0.state, "passed");
+    const ready = await activeService.status(fx.ctx, binding.runId); assert.equal(ready.readyPackets.length, 1);
+    const dispatched = await activeService.dispatch(fx.ctx, ready.readyPackets[0], null, new Date(Date.parse(recovered.state.updatedAt) + 1).toISOString()); recovered = { ...recovered, state: dispatched.state };
+    assert.equal(launches.length, 1, "dedicated dispatch launches and durably binds recovered F1");
     assert(Object.values(recovered.state.workerBindings).some((workerBinding) => workerBinding.stageAttemptId === Object.values(recovered.state.stageAttempts).find((attempt) => attempt.stage === "F1")?.stageAttemptId), "recovered F1 launch is durably bound");
     let rebound = await activeService.binding(fx.ctx);
     assert.equal(rebound.ownerEpoch, recovered.state.owner.ownerEpoch, "session binding advances atomically to the recovered owner epoch");

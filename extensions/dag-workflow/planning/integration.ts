@@ -340,6 +340,7 @@ export function registerDagPlanningIntegrationV1(pi: ExtensionAPI, options: Inte
       const advanced = await options.conductor.retryActivation(ctx, binding.runId, new Date().toISOString());
       const live = await options.conductor.status(ctx, binding.runId);
       ctx.ui.notify(runSummary(binding, advanced.state, live.projection), "info");
+      sendRunOrchestrationKickoff(binding.runId);
       return;
     }
     if (commandOptions.resume) throw new Error("No exact current-session DAG run binding exists to resume");
@@ -381,6 +382,15 @@ export function registerDagPlanningIntegrationV1(pi: ExtensionAPI, options: Inte
     bindPlan(pi, ctx, root, selected);
     const advanced = await options.conductor.retryActivation(ctx, started.state.runId, occurredAt);
     ctx.ui.notify(runSummary(started.binding, advanced.state, null), "info");
+    sendRunOrchestrationKickoff(started.state.runId);
+  }
+
+  function sendRunOrchestrationKickoff(runId: string): void {
+    pi.sendMessage({
+      customType: "dag-run-orchestration-kickoff",
+      content: `Orchestrate canonical DAG ${runId}. Call dag_run_status now. Dispatch each exact readyPacket yourself with dag_run_dispatch, refreshing status after each launch. Never use generic subagent for canonical DAG work. Continue only independent orchestration work, then end the turn at the worker dependency barrier so completion follow-ups resume orchestration.`,
+      display: true,
+    }, { triggerTurn: true, deliverAs: "followUp" });
   }
 
   return { handleCommand };
@@ -605,7 +615,11 @@ function decisionSummary(plan: DagPlanningPlanV1): string {
 
 function runSummary(binding: DagSessionRunBindingV1, state: any, projection: any): string {
   const nodeCount = Array.isArray(projection?.nodes) ? projection.nodes.length : Object.keys(state.workItems ?? {}).length;
-  return `DAG run ${binding.runId} is ${state.current.run} at revision ${state.revision}; ${nodeCount} work items. Existing runs are advanced without restart or implicit unpause.`;
+  const dispatchable = Object.values(state.stageAttempts ?? {}).filter((attempt: any) => attempt?.producerKind === "owned_worker" && attempt?.state === "dispatchable").length;
+  const action = dispatchable > 0
+    ? `${dispatchable} owned-worker packet(s) are actionable: dispatch one unchanged dag_run_status readyPacket, then refresh status before another.`
+    : "No owned-worker packet is currently actionable; inspect dag_run_status for reconciliation state or blockers.";
+  return `DAG run ${binding.runId} is ${state.current.run} at revision ${state.revision}; ${nodeCount} work items. ${action} Never use generic subagent for canonical DAG dispatch. Existing runs reconcile without restart or implicit unpause.`;
 }
 
 function assertSafeRepositoryPath(root: string, path: string): void {

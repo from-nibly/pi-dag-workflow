@@ -3,150 +3,10 @@
   "kind": "dag_evaluation_portfolio",
   "pairs": [
     {
-      "scenarioClass": "hidden_constraint",
-      "baselineCommitHash": "sha256:40c6f90aa3bb6dddf67c89b9d0453911d718a1e49b4fbfc1b91f4b25dfbf5c81",
-      "baselineTreeHash": "sha256:ec4f4414a172a133f3fbf6ab5bffccaa69636536e43336585d50ea07e0916bb3",
-      "planHash": "sha256:f760e4fa43014d2da5dc5b2cfec632ff0cffb4e436d63a627d226570dab3c437",
-      "oracleHash": "sha256:45a1c147855ea340b72af7010554739044bd1e9eca743d4af6ab05c5160ca7cf",
-      "scriptHash": "sha256:3b2d6a8936dfc185ee932bfbbea926652cd20f77224d898b8042e48c1c546f38",
-      "environmentHash": "sha256:7dd7bad9268587b1c2c3f616b18ea554deb428629843f7d6cc8ee58e07f5ca51",
-      "evaluationProfileHash": "sha256:2f48e71e2bc2961ff34cdaa5c9b4259802c5e72cfeef32806e2e206f902be309",
-      "modelHash": "sha256:d13d5e1e8476b6fce02a82caf85615e96c944c34093ace3a7ce2c40b23552a25",
-      "providerHash": "sha256:08c3858fbb9b4d12e5ff76239782c3bcab82d274a9272a5df6ba0b772878694f",
-      "riskCohortHash": "sha256:55ef16e4948b9be06a47e7b75ec5def31d533c195c6c0922e87c8636c84a0b22",
-      "executions": [
-        {
-          "mode": "serial",
-          "order": 1,
-          "maxActiveNodes": 1,
-          "executionIdentityHash": "sha256:5c38bf3392e1e4bced83b89cbf7108863bd296633ae46aaddca09bc13f92174e"
-        },
-        {
-          "mode": "parallel",
-          "order": 2,
-          "maxActiveNodes": 2,
-          "executionIdentityHash": "sha256:3f5d14d3b8a4e76f9f5ea61262a4634ceff0dfb5051b3817d26cc22795388588"
-        }
-      ],
-      "pairIdentityHash": "sha256:03107b5a4b7f3b99e136cca687a709bbb288f8783ff0536d51660c2ad317d8dc"
-    },
-    {
-      "scenarioClass": "integration_train",
-      "baselineCommitHash": "sha256:437767795045126a872e828d3e98dc4618ad702ec39456532e6d13ce82b9cf7e",
-      "baselineTreeHash": "sha256:88bc388a37fe23399debe376b13a86b8f6cf448327687771144d3b91290be7c4",
-      "planHash": "sha256:b7d1de852317fd5dba33f549ed64ad4393d37823fa388c771fedfaed9512d53b",
-      "oracleHash": "sha256:c05beba420541f6df11e253293f276060e9483d69ab72eb78cff7fc80982e04a",
-      "scriptHash": "sha256:cb42f1e236729370ed13dc7c53026c55da6053313072ce1caaa9a004134ebc95",
-      "environmentHash": "sha256:7dd7bad9268587b1c2c3f616b18ea554deb428629843f7d6cc8ee58e07f5ca51",
-      "evaluationProfileHash": "sha256:2f48e71e2bc2961ff34cdaa5c9b4259802c5e72cfeef32806e2e206f902be309",
-      "modelHash": "sha256:d13d5e1e8476b6fce02a82caf85615e96c944c34093ace3a7ce2c40b23552a25",
-      "providerHash": "sha256:08c3858fbb9b4d12e5ff76239782c3bcab82d274a9272a5df6ba0b772878694f",
-      "riskCohortHash": "sha256:3312264a959948903f586a2bdb675a4cc94c510220d62f88c7b193e98b5c1cd4",
-      "executions": [
-        {
-          "mode": "serial",
-          "order": 1,
-          "maxActiveNodes": 1,
-          "executionIdentityHash": "sha256:6799e9d0b35b7a3ff9de5dd6f71ed3c3f03baf856649e7673a0f5f9129b52da3"
-        },
-        {
-          "mode": "parallel",
-          "order": 2,
-          "maxActiveNodes": 2,
-          "executionIdentityHash": "sha256:b17cf162a90de71ded9b25fc7be72b3eff14874908f4bde72ee3cb7e4927ac02"
-        }
-      ],
-      "pairIdentityHash": "sha256:26ebab8afb52db73348a67eb3a3975c8417fb8fc6e9d99505ac11485b82309e3"
-    },
-    {
-      "scenarioClass": "independent_fanout",
-      "baselineCommitHash": "sha256:221ef52fde1f90b6a1cb20884b1bba42621e3d00c5d5c73859065cb793dd9128",
-      "baselineTreeHash": "sha256:16d196ef2d7f9f955e11373a8088570bb366ef42ed818936b559ade78e36d1e0",
-      "planHash": "sha256:7068396f3295b5aa0fef8b02f3e9174291e3a53f77e9a0e33a1adbb6cfab3bcb",
-      "oracleHash": "sha256:c05beba420541f6df11e253293f276060e9483d69ab72eb78cff7fc80982e04a",
-      "scriptHash": "sha256:c9789e0ce28ec8110d5c19bf8b25e449f89decaad6f0af662bb6be54c6153e09",
-      "environmentHash": "sha256:7dd7bad9268587b1c2c3f616b18ea554deb428629843f7d6cc8ee58e07f5ca51",
-      "evaluationProfileHash": "sha256:2f48e71e2bc2961ff34cdaa5c9b4259802c5e72cfeef32806e2e206f902be309",
-      "modelHash": "sha256:d13d5e1e8476b6fce02a82caf85615e96c944c34093ace3a7ce2c40b23552a25",
-      "providerHash": "sha256:08c3858fbb9b4d12e5ff76239782c3bcab82d274a9272a5df6ba0b772878694f",
-      "riskCohortHash": "sha256:55ef16e4948b9be06a47e7b75ec5def31d533c195c6c0922e87c8636c84a0b22",
-      "executions": [
-        {
-          "mode": "parallel",
-          "order": 1,
-          "maxActiveNodes": 2,
-          "executionIdentityHash": "sha256:2bd7f6e8fe4518e2a672cc418cb9a9ffbf22e31446b165d7b263551b8a3c29f5"
-        },
-        {
-          "mode": "serial",
-          "order": 2,
-          "maxActiveNodes": 1,
-          "executionIdentityHash": "sha256:4eac0d2915da92484d42478767b3ff82678f6173a8df9b97becacde661189c31"
-        }
-      ],
-      "pairIdentityHash": "sha256:29a07547c409aff70ff2aedf407c86e0fae3065867aa46eabf7981b5088438dd"
-    },
-    {
-      "scenarioClass": "independent_fanout",
-      "baselineCommitHash": "sha256:6600a5882a2eb8ab7b3aa38de04f8e4b1c61204e37f234385d2d6147d421a855",
-      "baselineTreeHash": "sha256:ae8aebbb82875f17837351690a17c9051c04902ec828ccb6ce07be226ed4d569",
-      "planHash": "sha256:04aa64277e3398725f5328977a912e24d927e9b3f059b000db29342a0b23fa75",
-      "oracleHash": "sha256:c05beba420541f6df11e253293f276060e9483d69ab72eb78cff7fc80982e04a",
-      "scriptHash": "sha256:a671617b371e2c2b6773a6c26165831f3ad4620b6b8076cd3c616e5958bf4318",
-      "environmentHash": "sha256:7dd7bad9268587b1c2c3f616b18ea554deb428629843f7d6cc8ee58e07f5ca51",
-      "evaluationProfileHash": "sha256:2f48e71e2bc2961ff34cdaa5c9b4259802c5e72cfeef32806e2e206f902be309",
-      "modelHash": "sha256:d13d5e1e8476b6fce02a82caf85615e96c944c34093ace3a7ce2c40b23552a25",
-      "providerHash": "sha256:08c3858fbb9b4d12e5ff76239782c3bcab82d274a9272a5df6ba0b772878694f",
-      "riskCohortHash": "sha256:284191dc34f090144e6af729a44b660ab47235122318e8a9b3f880ebd7a12249",
-      "executions": [
-        {
-          "mode": "serial",
-          "order": 1,
-          "maxActiveNodes": 1,
-          "executionIdentityHash": "sha256:c7f400e698a0bc61c16929039eb832a9a1fa8cc0a7d23b7e286845b47c923434"
-        },
-        {
-          "mode": "parallel",
-          "order": 2,
-          "maxActiveNodes": 2,
-          "executionIdentityHash": "sha256:211caa97c6784c549a746cdd32d53a3724c4cb21572ae6593647e867605ea8e7"
-        }
-      ],
-      "pairIdentityHash": "sha256:a9f20ed8bdf1685e93ed5e0d1a890a60d855193f2868537108f3931d52885d2e"
-    },
-    {
-      "scenarioClass": "hidden_constraint",
-      "baselineCommitHash": "sha256:98528a28074d5ccad206e45f93697c4aa69e0d9865d75d427557448812e4b8e4",
-      "baselineTreeHash": "sha256:c6befdd67c00e8fc9b9e2cce40050908c1e52dadc5415f1f639fe058621c99b5",
-      "planHash": "sha256:c508d0d9fb92d92f5c14a77a22ab286a5d48a5ec908e89546d0a0e72549b0dae",
-      "oracleHash": "sha256:45a1c147855ea340b72af7010554739044bd1e9eca743d4af6ab05c5160ca7cf",
-      "scriptHash": "sha256:8850ac2b775f5926c5ee74c4d6693b446b28dd7fa0237b7ddb46a43fabea578c",
-      "environmentHash": "sha256:7dd7bad9268587b1c2c3f616b18ea554deb428629843f7d6cc8ee58e07f5ca51",
-      "evaluationProfileHash": "sha256:2f48e71e2bc2961ff34cdaa5c9b4259802c5e72cfeef32806e2e206f902be309",
-      "modelHash": "sha256:d13d5e1e8476b6fce02a82caf85615e96c944c34093ace3a7ce2c40b23552a25",
-      "providerHash": "sha256:08c3858fbb9b4d12e5ff76239782c3bcab82d274a9272a5df6ba0b772878694f",
-      "riskCohortHash": "sha256:3312264a959948903f586a2bdb675a4cc94c510220d62f88c7b193e98b5c1cd4",
-      "executions": [
-        {
-          "mode": "parallel",
-          "order": 1,
-          "maxActiveNodes": 2,
-          "executionIdentityHash": "sha256:1e9e24fe71f5f79b52a86235a963dc952fac141396ae3b3587dbf8af7cbdcabe"
-        },
-        {
-          "mode": "serial",
-          "order": 2,
-          "maxActiveNodes": 1,
-          "executionIdentityHash": "sha256:03ea9f26968c0c3b0c3b2ebdf2e2b72c4f9857b15c5395b2973c7e2702164618"
-        }
-      ],
-      "pairIdentityHash": "sha256:baa276d4e5fb97c04bb43157415db996ef784d069318e4aabb12a45158fb5c2a"
-    },
-    {
       "scenarioClass": "recovery_sensitive",
       "baselineCommitHash": "sha256:b5c84ab1c65e6cea56f765a9f6ca01336efcf194c1ac52984f4d97544e6328a6",
       "baselineTreeHash": "sha256:bbedf91e26691b6457c0f6fc4844b64b61f88a0bbe24b6b03e466578000b6a24",
-      "planHash": "sha256:a39879baca7c6ef649d133391bedecadfaae9e15d656a4debe842bbdb25f7615",
+      "planHash": "sha256:ec18a2932c5c79b57f0d87566fff23619665772d8030fcc5d70dd6732ca47388",
       "oracleHash": "sha256:45a1c147855ea340b72af7010554739044bd1e9eca743d4af6ab05c5160ca7cf",
       "scriptHash": "sha256:e7f69d5104308c229ecd66c1d8471b5863f37e2b72371debebd3e9d1f02026c0",
       "environmentHash": "sha256:7dd7bad9268587b1c2c3f616b18ea554deb428629843f7d6cc8ee58e07f5ca51",
@@ -159,16 +19,156 @@
           "mode": "parallel",
           "order": 1,
           "maxActiveNodes": 2,
-          "executionIdentityHash": "sha256:677893a1f28538e04b1d9df94fb2b9fb08cc9b9530e0c1d55f6829cf4e98af96"
+          "executionIdentityHash": "sha256:43586f024ff7e9f07534a42a03f6df4c0ff0942329e17301f6d6b2738e252a69"
         },
         {
           "mode": "serial",
           "order": 2,
           "maxActiveNodes": 1,
-          "executionIdentityHash": "sha256:3fdae1d6c7a211ef2f9233926c2d157f105ca1d12dbdac377e1cbba31d3128fe"
+          "executionIdentityHash": "sha256:157f9a6d0c4e4454e115a3bd5438d620313c15fd79827e2b79648c6e91ff34e4"
         }
       ],
-      "pairIdentityHash": "sha256:dddd352606ca3d6d261729b1fb324851d3de3b2a360b7539a42f0afba09d4e0b"
+      "pairIdentityHash": "sha256:0c5fe3ef74aed6338749e470fd2c6e80802639ba52dade78b93410b16fa23eca"
+    },
+    {
+      "scenarioClass": "independent_fanout",
+      "baselineCommitHash": "sha256:221ef52fde1f90b6a1cb20884b1bba42621e3d00c5d5c73859065cb793dd9128",
+      "baselineTreeHash": "sha256:16d196ef2d7f9f955e11373a8088570bb366ef42ed818936b559ade78e36d1e0",
+      "planHash": "sha256:cb456643480f55d12dd48449e3e1a98e34782fb00db19c7bef0cd266eddd665a",
+      "oracleHash": "sha256:c05beba420541f6df11e253293f276060e9483d69ab72eb78cff7fc80982e04a",
+      "scriptHash": "sha256:c9789e0ce28ec8110d5c19bf8b25e449f89decaad6f0af662bb6be54c6153e09",
+      "environmentHash": "sha256:7dd7bad9268587b1c2c3f616b18ea554deb428629843f7d6cc8ee58e07f5ca51",
+      "evaluationProfileHash": "sha256:2f48e71e2bc2961ff34cdaa5c9b4259802c5e72cfeef32806e2e206f902be309",
+      "modelHash": "sha256:d13d5e1e8476b6fce02a82caf85615e96c944c34093ace3a7ce2c40b23552a25",
+      "providerHash": "sha256:08c3858fbb9b4d12e5ff76239782c3bcab82d274a9272a5df6ba0b772878694f",
+      "riskCohortHash": "sha256:55ef16e4948b9be06a47e7b75ec5def31d533c195c6c0922e87c8636c84a0b22",
+      "executions": [
+        {
+          "mode": "parallel",
+          "order": 1,
+          "maxActiveNodes": 2,
+          "executionIdentityHash": "sha256:132c95eeed2a9715fb194b62a3f9072693bbf0d0d6dff2406e7d3cf6a4c71489"
+        },
+        {
+          "mode": "serial",
+          "order": 2,
+          "maxActiveNodes": 1,
+          "executionIdentityHash": "sha256:16b1bdf15faf8822698b5dae4d4f2251e795aa6d4ae5b6dd5c643b7a7401e291"
+        }
+      ],
+      "pairIdentityHash": "sha256:18c4613bcf3716cc5ab9748420c01a1e49231cd5cf39ba1a8a0042c94adf5d4a"
+    },
+    {
+      "scenarioClass": "hidden_constraint",
+      "baselineCommitHash": "sha256:40c6f90aa3bb6dddf67c89b9d0453911d718a1e49b4fbfc1b91f4b25dfbf5c81",
+      "baselineTreeHash": "sha256:ec4f4414a172a133f3fbf6ab5bffccaa69636536e43336585d50ea07e0916bb3",
+      "planHash": "sha256:a809cd0cd48bd173cc2b33f7e75697a1212fb95fc71a9362ca1ec0328fd73f6c",
+      "oracleHash": "sha256:45a1c147855ea340b72af7010554739044bd1e9eca743d4af6ab05c5160ca7cf",
+      "scriptHash": "sha256:3b2d6a8936dfc185ee932bfbbea926652cd20f77224d898b8042e48c1c546f38",
+      "environmentHash": "sha256:7dd7bad9268587b1c2c3f616b18ea554deb428629843f7d6cc8ee58e07f5ca51",
+      "evaluationProfileHash": "sha256:2f48e71e2bc2961ff34cdaa5c9b4259802c5e72cfeef32806e2e206f902be309",
+      "modelHash": "sha256:d13d5e1e8476b6fce02a82caf85615e96c944c34093ace3a7ce2c40b23552a25",
+      "providerHash": "sha256:08c3858fbb9b4d12e5ff76239782c3bcab82d274a9272a5df6ba0b772878694f",
+      "riskCohortHash": "sha256:55ef16e4948b9be06a47e7b75ec5def31d533c195c6c0922e87c8636c84a0b22",
+      "executions": [
+        {
+          "mode": "serial",
+          "order": 1,
+          "maxActiveNodes": 1,
+          "executionIdentityHash": "sha256:0e0cd40b734eef7dbdb047c4a7a3d295d11e94780e22645b30148b1d2229bbc0"
+        },
+        {
+          "mode": "parallel",
+          "order": 2,
+          "maxActiveNodes": 2,
+          "executionIdentityHash": "sha256:aadca7d3c0ce506c583113480c18f9ebc359137d0167cab5cd46c2a13c7b8033"
+        }
+      ],
+      "pairIdentityHash": "sha256:56a4c67d95c19050281592072af270b888ccc551a6357b5f2a934ab1d2825335"
+    },
+    {
+      "scenarioClass": "integration_train",
+      "baselineCommitHash": "sha256:437767795045126a872e828d3e98dc4618ad702ec39456532e6d13ce82b9cf7e",
+      "baselineTreeHash": "sha256:88bc388a37fe23399debe376b13a86b8f6cf448327687771144d3b91290be7c4",
+      "planHash": "sha256:f3263ad3031d94745fe6fad6e4efe142ef2a633ed21d23fb24f675dda63d4775",
+      "oracleHash": "sha256:c05beba420541f6df11e253293f276060e9483d69ab72eb78cff7fc80982e04a",
+      "scriptHash": "sha256:cb42f1e236729370ed13dc7c53026c55da6053313072ce1caaa9a004134ebc95",
+      "environmentHash": "sha256:7dd7bad9268587b1c2c3f616b18ea554deb428629843f7d6cc8ee58e07f5ca51",
+      "evaluationProfileHash": "sha256:2f48e71e2bc2961ff34cdaa5c9b4259802c5e72cfeef32806e2e206f902be309",
+      "modelHash": "sha256:d13d5e1e8476b6fce02a82caf85615e96c944c34093ace3a7ce2c40b23552a25",
+      "providerHash": "sha256:08c3858fbb9b4d12e5ff76239782c3bcab82d274a9272a5df6ba0b772878694f",
+      "riskCohortHash": "sha256:3312264a959948903f586a2bdb675a4cc94c510220d62f88c7b193e98b5c1cd4",
+      "executions": [
+        {
+          "mode": "serial",
+          "order": 1,
+          "maxActiveNodes": 1,
+          "executionIdentityHash": "sha256:bac78bc9151b90e2766674cecc497d8ece12c1dea6b14a770b45938d21b5add0"
+        },
+        {
+          "mode": "parallel",
+          "order": 2,
+          "maxActiveNodes": 2,
+          "executionIdentityHash": "sha256:da527ed5303e071ae6a724ced8f30e109c266078fbab219446a149f479376222"
+        }
+      ],
+      "pairIdentityHash": "sha256:7b4c67ca04f7a60ab1aaf351ffdd9d44b5cf8e030705008c129d80c3cae06bf9"
+    },
+    {
+      "scenarioClass": "hidden_constraint",
+      "baselineCommitHash": "sha256:98528a28074d5ccad206e45f93697c4aa69e0d9865d75d427557448812e4b8e4",
+      "baselineTreeHash": "sha256:c6befdd67c00e8fc9b9e2cce40050908c1e52dadc5415f1f639fe058621c99b5",
+      "planHash": "sha256:0230a9fabe8e293a15ac26d9e02f104ea4b4070613ec71989bd5cc10ce67efa8",
+      "oracleHash": "sha256:45a1c147855ea340b72af7010554739044bd1e9eca743d4af6ab05c5160ca7cf",
+      "scriptHash": "sha256:8850ac2b775f5926c5ee74c4d6693b446b28dd7fa0237b7ddb46a43fabea578c",
+      "environmentHash": "sha256:7dd7bad9268587b1c2c3f616b18ea554deb428629843f7d6cc8ee58e07f5ca51",
+      "evaluationProfileHash": "sha256:2f48e71e2bc2961ff34cdaa5c9b4259802c5e72cfeef32806e2e206f902be309",
+      "modelHash": "sha256:d13d5e1e8476b6fce02a82caf85615e96c944c34093ace3a7ce2c40b23552a25",
+      "providerHash": "sha256:08c3858fbb9b4d12e5ff76239782c3bcab82d274a9272a5df6ba0b772878694f",
+      "riskCohortHash": "sha256:3312264a959948903f586a2bdb675a4cc94c510220d62f88c7b193e98b5c1cd4",
+      "executions": [
+        {
+          "mode": "parallel",
+          "order": 1,
+          "maxActiveNodes": 2,
+          "executionIdentityHash": "sha256:a724b12fd0c658523f6f037bc98b5b777c21af445620200d6d281382fc438c80"
+        },
+        {
+          "mode": "serial",
+          "order": 2,
+          "maxActiveNodes": 1,
+          "executionIdentityHash": "sha256:237e4fe6aa2653d75ccd6b7e2ce4cc47c32457ea90f3fd7b23d328e0b7cf4070"
+        }
+      ],
+      "pairIdentityHash": "sha256:7ee9cf3b8cc9d751a085a4c98773a3324c225e6d1f831276e513ee1ec8e7f477"
+    },
+    {
+      "scenarioClass": "independent_fanout",
+      "baselineCommitHash": "sha256:6600a5882a2eb8ab7b3aa38de04f8e4b1c61204e37f234385d2d6147d421a855",
+      "baselineTreeHash": "sha256:ae8aebbb82875f17837351690a17c9051c04902ec828ccb6ce07be226ed4d569",
+      "planHash": "sha256:a299b0982e0090859dfb1928821db57d6957886b72a125ce98c0a394ecd1fdcb",
+      "oracleHash": "sha256:c05beba420541f6df11e253293f276060e9483d69ab72eb78cff7fc80982e04a",
+      "scriptHash": "sha256:a671617b371e2c2b6773a6c26165831f3ad4620b6b8076cd3c616e5958bf4318",
+      "environmentHash": "sha256:7dd7bad9268587b1c2c3f616b18ea554deb428629843f7d6cc8ee58e07f5ca51",
+      "evaluationProfileHash": "sha256:2f48e71e2bc2961ff34cdaa5c9b4259802c5e72cfeef32806e2e206f902be309",
+      "modelHash": "sha256:d13d5e1e8476b6fce02a82caf85615e96c944c34093ace3a7ce2c40b23552a25",
+      "providerHash": "sha256:08c3858fbb9b4d12e5ff76239782c3bcab82d274a9272a5df6ba0b772878694f",
+      "riskCohortHash": "sha256:284191dc34f090144e6af729a44b660ab47235122318e8a9b3f880ebd7a12249",
+      "executions": [
+        {
+          "mode": "serial",
+          "order": 1,
+          "maxActiveNodes": 1,
+          "executionIdentityHash": "sha256:c53f2f895552e781c174df8fe1d63f52a1ddc108dc5022a8479b9a9c58746890"
+        },
+        {
+          "mode": "parallel",
+          "order": 2,
+          "maxActiveNodes": 2,
+          "executionIdentityHash": "sha256:f0cd511dfafd27ca4ff385c1136680d932129d911954a7d43824bdab8221fe2c"
+        }
+      ],
+      "pairIdentityHash": "sha256:8e54d0c15b12a877158cadf524f39f850141d15e0a38fa36d4e60be70e21a120"
     }
   ],
   "excludedRecoveryDrills": [
@@ -176,5 +176,5 @@
     "conductor_crash_resume",
     "target_drift_conflict"
   ],
-  "portfolioIdentityHash": "sha256:5f6d733afca1f35595042f0ff446af7e9ec6a14f79f5fea4864dbbcc37543c71"
+  "portfolioIdentityHash": "sha256:58c9b5a7421339c47a3cbf1e10ce3e9625d02ba640b814d248761acd7f7a9b70"
 }
