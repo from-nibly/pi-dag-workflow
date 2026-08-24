@@ -2314,6 +2314,56 @@
     },
     {
       "acceptance": {
+        "acceptedAt": "2026-08-24T15:23:28.422Z",
+        "actor": "user",
+        "batchRef": "sha256:fd9ea5b0b245091d432388e76edfff6e5456861a9be2fd398d5e156b53335977",
+        "contentHash": "sha256:5ea1b48a29914a44c549c37e7f1f830843c784996bff6e449bfa345bece5a836",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1787584974316",
+        "mode": "accepted_existing"
+      },
+      "body": "The top-level conversational agent is the DAG orchestrator. For each canonically ready and admissible work item or stage, the agent invokes `dag_run_dispatch` over one exact ready packet. The tool atomically revalidates current run authority, readiness, admission, gates, concurrency, and generations; persists or consumes the exact reservation and launch intent; invokes the owned worker manager; and records the canonical binding or durable launch ambiguity. Generic `subagent` remains DAG-agnostic and cannot consume canonical DAG work. Each dispatch may include a bounded agent-authored tactical directive, while an immutable canonical envelope preserves objective, stage role, repository/worktree and edit boundaries, required checks, and completion identity. The directive and final prompt hash are recorded. Timers, session wakes, `agent_end`, and background conductor pumps may reconcile durable observations and surface attention but must not autonomously launch new DAG workers. The agent continues only independent orchestration work and settles at worker dependency barriers so completion follow-ups resume orchestration.",
+      "createdAt": "2026-08-24T15:17:27.855Z",
+      "id": "DEC-agent-driven-canonical-dag-dispatch",
+      "introducedBy": "user",
+      "rationale": "Visible agent tool calls should own launch timing and tactical worker guidance, while a dedicated canonical dispatch mutation preserves exact reducer and worker-runtime authority without coupling generic subagents to DAG internals.",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "Q-agent-driven-dag-dispatch-tool-surface"
+        },
+        {
+          "kind": "addresses",
+          "targetId": "Q-dag-agent-vs-conductor-worker-orchestration-authority"
+        }
+      ],
+      "resolvesQuestionIds": [
+        "Q-dag-agent-vs-conductor-worker-orchestration-authority",
+        "Q-agent-driven-dag-dispatch-tool-surface"
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "selectedProposalIds": [
+        "PROP-dedicated-dag-dispatch-tool-v1",
+        "PROP-canonical-dispatch-protected-prompt-with-agent-directive-v1"
+      ],
+      "sourceRefs": [
+        "DISC-dag-agent-orchestrator-contract-mismatch-operant",
+        "PROP-canonical-dispatch-protected-prompt-with-agent-directive-v1",
+        "PROP-dedicated-dag-dispatch-tool-v1",
+        "user-direction:implement-and-release-agent-driven-dispatch"
+      ],
+      "state": "accepted",
+      "title": "Make canonical DAG worker dispatch agent-driven through a dedicated tool",
+      "updatedAt": "2026-08-24T15:23:28.422Z"
+    },
+    {
+      "acceptance": {
         "acceptedAt": "2026-07-30T04:09:26.598Z",
         "actor": "user",
         "batchRef": "sha256:cd23e96a9dc0771933be2076956b83eac59b1ff36582f3ca0f73a8df0440df24",
@@ -3455,6 +3505,76 @@
       "state": "accepted",
       "title": "Use deterministic vector first-fit with critical rank and bounded bypass fairness",
       "updatedAt": "2026-08-03T23:22:55.540Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-19T02:17:55.018Z",
+        "actor": "user",
+        "batchRef": "sha256:8bdd4e4fc6e4683dc94c3537cc9e83f4f45c0d91eec2e0c21a241f1098eae886",
+        "contentHash": "sha256:727622b7ba5100223aafe77c45aef52e052517b7d52339dd8035190e930184ed",
+        "interactionRef": "lavish-feedback:review-rev-dag-migrate-foundation:sha256:5679ecaf82d026f5dc368ddfd064d65ed10a64c802f3f9678ae1ccacda7d2d4c",
+        "mode": "accepted_existing"
+      },
+      "body": "`/dag migrate` assigns every relevant existing artifact an explicit disposition. Cutover replaces only exact generated-projection collisions approved in the reviewed manifest; all other required files and directories may remain in place as linked manual references or evidence. If a retained artifact must still govern project semantics, cutover remains blocked until the authority conflict is resolved.",
+      "createdAt": "2026-08-19T02:17:55.018Z",
+      "id": "DEC-dag-migrate-preserve-files-single-authority",
+      "introducedBy": "user",
+      "rationale": "Physical coexistence satisfies repository retention needs while preserving one explicit semantic authority after cutover.",
+      "relationships": [],
+      "resolvesQuestionIds": [
+        "Q-dag-migrate-retained-artifact-authority"
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "selectedProposalIds": [
+        "PROP-dag-migrate-retain-nonauthoritative-artifacts"
+      ],
+      "sourceRefs": [],
+      "state": "accepted",
+      "title": "Preserve required artifacts without preserving dual authority",
+      "updatedAt": "2026-08-19T02:17:55.018Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-19T02:25:11.574Z",
+        "actor": "user",
+        "batchRef": "sha256:abb4a55d7e910e506b8f5153890f25c012763673f4647307ed6b3a9980ed4c75",
+        "contentHash": "sha256:a33e659c2284611bec2c71da29c9f7613c4fa7472d087c5f9f2541c9bea553c9",
+        "interactionRef": "lavish-feedback:review-rev-dag-migrate-bootstrap-readiness:sha256:fe995c8bf4de9807a151f72634df45d68246fc7a4d1975eb25d55af5d9839651",
+        "mode": "accepted_existing"
+      },
+      "body": "`/dag migrate` first inventories enough repository metadata to bootstrap an empty non-authoritative candidate model and dedicated migration focus, then activates the existing project-model tool loop under migration-specific guidance. The agent uses relevant-first repository evidence and supported deterministic legacy adapters to create or refresh source-traceable model objects, mappings, omissions, warnings, proposed projections, generated-spec previews, and per-artifact dispositions without overwriting existing artifacts. Lavish may present an incomplete candidate, but cutover is offered only when explicit semantic and artifact readiness gates pass. Cutover remains a separate explicit operation bound to the exact reviewed candidate and artifact manifest; an existing authoritative model fails closed.",
+      "createdAt": "2026-08-19T02:17:55.015Z",
+      "id": "DEC-dag-migrate-staged-candidate-review-cutover",
+      "introducedBy": "user",
+      "rationale": "Reusing the existing validated mutation, review, and authority path avoids a duplicate migration subsystem while adding only the bootstrap, inference guidance, readiness metadata, and artifact-manifest binding required by the feature.",
+      "relationships": [],
+      "resolvesQuestionIds": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "selectedProposalIds": [
+        "PROP-dag-migrate-staged-candidate-review-cutover",
+        "PROP-dag-migrate-relevant-first-source-inventory",
+        "PROP-dag-migrate-semantic-readiness-gates"
+      ],
+      "sourceRefs": [],
+      "state": "accepted",
+      "title": "Stage migration candidate, reuse the model loop, audit in Lavish, and cut over exactly",
+      "updatedAt": "2026-08-19T02:25:11.574Z"
     },
     {
       "acceptance": {
@@ -7110,6 +7230,46 @@
     },
     {
       "acceptance": {
+        "acceptedAt": "2026-08-21T14:46:59.432Z",
+        "actor": "user",
+        "batchRef": "sha256:97a414c92ac39d4d2d9e880a7fd0c771eb878dc1061180b4a93a40309e1ede07",
+        "contentHash": "sha256:a0a9f3688dd4bf41e3698efb25efb36917aefcb1acc7776893f22faae5838685",
+        "interactionRef": "pi-session:01a020d1-8b5c-7a71-9978-d05647f57945:worker-runtime-simplification",
+        "mode": "direct_direction"
+      },
+      "body": "DagExecutionProjectionV2 preserves the exact plan/run/scheduler/worker join and exposes each bound worker terminal status without process-disposition or retry-safety fields. The session-scoped controller serializes and coalesces status reads, retains last-good fail-closed behavior, and requests a TUI render only when the projection hash or visible diagnostic changes. Active workers use a static activity mark. The widget has no liveness window, animation frame, or animation timer, and unchanged periodic refreshes produce no terminal output.",
+      "createdAt": "2026-08-21T14:46:59.432Z",
+      "id": "DEC-static-deduplicated-dag-widget-v1",
+      "introducedBy": "user",
+      "rationale": "A 120 ms animation timer repeatedly redrew the full Pi TUI and amplified into thousands of PTY writes per second. Motion adds no lifecycle authority; a static mark and change-driven rendering preserve useful state while making idle output quiescent.",
+      "relationships": [
+        {
+          "kind": "supersedes",
+          "targetId": "DEC-dag-widget-balanced-motion-timing-v1"
+        },
+        {
+          "kind": "supersedes",
+          "targetId": "DEC-orthogonal-widget-activity-cell-v1"
+        },
+        {
+          "kind": "supersedes",
+          "targetId": "DEC-versioned-widget-projection-serialized-controller-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "accepted",
+      "title": "Use static worker activity and deduplicate DAG widget renders",
+      "updatedAt": "2026-08-21T14:46:59.432Z"
+    },
+    {
+      "acceptance": {
         "acceptedAt": "2026-08-03T23:42:59.054Z",
         "actor": "user",
         "batchRef": "sha256:edb257cbe77ab61c658cb315a607e70d85ecab4c46f577ec5c4359c4739f808c",
@@ -7963,6 +8123,37 @@
     },
     {
       "acceptance": {
+        "acceptedAt": "2026-08-21T14:46:59.432Z",
+        "actor": "user",
+        "batchRef": "sha256:97a414c92ac39d4d2d9e880a7fd0c771eb878dc1061180b4a93a40309e1ede07",
+        "contentHash": "sha256:8bf26a65f188f25ae6da141afd262af733629de767e228b42e02159e10db6f24",
+        "interactionRef": "pi-session:01a020d1-8b5c-7a71-9978-d05647f57945:worker-runtime-simplification",
+        "mode": "direct_direction"
+      },
+      "body": "The generic owned-worker runtime treats a valid immutable result written after the detached supervisor observes the exact Pi child exit as the terminal authority. `subagent_report` and `agent_settled` describe task outcome and initiate shutdown but do not establish termination. Cancellation closes RPC input, then escalates SIGTERM and SIGKILL against only the exact child PID/start identity; a signaling failure is surfaced to the top-level agent and blocks automatic retry until a terminal result exists. Retry and owned-worktree cleanup require the exact attempt-bound terminal result, not proof that no other process can edit the repository. The runtime performs no cwd, environment, uninspectable-process, process-group, or machine-wide process discovery; detached descendants are an accepted trusted-agent contract risk. PID/start identity remains only for targeted active-process cancellation and bounded crash recovery. Periodic manager reconciliation exists only while attempts are active and checks known attempt artifacts; terminal workers have zero periodic work. Process-shared session CAS, opaque idempotent launch keys, exact attempt/config/result identity, durable result lookup, owner-bound retry tokens, artifact quarantine, and disposable-root identity fencing remain generic runtime responsibilities.",
+      "createdAt": "2026-08-21T14:46:59.432Z",
+      "id": "DEC-worker-exit-terminal-contract-v1",
+      "introducedBy": "user",
+      "rationale": "The runtime is trusted local automation, not a malicious-code sandbox. Ambient process scans cannot prove repository quiescence, confused unrelated same-cwd processes with worker descendants, and consumed more than one CPU core. Exact child exit is the narrow observable fact needed for lifecycle completion while immutable attempt identities preserve crash and replay safety.",
+      "relationships": [
+        {
+          "kind": "supersedes",
+          "targetId": "DEC-generic-worker-idempotent-consumer-contract-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "accepted",
+      "title": "Treat exact Pi-child exit as the worker terminal boundary",
+      "updatedAt": "2026-08-21T14:46:59.432Z"
+    },
+    {
+      "acceptance": {
         "acceptedAt": "2026-07-30T03:31:28.441Z",
         "actor": "user",
         "batchRef": "sha256:e8965b512ac2dd6f0e9a1ffa7d9832cef24f399ca039f612ec72660d596e484c",
@@ -7999,147 +8190,6 @@
       "state": "accepted",
       "title": "Workers survive Pi reload and exit",
       "updatedAt": "2026-07-30T03:31:28.441Z"
-    },
-    {
-      "acceptance": {
-        "acceptedAt": "2026-08-19T02:17:55.018Z",
-        "actor": "user",
-        "batchRef": "sha256:8bdd4e4fc6e4683dc94c3537cc9e83f4f45c0d91eec2e0c21a241f1098eae886",
-        "contentHash": "sha256:727622b7ba5100223aafe77c45aef52e052517b7d52339dd8035190e930184ed",
-        "interactionRef": "lavish-feedback:review-rev-dag-migrate-foundation:sha256:5679ecaf82d026f5dc368ddfd064d65ed10a64c802f3f9678ae1ccacda7d2d4c",
-        "mode": "accepted_existing"
-      },
-      "body": "`/dag migrate` assigns every relevant existing artifact an explicit disposition. Cutover replaces only exact generated-projection collisions approved in the reviewed manifest; all other required files and directories may remain in place as linked manual references or evidence. If a retained artifact must still govern project semantics, cutover remains blocked until the authority conflict is resolved.",
-      "createdAt": "2026-08-19T02:17:55.018Z",
-      "id": "DEC-dag-migrate-preserve-files-single-authority",
-      "introducedBy": "user",
-      "rationale": "Physical coexistence satisfies repository retention needs while preserving one explicit semantic authority after cutover.",
-      "relationships": [],
-      "resolvesQuestionIds": [
-        "Q-dag-migrate-retained-artifact-authority"
-      ],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-artifacts-lavish",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "selectedProposalIds": [
-        "PROP-dag-migrate-retain-nonauthoritative-artifacts"
-      ],
-      "sourceRefs": [],
-      "state": "accepted",
-      "title": "Preserve required artifacts without preserving dual authority",
-      "updatedAt": "2026-08-19T02:17:55.018Z"
-    },
-    {
-      "acceptance": {
-        "acceptedAt": "2026-08-19T02:25:11.574Z",
-        "actor": "user",
-        "batchRef": "sha256:abb4a55d7e910e506b8f5153890f25c012763673f4647307ed6b3a9980ed4c75",
-        "contentHash": "sha256:a33e659c2284611bec2c71da29c9f7613c4fa7472d087c5f9f2541c9bea553c9",
-        "interactionRef": "lavish-feedback:review-rev-dag-migrate-bootstrap-readiness:sha256:fe995c8bf4de9807a151f72634df45d68246fc7a4d1975eb25d55af5d9839651",
-        "mode": "accepted_existing"
-      },
-      "body": "`/dag migrate` first inventories enough repository metadata to bootstrap an empty non-authoritative candidate model and dedicated migration focus, then activates the existing project-model tool loop under migration-specific guidance. The agent uses relevant-first repository evidence and supported deterministic legacy adapters to create or refresh source-traceable model objects, mappings, omissions, warnings, proposed projections, generated-spec previews, and per-artifact dispositions without overwriting existing artifacts. Lavish may present an incomplete candidate, but cutover is offered only when explicit semantic and artifact readiness gates pass. Cutover remains a separate explicit operation bound to the exact reviewed candidate and artifact manifest; an existing authoritative model fails closed.",
-      "createdAt": "2026-08-19T02:17:55.015Z",
-      "id": "DEC-dag-migrate-staged-candidate-review-cutover",
-      "introducedBy": "user",
-      "rationale": "Reusing the existing validated mutation, review, and authority path avoids a duplicate migration subsystem while adding only the bootstrap, inference guidance, readiness metadata, and artifact-manifest binding required by the feature.",
-      "relationships": [],
-      "resolvesQuestionIds": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-artifacts-lavish",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "selectedProposalIds": [
-        "PROP-dag-migrate-staged-candidate-review-cutover",
-        "PROP-dag-migrate-relevant-first-source-inventory",
-        "PROP-dag-migrate-semantic-readiness-gates"
-      ],
-      "sourceRefs": [],
-      "state": "accepted",
-      "title": "Stage migration candidate, reuse the model loop, audit in Lavish, and cut over exactly",
-      "updatedAt": "2026-08-19T02:25:11.574Z"
-    },
-    {
-      "acceptance": {
-        "acceptedAt": "2026-08-21T14:46:59.432Z",
-        "actor": "user",
-        "batchRef": "sha256:97a414c92ac39d4d2d9e880a7fd0c771eb878dc1061180b4a93a40309e1ede07",
-        "contentHash": "sha256:a0a9f3688dd4bf41e3698efb25efb36917aefcb1acc7776893f22faae5838685",
-        "interactionRef": "pi-session:01a020d1-8b5c-7a71-9978-d05647f57945:worker-runtime-simplification",
-        "mode": "direct_direction"
-      },
-      "body": "DagExecutionProjectionV2 preserves the exact plan/run/scheduler/worker join and exposes each bound worker terminal status without process-disposition or retry-safety fields. The session-scoped controller serializes and coalesces status reads, retains last-good fail-closed behavior, and requests a TUI render only when the projection hash or visible diagnostic changes. Active workers use a static activity mark. The widget has no liveness window, animation frame, or animation timer, and unchanged periodic refreshes produce no terminal output.",
-      "createdAt": "2026-08-21T14:46:59.432Z",
-      "id": "DEC-static-deduplicated-dag-widget-v1",
-      "introducedBy": "user",
-      "rationale": "A 120 ms animation timer repeatedly redrew the full Pi TUI and amplified into thousands of PTY writes per second. Motion adds no lifecycle authority; a static mark and change-driven rendering preserve useful state while making idle output quiescent.",
-      "relationships": [
-        {
-          "kind": "supersedes",
-          "targetId": "DEC-dag-widget-balanced-motion-timing-v1"
-        },
-        {
-          "kind": "supersedes",
-          "targetId": "DEC-orthogonal-widget-activity-cell-v1"
-        },
-        {
-          "kind": "supersedes",
-          "targetId": "DEC-versioned-widget-projection-serialized-controller-v1"
-        }
-      ],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [],
-      "state": "accepted",
-      "title": "Use static worker activity and deduplicate DAG widget renders",
-      "updatedAt": "2026-08-21T14:46:59.432Z"
-    },
-    {
-      "acceptance": {
-        "acceptedAt": "2026-08-21T14:46:59.432Z",
-        "actor": "user",
-        "batchRef": "sha256:97a414c92ac39d4d2d9e880a7fd0c771eb878dc1061180b4a93a40309e1ede07",
-        "contentHash": "sha256:8bf26a65f188f25ae6da141afd262af733629de767e228b42e02159e10db6f24",
-        "interactionRef": "pi-session:01a020d1-8b5c-7a71-9978-d05647f57945:worker-runtime-simplification",
-        "mode": "direct_direction"
-      },
-      "body": "The generic owned-worker runtime treats a valid immutable result written after the detached supervisor observes the exact Pi child exit as the terminal authority. `subagent_report` and `agent_settled` describe task outcome and initiate shutdown but do not establish termination. Cancellation closes RPC input, then escalates SIGTERM and SIGKILL against only the exact child PID/start identity; a signaling failure is surfaced to the top-level agent and blocks automatic retry until a terminal result exists. Retry and owned-worktree cleanup require the exact attempt-bound terminal result, not proof that no other process can edit the repository. The runtime performs no cwd, environment, uninspectable-process, process-group, or machine-wide process discovery; detached descendants are an accepted trusted-agent contract risk. PID/start identity remains only for targeted active-process cancellation and bounded crash recovery. Periodic manager reconciliation exists only while attempts are active and checks known attempt artifacts; terminal workers have zero periodic work. Process-shared session CAS, opaque idempotent launch keys, exact attempt/config/result identity, durable result lookup, owner-bound retry tokens, artifact quarantine, and disposable-root identity fencing remain generic runtime responsibilities.",
-      "createdAt": "2026-08-21T14:46:59.432Z",
-      "id": "DEC-worker-exit-terminal-contract-v1",
-      "introducedBy": "user",
-      "rationale": "The runtime is trusted local automation, not a malicious-code sandbox. Ambient process scans cannot prove repository quiescence, confused unrelated same-cwd processes with worker descendants, and consumed more than one CPU core. Exact child exit is the narrow observable fact needed for lifecycle completion while immutable attempt identities preserve crash and replay safety.",
-      "relationships": [
-        {
-          "kind": "supersedes",
-          "targetId": "DEC-generic-worker-idempotent-consumer-contract-v1"
-        }
-      ],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow"
-        ]
-      },
-      "sourceRefs": [],
-      "state": "accepted",
-      "title": "Treat exact Pi-child exit as the worker terminal boundary",
-      "updatedAt": "2026-08-21T14:46:59.432Z"
     }
   ],
   "discoveries": [
@@ -8172,6 +8222,30 @@
       "state": "integrated",
       "title": "Accepted plan decisions left resolved questions on the open frontier",
       "updatedAt": "2026-07-31T23:03:20.181Z"
+    },
+    {
+      "body": "Current understanding is now defined as the persistent present-state proof, while the resolver already emits a low-level transaction receipt. The missing acknowledgement layer should translate the user's input and resulting model mutation into a short human-readable semantic delta, then identify what remains open or where exploration continues. It should not repeat the full question brief or Current understanding.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:20:22.216Z",
+      "id": "DISC-acknowledgement-is-semantic-delta-handoff",
+      "introducedBy": "agent",
+      "proposedFollowup": "Superseded by direct user feedback that no separate acknowledgement surface should be required.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-bounded-autonomous-bursts",
+        "COM-single-current-proof",
+        "EV-review-resolution-receipt-is-mechanical"
+      ],
+      "state": "dismissed",
+      "title": "A brainstorm acknowledgement is a semantic-delta handoff",
+      "updatedAt": "2026-08-17T22:25:51.161Z"
     },
     {
       "body": "The exact review was created and marked presented through the semantic review tool's chat rendering, but no Lavish review window was opened. When asked to resolve the review, the user reported that they could not see it in Lavish and did not know what they were reviewing. Material review creation and Lavish presentation are separate operations; a chat presentation receipt is insufficient for this user's current review workflow.",
@@ -8422,6 +8496,26 @@
       "state": "integrated",
       "title": "Prototype Pi adapter and recovery behavior",
       "updatedAt": "2026-07-28T18:37:09.025Z"
+    },
+    {
+      "body": "The user experiences dense question briefs and Current understanding prose as a loss of visibility into the underlying project model. The issue is not formatting alone: visible brainstorming artifacts need to carry enough relevant context to demonstrate why a decision exists, how the affected behavior works today, what would change, and whether the agent's understanding matches the user's intent.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:04:30.774Z",
+      "id": "DISC-brainstorm-surfaces-are-project-model-projections",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "integrated",
+      "title": "Brainstorm surfaces need to serve as project-model projections",
+      "updatedAt": "2026-08-17T22:31:54.445Z"
     },
     {
       "body": "One mutable DAG file cannot safely own reviewed meaning, operational authorization, execution observation, evidence, and worker facts. The canonical boundary is an immutable plan payload plus a detached exact-plan-hash authorization receipt, one atomic mutable conductor snapshot, immutable bounded evidence envelopes, and generic immutable worker results. The accepted one-artifact direction means one planning authority and review surface, not one file that accumulates approval and progress.",
@@ -8681,6 +8775,58 @@
       "updatedAt": "2026-07-30T04:09:54.939Z"
     },
     {
+      "body": "Structured Markdown is already preserved by both chat and Lavish review renderers, while model delta is rendered separately. The next design frontier is deciding which semantic facts a Current understanding must make easy to verify and which headings may adapt to the focus.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:14:24.701Z",
+      "id": "DISC-current-understanding-needs-content-contract-not-renderer",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-current-understanding-renderer-and-delta-separation"
+      ],
+      "state": "integrated",
+      "title": "Current understanding needs a content contract rather than new rendering capability",
+      "updatedAt": "2026-08-17T22:17:42.400Z"
+    },
+    {
+      "body": "The Operant session did not omit an existing instruction to manually call subagent for each DAG node. Released v0.2.0 wires canonical lifecycle `launchExact` directly to `workerManager.launchOwnedAttempt`; `/dag run` calls conductor retry activation; session start, a one-second timer, agent end, and worker completion wake the conductor. No run-mode prompt tells the top-level agent to translate ready DAG nodes into `subagent` tool calls, and manually launched generic subagents cannot create canonical launch intents or worker bindings. In the observed run, revision 24 has an F0 conductor attempt whose procedure effect is reconciled but whose attempt remains running, an F1-ready work item, zero launch intents, and zero worker bindings. The command summary nevertheless says the existing run was advanced. Later generic subagent repair launches fail because the worker session snapshot claims an absent PID 620245 as a live owner. This creates both a product-contract mismatch if human-agent orchestration is desired and an observability defect even under the current automated-conductor design.",
+      "createdAt": "2026-08-24T15:01:11.656Z",
+      "id": "DISC-dag-agent-orchestrator-contract-mismatch-operant",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-agent-driven-canonical-dag-dispatch"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/integration.ts:advanceConductor",
+        "extensions/dag-workflow/index.ts:lifecycle.worker.launchExact",
+        "extensions/dag-workflow/planning/integration.ts:handleRunCommand",
+        "operant-run:run-64e81c4f-8f54-4a60-9fab-63ff54880941@24",
+        "operant-session:019f6baa-af86-725a-81a8-3ce65a3f5155:2026-08-23..2026-08-24"
+      ],
+      "state": "integrated",
+      "title": "Operant agent behavior follows automated conductor contract, not manual DAG subagent orchestration",
+      "updatedAt": "2026-08-24T15:18:04.064Z"
+    },
+    {
       "body": "Release correctness, comparative outcomes, and explanatory telemetry have different authority. Integrity predicates—exact receipts, no unauthorized effects, no unreconciled partial landing, no worker-success-as-stage-success—are pass/fail safety conditions. Quality-conditioned outcomes assess completed accepted behavior, architecture findings/resolution, integrated verification, and useful parallel work. Durations, queue waits, retries, provider failures, token/cost, and human latency diagnose why an outcome occurred. Combining these into one score would permit throughput or cost to compensate for correctness and would invite gaming.",
       "confidence": "high",
       "createdAt": "2026-08-04T14:05:47.214Z",
@@ -8708,6 +8854,55 @@
       "state": "integrated",
       "title": "DAG evaluation needs invariants, outcome measures, and diagnostics rather than one score",
       "updatedAt": "2026-08-04T14:40:39.757Z"
+    },
+    {
+      "body": "`/dag migrate` does not need a parallel semantic-authority subsystem. A small pre-model bootstrap can write an empty candidate, create a migration focus, activate the existing model tools, and send migration-specific kickoff guidance. The agent can then inspect sources and make non-authoritative candidate updates through the same validated domain used by ordinary brainstorming; exact review and cutover remain existing authority operations extended with the artifact manifest hash.",
+      "createdAt": "2026-08-19T02:18:59.931Z",
+      "id": "DISC-dag-migrate-can-bootstrap-existing-model-loop",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "EV-model-tools-require-existing-model-focus"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-dag-migrate-staged-candidate-review-cutover"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/domain.ts",
+        "extensions/dag-workflow/project-model/integration.ts",
+        "extensions/dag-workflow/project-model/model.ts"
+      ],
+      "state": "integrated",
+      "title": "Migration can bootstrap and reuse the existing model loop",
+      "updatedAt": "2026-08-19T02:18:59.931Z"
+    },
+    {
+      "body": "A model-content summary alone cannot make cutover safe. The review must also show every colliding or semantically relevant existing artifact and its proposed disposition: replace with a generated projection, retain as a non-authoritative reference/manual artifact, or block cutover because unresolved governing authority remains.",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "DISC-dag-migrate-needs-artifact-disposition-manifest",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "EV-current-cutover-replaces-only-declared-target-collisions"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/projector.ts",
+        "project-model/migrations/brainstorm-v2-candidate.md"
+      ],
+      "state": "integrated",
+      "title": "Safe migration requires explicit artifact dispositions",
+      "updatedAt": "2026-08-18T22:08:48.978Z"
     },
     {
       "body": "Legacy `dependsOn` controlled readiness while a second `edges` list was mostly descriptive. The redesign needs one canonical graph contract but must distinguish producer/consumer ordering from mutual-exclusion resources, shared unresolved decision prerequisites, and merge/integration ordering; otherwise it either misrepresents scheduling constraints as semantic dependencies or serializes unnecessarily.",
@@ -9219,6 +9414,29 @@
       "state": "integrated",
       "title": "Completion needs exact integration profiles, oracle assertions, adoption lineage, and effect-scope closure",
       "updatedAt": "2026-08-04T17:04:42.484Z"
+    },
+    {
+      "body": "Question briefs and Current understanding now have adaptive semantic contracts, and existing authority already distinguishes causal synthesis from documentation recitation. The unresolved implementation-policy choice is whether meaningful Markdown should be prompt-guided and smoke-tested or mechanically rejected by runtime shape validation.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:26:34.928Z",
+      "id": "DISC-format-enforcement-boundary-is-remaining-risk",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-existing-synthesis-and-validation-boundaries",
+        "TEN-scannable-structure-vs-performative-template-compliance"
+      ],
+      "state": "integrated",
+      "title": "The remaining structure risk is enforcement, not information architecture",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
     },
     {
       "body": "`DEC-defer-worker-widget-until-dag-redesign` explicitly supersedes `DEC-passive-live-dag-widget-v1`, but `spec/owned-worker-runtime/spec.md` renders both as governing direction. The projector's `isSpecEligible` checks accepted state and receipt hash only; it does not exclude objects targeted by an accepted `supersedes` relationship. Projection validation also requires every accepted receipt-valid object to retain canonical placement. The same issue leaves older per-run/DAG-coupled worker wording visible beside newer session-scoped DAG-agnostic decisions.",
@@ -10273,6 +10491,32 @@
       "updatedAt": "2026-08-14T00:36:49.953Z"
     },
     {
+      "body": "No further product choice is required to identify the implementation surface. The compact mode-guidance block should state the semantic core and adaptive synthesis rules, while deterministic tests should assert guidance delivery and safe structured Markdown rendering. Runtime validators remain limited to nonempty/current provenance checks, and semantic transcript scoring remains deferred.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:31:54.444Z",
+      "id": "DISC-prompt-and-regression-impact-is-derivable",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-question-context",
+        "COM-semantic-evaluation",
+        "COM-single-current-proof",
+        "COM-structural-proof-validation",
+        "EV-single-model-mode-guidance-injection-point"
+      ],
+      "state": "integrated",
+      "title": "The prompt and deterministic regression impact follows from accepted direction",
+      "updatedAt": "2026-08-17T23:34:16.562Z"
+    },
+    {
       "body": "Archived attempts failed deterministically because an explicitly requested Anthropic model lacked credentials, worktrees were stale or missing dependencies, test commands resolved the wrong environment, and negative searches were misclassified as shell failures. These are not implementation defects and should not consume the same retry budget.",
       "confidence": "high",
       "createdAt": "2026-07-31T04:57:50.323Z",
@@ -10726,6 +10970,27 @@
       "state": "integrated",
       "title": "Telemetry must be non-authoritative, loss-tolerant, and regenerable from exact facts",
       "updatedAt": "2026-08-04T14:40:39.757Z"
+    },
+    {
+      "body": "The desired proof is an agent-authored explanation that selects and connects the relevant project facts, analogous to asking someone to describe the problem back in their own words. Forcing an acknowledgement surface or documentation-like exhaustive template can prove access to project information without proving comprehension, and can suppress the judgment the user wants to inspect.",
+      "confidence": "high",
+      "createdAt": "2026-08-17T22:25:51.161Z",
+      "id": "DISC-template-compliance-is-not-understanding-proof",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "review-post-resolution-acknowledgement-frontier:user-feedback"
+      ],
+      "state": "integrated",
+      "title": "Template compliance can conceal whether the agent understands the project",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
     },
     {
       "body": "Independent adversarial review found that an instance-local fault latch would be lost on conductor service or process replacement, allowing session_start/timer activation to retry without explicit diagnosis. It also found that dirty wakes must preserve their own occurredAt rather than inherit the first pump timestamp. The follow-up patch now publishes a hash-validated durable per-run fault marker before rejecting callers, suppresses background resume across service replacement, removes the marker only through explicit retry, and tracks the latest dirty wake timestamp for successor passes.",
@@ -11207,190 +11472,6 @@
       "state": "integrated",
       "title": "Worktree isolation does not prove semantic independence",
       "updatedAt": "2026-07-31T04:32:22.981Z"
-    },
-    {
-      "body": "Structured Markdown is already preserved by both chat and Lavish review renderers, while model delta is rendered separately. The next design frontier is deciding which semantic facts a Current understanding must make easy to verify and which headings may adapt to the focus.",
-      "confidence": "high",
-      "createdAt": "2026-08-17T22:14:24.701Z",
-      "id": "DISC-current-understanding-needs-content-contract-not-renderer",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "EV-current-understanding-renderer-and-delta-separation"
-      ],
-      "state": "integrated",
-      "title": "Current understanding needs a content contract rather than new rendering capability",
-      "updatedAt": "2026-08-17T22:17:42.400Z"
-    },
-    {
-      "body": "No further product choice is required to identify the implementation surface. The compact mode-guidance block should state the semantic core and adaptive synthesis rules, while deterministic tests should assert guidance delivery and safe structured Markdown rendering. Runtime validators remain limited to nonempty/current provenance checks, and semantic transcript scoring remains deferred.",
-      "confidence": "high",
-      "createdAt": "2026-08-17T22:31:54.444Z",
-      "id": "DISC-prompt-and-regression-impact-is-derivable",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "COM-question-context",
-        "COM-semantic-evaluation",
-        "COM-single-current-proof",
-        "COM-structural-proof-validation",
-        "EV-single-model-mode-guidance-injection-point"
-      ],
-      "state": "integrated",
-      "title": "The prompt and deterministic regression impact follows from accepted direction",
-      "updatedAt": "2026-08-17T23:34:16.562Z"
-    },
-    {
-      "body": "Question briefs and Current understanding now have adaptive semantic contracts, and existing authority already distinguishes causal synthesis from documentation recitation. The unresolved implementation-policy choice is whether meaningful Markdown should be prompt-guided and smoke-tested or mechanically rejected by runtime shape validation.",
-      "confidence": "high",
-      "createdAt": "2026-08-17T22:26:34.928Z",
-      "id": "DISC-format-enforcement-boundary-is-remaining-risk",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "EV-existing-synthesis-and-validation-boundaries",
-        "TEN-scannable-structure-vs-performative-template-compliance"
-      ],
-      "state": "integrated",
-      "title": "The remaining structure risk is enforcement, not information architecture",
-      "updatedAt": "2026-08-17T22:30:39.828Z"
-    },
-    {
-      "body": "The user experiences dense question briefs and Current understanding prose as a loss of visibility into the underlying project model. The issue is not formatting alone: visible brainstorming artifacts need to carry enough relevant context to demonstrate why a decision exists, how the affected behavior works today, what would change, and whether the agent's understanding matches the user's intent.",
-      "confidence": "high",
-      "createdAt": "2026-08-17T22:04:30.774Z",
-      "id": "DISC-brainstorm-surfaces-are-project-model-projections",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [],
-      "state": "integrated",
-      "title": "Brainstorm surfaces need to serve as project-model projections",
-      "updatedAt": "2026-08-17T22:31:54.445Z"
-    },
-    {
-      "body": "Current understanding is now defined as the persistent present-state proof, while the resolver already emits a low-level transaction receipt. The missing acknowledgement layer should translate the user's input and resulting model mutation into a short human-readable semantic delta, then identify what remains open or where exploration continues. It should not repeat the full question brief or Current understanding.",
-      "confidence": "high",
-      "createdAt": "2026-08-17T22:20:22.216Z",
-      "id": "DISC-acknowledgement-is-semantic-delta-handoff",
-      "introducedBy": "agent",
-      "proposedFollowup": "Superseded by direct user feedback that no separate acknowledgement surface should be required.",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "COM-bounded-autonomous-bursts",
-        "COM-single-current-proof",
-        "EV-review-resolution-receipt-is-mechanical"
-      ],
-      "state": "dismissed",
-      "title": "A brainstorm acknowledgement is a semantic-delta handoff",
-      "updatedAt": "2026-08-17T22:25:51.161Z"
-    },
-    {
-      "body": "The desired proof is an agent-authored explanation that selects and connects the relevant project facts, analogous to asking someone to describe the problem back in their own words. Forcing an acknowledgement surface or documentation-like exhaustive template can prove access to project information without proving comprehension, and can suppress the judgment the user wants to inspect.",
-      "confidence": "high",
-      "createdAt": "2026-08-17T22:25:51.161Z",
-      "id": "DISC-template-compliance-is-not-understanding-proof",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "review-post-resolution-acknowledgement-frontier:user-feedback"
-      ],
-      "state": "integrated",
-      "title": "Template compliance can conceal whether the agent understands the project",
-      "updatedAt": "2026-08-17T22:30:39.828Z"
-    },
-    {
-      "body": "`/dag migrate` does not need a parallel semantic-authority subsystem. A small pre-model bootstrap can write an empty candidate, create a migration focus, activate the existing model tools, and send migration-specific kickoff guidance. The agent can then inspect sources and make non-authoritative candidate updates through the same validated domain used by ordinary brainstorming; exact review and cutover remain existing authority operations extended with the artifact manifest hash.",
-      "createdAt": "2026-08-19T02:18:59.931Z",
-      "id": "DISC-dag-migrate-can-bootstrap-existing-model-loop",
-      "introducedBy": "agent",
-      "relationships": [
-        {
-          "kind": "derived_from",
-          "targetId": "EV-model-tools-require-existing-model-focus"
-        },
-        {
-          "kind": "supports",
-          "targetId": "DEC-dag-migrate-staged-candidate-review-cutover"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "extensions/dag-workflow/project-model/domain.ts",
-        "extensions/dag-workflow/project-model/integration.ts",
-        "extensions/dag-workflow/project-model/model.ts"
-      ],
-      "state": "integrated",
-      "title": "Migration can bootstrap and reuse the existing model loop",
-      "updatedAt": "2026-08-19T02:18:59.931Z"
-    },
-    {
-      "body": "A model-content summary alone cannot make cutover safe. The review must also show every colliding or semantically relevant existing artifact and its proposed disposition: replace with a generated projection, retain as a non-authoritative reference/manual artifact, or block cutover because unresolved governing authority remains.",
-      "createdAt": "2026-08-18T22:08:48.978Z",
-      "id": "DISC-dag-migrate-needs-artifact-disposition-manifest",
-      "introducedBy": "agent",
-      "relationships": [
-        {
-          "kind": "derived_from",
-          "targetId": "EV-current-cutover-replaces-only-declared-target-collisions"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "extensions/dag-workflow/project-model/projector.ts",
-        "project-model/migrations/brainstorm-v2-candidate.md"
-      ],
-      "state": "integrated",
-      "title": "Safe migration requires explicit artifact dispositions",
-      "updatedAt": "2026-08-18T22:08:48.978Z"
     }
   ],
   "evidence": [
@@ -11696,6 +11777,24 @@
       "updatedAt": "2026-08-04T16:24:12.901Z"
     },
     {
+      "body": "Migration cutover calls the projector with `replaceUnmanagedSpecs: true`. The projector may overwrite an unmanaged file only when its path is a declared generated projection target; other existing spec files remain in place, and only stale files already bearing the project-model generated marker are candidates for managed cleanup.",
+      "confidence": "high",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "EV-current-cutover-replaces-only-declared-target-collisions",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/domain.ts",
+        "extensions/dag-workflow/project-model/projector.ts"
+      ],
+      "state": "current",
+      "title": "Current cutover replaces unmanaged files only at declared projection targets",
+      "updatedAt": "2026-08-18T22:08:48.978Z"
+    },
+    {
       "body": "extensions/dag-workflow/dag-runtime/integration.ts installs canonical-dag-run above the editor, refreshes projection state every second, calls requestRender, and computes animation time inside render. widget.ts emits 4–12 independently cropped text lines, spends most rows on one-edge-per-line topology, and always appends an instructional footer. The component invalidate method is empty.",
       "createdAt": "2026-08-17T17:29:40.512Z",
       "id": "EV-current-dag-widget-layout-mechanics",
@@ -11739,6 +11838,29 @@
       "updatedAt": "2026-08-18T02:24:08.134Z"
     },
     {
+      "body": "`scripts/migrate-brainstorm-to-project-model.mjs` reads only `.ai/brainstorm/structured-brainstorming.json`; `migration.ts` contains Pi-DAG-specific mappings, hard-codes the project title and projection layout, emits a candidate report and preview, and has no `/dag migrate` command surface.",
+      "confidence": "high",
+      "createdAt": "2026-08-18T22:08:48.977Z",
+      "id": "EV-current-migration-is-one-off-legacy-brainstorm-script",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-dag-migrate-existing-repository"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/migration.ts",
+        "scripts/migrate-brainstorm-to-project-model.mjs"
+      ],
+      "state": "current",
+      "title": "Current migration path is a repository-specific legacy-brainstorm script",
+      "updatedAt": "2026-08-18T22:08:48.977Z"
+    },
+    {
       "body": "`package.json` pins `pi-subagents` 0.25.0 and `extensions/dag-workflow/dag-subagent.ts` imports package-private `src/**` modules for discovery, execution, watchers, notifications, settings, schemas, and state. The current extension entry point does not import or register `registerDagSubagentTool`; dependency analysis finds no importer. The post-cutover runtime therefore does not currently launch workers, but still installs the dependency and retains tightly coupled dead integration code.",
       "confidence": "high",
       "createdAt": "2026-07-30T02:52:06.194Z",
@@ -11768,6 +11890,30 @@
       "state": "current",
       "title": "Current pi-subagents integration is packaged but dormant",
       "updatedAt": "2026-07-30T02:52:06.194Z"
+    },
+    {
+      "body": "The formal review renderer passes Current understanding through its Markdown formatter and renders Model delta as a distinct section. The review Markdown projection also inserts Current understanding verbatim beneath its own heading. Therefore the immediate gap is the semantic generation contract for the synthesis, not a missing Markdown renderer; Current understanding can remain a present-state proof while delta/acknowledgement surfaces explain what just changed.",
+      "createdAt": "2026-08-17T22:14:24.701Z",
+      "id": "EV-current-understanding-renderer-and-delta-separation",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-meaningful-semantic-refresh",
+        "COM-single-current-proof",
+        "extensions/dag-workflow/project-model/domain.ts:763-776",
+        "extensions/dag-workflow/project-model/review-renderer.ts:41-73"
+      ],
+      "state": "current",
+      "title": "Current review rendering already supports structured Markdown and a separate model delta",
+      "updatedAt": "2026-08-17T22:14:24.701Z"
     },
     {
       "body": "An independent evidence review compared the accepted DAG contracts with DORA, SPACE, DevEx, controlled software-engineering experiments, SWE-bench/agent-evaluation guidance, queueing, and Amdahl-style serial constraints. Applicable lessons are to balance throughput with instability/recovery, use multiple objective and perceptual dimensions, measure feedback/cognitive-load/flow burden, predeclare units and hypotheses, pair/counterbalance comparable runs, retain hidden independent oracles, report cost with outcome, and avoid one metric, cross-context comparisons, p-value claims from tiny samples, or maximizing utilization. It recommends exact integrated outcomes and safety first, then operator active time, elapsed time, and cost; four pairs are formative and six valid pairs support only a directional local claim.",
@@ -12315,6 +12461,31 @@
       "updatedAt": "2026-07-30T15:35:03.248Z"
     },
     {
+      "body": "The structured-brainstorm workflow says Current understanding explains deeper reasoning and the causal model, is neither an answer recap nor a request for confirmation, and gives the agent a flexible context slot. Existing validation commitments permit deterministic checks for prompt delivery, Markdown rendering, freshness, and source references while explicitly deferring claims about comprehension quality to later field-grounded evaluation.",
+      "createdAt": "2026-08-17T22:26:34.928Z",
+      "id": "EV-existing-synthesis-and-validation-boundaries",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-semantic-evaluation",
+        "COM-structural-proof-validation",
+        "scripts/project-model-test.mjs:69-72",
+        "spec/structured-brainstorming/production-validation.md:21-27",
+        "spec/structured-brainstorming/workflow.md:91-115"
+      ],
+      "state": "current",
+      "title": "Existing contracts already separate causal synthesis from mechanical validation",
+      "updatedAt": "2026-08-17T22:26:34.928Z"
+    },
+    {
       "body": "Dogfood artifacts demonstrate useful whole-turn sections and controls, but their shell, CSS, JavaScript, option forms, navigation, and queuePrompt wiring were repeatedly handwritten by the agent. This confirms the token/consistency value of a renderer-owned shell while preserving arbitrary agent-authored context inside cards.",
       "confidence": "medium",
       "createdAt": "2026-07-28T18:37:08.999Z",
@@ -12627,6 +12798,37 @@
       "state": "current",
       "title": "Primary-source immutable plan lifecycle prior art",
       "updatedAt": "2026-07-31T13:47:32.909Z"
+    },
+    {
+      "body": "The implementation adds a fail-closed changed-path classifier with full fallback, named canonical dogfood groups and scenarios, selectable portfolio templates and recovery drills, hash-validated local evidence receipts bound to relevant Git tree and executable/toolchain/environment inputs, an uncached full-certification command, and one package-mode smoke pass against the extracted npm artifact. Unit coverage proves representative path mappings and prior-tag diff selection; selected happy dogfood, one recovery drill, one two-execution portfolio template, source smoke, model/evaluation suites, and extracted-package smoke pass. A clean synthetic repository with only README changed selected no focused/dogfood/portfolio gates and completed impact-aware readiness through packed smoke.",
+      "createdAt": "2026-08-19T19:41:59.164Z",
+      "id": "EV-impact-aware-release-readiness-implementation",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-integration-ready-completion-predicate-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "command:synthetic-readme-impact-release-ready",
+        "scripts/dag-dogfood-portfolio.mjs",
+        "scripts/dag-dogfood-test.mjs",
+        "scripts/release-impact-test.mjs",
+        "scripts/release-readiness.mjs"
+      ],
+      "state": "current",
+      "title": "Impact-aware release readiness selects and verifies bounded gates",
+      "updatedAt": "2026-08-19T19:41:59.164Z"
     },
     {
       "body": "A no-edit review of commits `a366e87`, `0e779ab`, and `f0d14b6` found that interactive Lavish opening depends on an ambient unshipped `lavish-open` helper despite the pinned optional CLI contract, and that late supervisor identity binding can overwrite a concurrently recorded `cancelling` worker state. Model/spec checks and existing tests passed, but the new tests did not exercise either default packaged opening or cancellation racing launch binding.",
@@ -13080,6 +13282,29 @@
       "state": "current",
       "title": "Pragmatic durability audit for a trusted local workflow",
       "updatedAt": "2026-08-13T19:33:43.270Z"
+    },
+    {
+      "body": "The integration registers model tools once but activates them only after a focus is active. `/dag brainstorm` refuses to start when `project-model/model.json` is absent. `createEmptyModel` already supports candidate mode with no semantic objects or projections.",
+      "confidence": "high",
+      "createdAt": "2026-08-19T02:18:59.930Z",
+      "id": "EV-model-tools-require-existing-model-focus",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-dag-migrate-existing-repository"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/integration.ts",
+        "extensions/dag-workflow/project-model/model.ts"
+      ],
+      "state": "current",
+      "title": "Current model tools require an existing model and active focus",
+      "updatedAt": "2026-08-19T02:18:59.930Z"
     },
     {
       "body": "Read-only preservation of run run-64e81c4f-8f54-4a60-9fab-63ff54880941 shows canonical r17 at 2026-08-16T02:22:33.614Z. model-contract F0 is passed and F1 is correctness-ready/admissible with no worker binding. external-readiness F0 stage attempt attempt-88d5643b0477929a44e4219e308d75b3 remains running even though procedure effect procedure-7f203dc9e55fee5d2192cc8efc572fe8 is reconciled/applied_exact and closed check/evidence facts were immutably published. No later snapshot seals that stage. Owner epoch 1 binds PID 3392234 / linux-proc:105399357, a long-lived /home/jordan/bin/zr wrapper that remains alive after the command-scoped conductor pump ended. Exact source artifact hashes and a read-only copy are under ignored .ai/incident-evidence/run-64e81c4f-8f54-4a60-9fab-63ff54880941; source manifest hash sha256:a628b762c91b96d0e213a1524054a4f3e2796bd9343e3ac661660a06bc38ca51.",
@@ -14232,6 +14457,29 @@
       "updatedAt": "2026-07-30T02:52:06.195Z"
     },
     {
+      "body": "`dag_model_resolve_review` returns changed object IDs, generated paths, and applied or unresolved point IDs. The mode guidance requires semantic resolution and Current understanding refreshes but does not define what the assistant should visibly acknowledge after applying user direction. This leaves the conversational handoff dependent on ad hoc prose.",
+      "createdAt": "2026-08-17T22:20:22.215Z",
+      "id": "EV-review-resolution-receipt-is-mechanical",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/domain.ts:366-416",
+        "extensions/dag-workflow/project-model/integration.ts:185-202",
+        "extensions/dag-workflow/project-model/integration.ts:405-414"
+      ],
+      "state": "current",
+      "title": "Review resolution returns a mechanical receipt but does not define a human acknowledgement",
+      "updatedAt": "2026-08-17T22:20:22.215Z"
+    },
+    {
       "body": "Task-109 hardening repaired all blockers from four adversarial review attempts. The final kernel now confines run namespaces; validates closed canonical reducer inputs and source snapshots; records one exact durable idempotency slot per revision; requires explicit current-owner transfer or exact process-death recovery; recovers idle owners and every initialization/recovery crash point; atomically retires locks; verifies current/predecessor archives and immutable fact liveness; retains corrupt raw bytes through canonical quarantine envelopes; requires external user authority for quarantine adoption; blocks overlapping cancellation and post-fence execution; quarantines late successful worker results without current pointers; retains lanes/leases until exact worker/effect closure; reconciles failed run/repository/train effects; and explicitly retries only replay-safe uncertain dispatches. Real child-process fixtures cover initialization, immutable publication, snapshot rename, recovery intent/quarantine/replacement/rename, copied identities, and concurrent read/prune races. The complete runtime/model/worker/smoke/package/spec/syntax/diff matrix passed.",
       "confidence": "high",
       "createdAt": "2026-08-04T19:39:41.492Z",
@@ -14267,6 +14515,29 @@
       "state": "current",
       "title": "Foundational run-state kernel passed crash, concurrency, cancellation, authority, and corruption closure",
       "updatedAt": "2026-08-04T19:39:41.492Z"
+    },
+    {
+      "body": "`MODEL_MODE_GUIDANCE` in `extensions/dag-workflow/project-model/integration.ts` is appended to the system prompt whenever a focus is active. It currently instructs the agent to keep Current understanding causal and grounded, but does not state the new question-brief context core, adaptive Markdown expectations, synthesis-versus-documentation boundary, or automatic frontier continuation. Existing renderer tests already cover safe headings, lists, emphasis, and inline code.",
+      "createdAt": "2026-08-17T22:31:54.444Z",
+      "id": "EV-single-model-mode-guidance-injection-point",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/integration.ts:234-238",
+        "extensions/dag-workflow/project-model/integration.ts:406-414",
+        "scripts/project-model-test.mjs:69-72"
+      ],
+      "state": "current",
+      "title": "Brainstorm behavior is currently controlled by one compact mode-guidance block",
+      "updatedAt": "2026-08-17T22:31:54.444Z"
     },
     {
       "body": "Task 112 implements a release-closed deterministic sticky-lane scheduler, exact execution projection, session-bound conductor, exactly nine typed tools, UI-independent scheduler progression, exact worker joins, and passive bounded TUI widget. Reducer-side exact decision recomputation rejects forged reservations; fairness never blocks the incumbent needed to release capacity; dynamic exclusions preserve deterministic earlier-lane ownership between operations; dispatch crosses durable intent and observation states; projection glyphs distinguish genuinely in-flight, post-external, terminal, attention, readiness, train, and completion states; omission and topology cuts are explicit; last-good reads are exact-binding fenced and fail closed; and repeated TUI/headless lifecycles tear down timers and widgets deterministically. Final independent closure reported no release blockers.",
@@ -14567,196 +14838,6 @@
       "state": "current",
       "title": "v0.1.3 terminal-conductor patch is released and applied",
       "updatedAt": "2026-08-18T02:10:19.707Z"
-    },
-    {
-      "body": "`dag_model_resolve_review` returns changed object IDs, generated paths, and applied or unresolved point IDs. The mode guidance requires semantic resolution and Current understanding refreshes but does not define what the assistant should visibly acknowledge after applying user direction. This leaves the conversational handoff dependent on ad hoc prose.",
-      "createdAt": "2026-08-17T22:20:22.215Z",
-      "id": "EV-review-resolution-receipt-is-mechanical",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "extensions/dag-workflow/project-model/domain.ts:366-416",
-        "extensions/dag-workflow/project-model/integration.ts:185-202",
-        "extensions/dag-workflow/project-model/integration.ts:405-414"
-      ],
-      "state": "current",
-      "title": "Review resolution returns a mechanical receipt but does not define a human acknowledgement",
-      "updatedAt": "2026-08-17T22:20:22.215Z"
-    },
-    {
-      "body": "The structured-brainstorm workflow says Current understanding explains deeper reasoning and the causal model, is neither an answer recap nor a request for confirmation, and gives the agent a flexible context slot. Existing validation commitments permit deterministic checks for prompt delivery, Markdown rendering, freshness, and source references while explicitly deferring claims about comprehension quality to later field-grounded evaluation.",
-      "createdAt": "2026-08-17T22:26:34.928Z",
-      "id": "EV-existing-synthesis-and-validation-boundaries",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-artifacts-lavish",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "COM-semantic-evaluation",
-        "COM-structural-proof-validation",
-        "scripts/project-model-test.mjs:69-72",
-        "spec/structured-brainstorming/production-validation.md:21-27",
-        "spec/structured-brainstorming/workflow.md:91-115"
-      ],
-      "state": "current",
-      "title": "Existing contracts already separate causal synthesis from mechanical validation",
-      "updatedAt": "2026-08-17T22:26:34.928Z"
-    },
-    {
-      "body": "The formal review renderer passes Current understanding through its Markdown formatter and renders Model delta as a distinct section. The review Markdown projection also inserts Current understanding verbatim beneath its own heading. Therefore the immediate gap is the semantic generation contract for the synthesis, not a missing Markdown renderer; Current understanding can remain a present-state proof while delta/acknowledgement surfaces explain what just changed.",
-      "createdAt": "2026-08-17T22:14:24.701Z",
-      "id": "EV-current-understanding-renderer-and-delta-separation",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-artifacts-lavish",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "COM-meaningful-semantic-refresh",
-        "COM-single-current-proof",
-        "extensions/dag-workflow/project-model/domain.ts:763-776",
-        "extensions/dag-workflow/project-model/review-renderer.ts:41-73"
-      ],
-      "state": "current",
-      "title": "Current review rendering already supports structured Markdown and a separate model delta",
-      "updatedAt": "2026-08-17T22:14:24.701Z"
-    },
-    {
-      "body": "`MODEL_MODE_GUIDANCE` in `extensions/dag-workflow/project-model/integration.ts` is appended to the system prompt whenever a focus is active. It currently instructs the agent to keep Current understanding causal and grounded, but does not state the new question-brief context core, adaptive Markdown expectations, synthesis-versus-documentation boundary, or automatic frontier continuation. Existing renderer tests already cover safe headings, lists, emphasis, and inline code.",
-      "createdAt": "2026-08-17T22:31:54.444Z",
-      "id": "EV-single-model-mode-guidance-injection-point",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "extensions/dag-workflow/project-model/integration.ts:234-238",
-        "extensions/dag-workflow/project-model/integration.ts:406-414",
-        "scripts/project-model-test.mjs:69-72"
-      ],
-      "state": "current",
-      "title": "Brainstorm behavior is currently controlled by one compact mode-guidance block",
-      "updatedAt": "2026-08-17T22:31:54.444Z"
-    },
-    {
-      "body": "Migration cutover calls the projector with `replaceUnmanagedSpecs: true`. The projector may overwrite an unmanaged file only when its path is a declared generated projection target; other existing spec files remain in place, and only stale files already bearing the project-model generated marker are candidates for managed cleanup.",
-      "confidence": "high",
-      "createdAt": "2026-08-18T22:08:48.978Z",
-      "id": "EV-current-cutover-replaces-only-declared-target-collisions",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "extensions/dag-workflow/project-model/domain.ts",
-        "extensions/dag-workflow/project-model/projector.ts"
-      ],
-      "state": "current",
-      "title": "Current cutover replaces unmanaged files only at declared projection targets",
-      "updatedAt": "2026-08-18T22:08:48.978Z"
-    },
-    {
-      "body": "`scripts/migrate-brainstorm-to-project-model.mjs` reads only `.ai/brainstorm/structured-brainstorming.json`; `migration.ts` contains Pi-DAG-specific mappings, hard-codes the project title and projection layout, emits a candidate report and preview, and has no `/dag migrate` command surface.",
-      "confidence": "high",
-      "createdAt": "2026-08-18T22:08:48.977Z",
-      "id": "EV-current-migration-is-one-off-legacy-brainstorm-script",
-      "introducedBy": "agent",
-      "relationships": [
-        {
-          "kind": "supports",
-          "targetId": "INT-dag-migrate-existing-repository"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "extensions/dag-workflow/project-model/migration.ts",
-        "scripts/migrate-brainstorm-to-project-model.mjs"
-      ],
-      "state": "current",
-      "title": "Current migration path is a repository-specific legacy-brainstorm script",
-      "updatedAt": "2026-08-18T22:08:48.977Z"
-    },
-    {
-      "body": "The integration registers model tools once but activates them only after a focus is active. `/dag brainstorm` refuses to start when `project-model/model.json` is absent. `createEmptyModel` already supports candidate mode with no semantic objects or projections.",
-      "confidence": "high",
-      "createdAt": "2026-08-19T02:18:59.930Z",
-      "id": "EV-model-tools-require-existing-model-focus",
-      "introducedBy": "agent",
-      "relationships": [
-        {
-          "kind": "supports",
-          "targetId": "INT-dag-migrate-existing-repository"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "extensions/dag-workflow/project-model/integration.ts",
-        "extensions/dag-workflow/project-model/model.ts"
-      ],
-      "state": "current",
-      "title": "Current model tools require an existing model and active focus",
-      "updatedAt": "2026-08-19T02:18:59.930Z"
-    },
-    {
-      "body": "The implementation adds a fail-closed changed-path classifier with full fallback, named canonical dogfood groups and scenarios, selectable portfolio templates and recovery drills, hash-validated local evidence receipts bound to relevant Git tree and executable/toolchain/environment inputs, an uncached full-certification command, and one package-mode smoke pass against the extracted npm artifact. Unit coverage proves representative path mappings and prior-tag diff selection; selected happy dogfood, one recovery drill, one two-execution portfolio template, source smoke, model/evaluation suites, and extracted-package smoke pass. A clean synthetic repository with only README changed selected no focused/dogfood/portfolio gates and completed impact-aware readiness through packed smoke.",
-      "createdAt": "2026-08-19T19:41:59.164Z",
-      "id": "EV-impact-aware-release-readiness-implementation",
-      "introducedBy": "agent",
-      "relationships": [
-        {
-          "kind": "supports",
-          "targetId": "DEC-integration-ready-completion-predicate-v1"
-        }
-      ],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-artifacts-lavish",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "command:synthetic-readme-impact-release-ready",
-        "scripts/dag-dogfood-portfolio.mjs",
-        "scripts/dag-dogfood-test.mjs",
-        "scripts/release-impact-test.mjs",
-        "scripts/release-readiness.mjs"
-      ],
-      "state": "current",
-      "title": "Impact-aware release readiness selects and verifies bounded gates",
-      "updatedAt": "2026-08-19T19:41:59.164Z"
     }
   ],
   "intents": [
@@ -14787,6 +14868,31 @@
       "state": "accepted",
       "title": "Dogfood model brainstorming before redesigning execution",
       "updatedAt": "2026-07-29T00:02:20.711Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-19T02:17:55.013Z",
+        "actor": "user",
+        "batchRef": "sha256:8bdd4e4fc6e4683dc94c3537cc9e83f4f45c0d91eec2e0c21a241f1098eae886",
+        "contentHash": "sha256:433c1d4570e12bdcd66480ff412efc318f438074b168aa4d191ffbf60090b20a",
+        "interactionRef": "lavish-feedback:review-rev-dag-migrate-foundation:sha256:5679ecaf82d026f5dc368ddfd064d65ed10a64c802f3f9678ae1ccacda7d2d4c",
+        "mode": "accepted_existing"
+      },
+      "body": "Provide a guided `/dag migrate` workflow that converts an existing repository into a project-model candidate, exposes what was inferred, and requires explicit user approval before authority changes.",
+      "createdAt": "2026-08-18T22:08:48.977Z",
+      "id": "INT-dag-migrate-existing-repository",
+      "introducedBy": "agent",
+      "kind": "outcome",
+      "relationships": [],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "focus-seed:focus-we-need-to-add-a-new-feature-called-dag-migrate-where-we-m"
+      ],
+      "state": "accepted",
+      "title": "Add /dag migrate for existing repositories",
+      "updatedAt": "2026-08-19T02:17:55.013Z"
     },
     {
       "acceptance": {
@@ -14935,78 +15041,25 @@
       "state": "accepted",
       "title": "Scale human oversight through a shared project model",
       "updatedAt": "2026-07-29T00:02:20.711Z"
-    },
-    {
-      "acceptance": {
-        "acceptedAt": "2026-08-19T02:17:55.013Z",
-        "actor": "user",
-        "batchRef": "sha256:8bdd4e4fc6e4683dc94c3537cc9e83f4f45c0d91eec2e0c21a241f1098eae886",
-        "contentHash": "sha256:433c1d4570e12bdcd66480ff412efc318f438074b168aa4d191ffbf60090b20a",
-        "interactionRef": "lavish-feedback:review-rev-dag-migrate-foundation:sha256:5679ecaf82d026f5dc368ddfd064d65ed10a64c802f3f9678ae1ccacda7d2d4c",
-        "mode": "accepted_existing"
-      },
-      "body": "Provide a guided `/dag migrate` workflow that converts an existing repository into a project-model candidate, exposes what was inferred, and requires explicit user approval before authority changes.",
-      "createdAt": "2026-08-18T22:08:48.977Z",
-      "id": "INT-dag-migrate-existing-repository",
-      "introducedBy": "agent",
-      "kind": "outcome",
-      "relationships": [],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "focus-seed:focus-we-need-to-add-a-new-feature-called-dag-migrate-where-we-m"
-      ],
-      "state": "accepted",
-      "title": "Add /dag migrate for existing repositories",
-      "updatedAt": "2026-08-19T02:17:55.013Z"
     }
   ],
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "# Accepted direction\n\n`/dag migrate` is the supported staged conversion path for repositories without a project model. It bootstraps an empty candidate and migration focus, then reuses the existing project-model update, review, Lavish, and authority loop under migration-specific guidance.\n\n# Inference and readiness\n\nThe agent discovers evidence relevant-first: supported legacy snapshots; repository/package orientation; README, specs, docs, ADRs, and plans; tests and representative code for confirmation or contradiction; bounded Git history only when current sources are materially ambiguous. A known adapter is a fast path, never a review bypass.\n\nLavish may present a partial candidate, but cutover is offered only after explicit gates pass: valid model; source-traceable governing content; explained mappings, retention, and omissions for material sources; no unresolved authority conflict; successful projection preview; complete per-artifact dispositions; and a fresh hash binding both candidate and manifest. There is no synthetic completeness percentage.\n\n# Artifact coexistence\n\nCutover replaces only exact generated-projection collisions approved in the reviewed manifest. Other required specs and directories remain as linked manual references or evidence. If any retained artifact must remain governing, cutover is blocked; v1 does not introduce scoped external authority. The retained-artifact authority question is answered by this accepted policy.\n\n# Bounded implementation surface\n\nThe new surface consists of `/dag migrate` command routing; candidate/focus bootstrap and resume metadata; migration mode guidance; repository source inventory and supported adapter dispatch; artifact-disposition/readiness structures included in the manifest hash; a migration-specific Lavish audit; and deterministic tests for no-overwrite staging, incomplete candidates, stale approval, retained specs, approved collisions, adapter fast paths, and authoritative-model refusal.\n\n# Frontier status\n\nThe `/dag migrate` product, interaction, coexistence, and authority boundaries are resolved. Remaining work is implementation decomposition and schema detail following established repository conventions; no further product decision is currently supported.",
-      "generatedAt": "2026-08-19T02:59:17.302Z",
+      "body": "# Accepted implementation direction\n\nCanonical DAG dispatch is agent-driven through a dedicated `dag_run_dispatch` tool. The agent receives exact ready packets, explicitly launches each selected packet, and may supply a recorded tactical prompt directive. Generic `subagent` remains DAG-agnostic.\n\n# Protected authority\n\nThe extension still owns reducer readiness/admission, reservation and launch intent, run revision/hash and owner fencing, concurrency, generations, worktree/config derivation, worker binding, ambiguity recovery, result validation, lifecycle reduction, and integration. The worker prompt combines an immutable canonical envelope, the agent-authored directive, and an immutable completion contract.\n\n# Turn behavior\n\n`/dag run` enters orchestration mode and returns actionable packets rather than claiming invisible background dispatch. The agent launches ready packets, continues only independent work, and settles when workers become dependencies. Completion follow-ups trigger the next orchestration turn. Background wakes may reconcile and notify but never launch new DAG workers.\n\n# Delivery\n\nImplementation and release are now explicitly requested. Existing automated-dispatch runs, including the stalled Operant run, require fail-closed compatibility handling rather than direct state edits.",
+      "generatedAt": "2026-08-24T15:23:28.428Z",
       "sourceObjects": [
         {
-          "id": "INT-dag-migrate-existing-repository",
-          "semanticHash": "sha256:433c1d4570e12bdcd66480ff412efc318f438074b168aa4d191ffbf60090b20a"
+          "id": "DEC-agent-driven-canonical-dag-dispatch",
+          "semanticHash": "sha256:5ea1b48a29914a44c549c37e7f1f830843c784996bff6e449bfa345bece5a836"
         },
         {
-          "id": "DEC-dag-migrate-staged-candidate-review-cutover",
-          "semanticHash": "sha256:a33e659c2284611bec2c71da29c9f7613c4fa7472d087c5f9f2541c9bea553c9"
+          "id": "PROP-dedicated-dag-dispatch-tool-v1",
+          "semanticHash": "sha256:b68c2271c076359ba2baf0c3a9fad37dc85820bcae6df94acb92cff40677e0ef"
         },
         {
-          "id": "DEC-dag-migrate-preserve-files-single-authority",
-          "semanticHash": "sha256:727622b7ba5100223aafe77c45aef52e052517b7d52339dd8035190e930184ed"
-        },
-        {
-          "id": "Q-dag-migrate-retained-artifact-authority",
-          "semanticHash": "sha256:d5dd3c386e51f4b5e765336c39779b6ea31256429b61c09ad6be9e82ba25521f"
-        },
-        {
-          "id": "PROP-dag-migrate-relevant-first-source-inventory",
-          "semanticHash": "sha256:d660352d4dda7103f3d591679c893479e4206638bac633678df7d68f3b0c2a85"
-        },
-        {
-          "id": "PROP-dag-migrate-semantic-readiness-gates",
-          "semanticHash": "sha256:46acde3d894356d5d44ca4b169263a060b393edb766a9405f40f17ed3ef2d602"
-        },
-        {
-          "id": "DISC-dag-migrate-can-bootstrap-existing-model-loop",
-          "semanticHash": "sha256:279f0c1453558ffd1491392095611614e93d6e44439a34fcdf889fbff25b7d6e"
-        },
-        {
-          "id": "SCN-dag-migrate-incomplete-repository-evidence",
-          "semanticHash": "sha256:374e9439731a446eb92f02bd2aa083c9187f2acf8f08e819939aa5f12f5911e3"
-        },
-        {
-          "id": "SCN-dag-migrate-supported-legacy-fast-path",
-          "semanticHash": "sha256:e5a202155dd90cb9108cba23bb3d9716d7be430cd5d251ad817a65d70b65df61"
-        },
-        {
-          "id": "SCN-dag-migrate-existing-spec-collision",
-          "semanticHash": "sha256:0ab4f3d13ffd6ed6f09d608bf4615a1fbc21cadb57e5f743d3d7972c0df41755"
+          "id": "PROP-canonical-dispatch-protected-prompt-with-agent-directive-v1",
+          "semanticHash": "sha256:4403929a4baf982dbf69b4aac964c6f75ee5f8968ac97e75c423bce0857e1abc"
         }
       ]
     },
@@ -15190,7 +15243,8 @@
                 "DEC-responsive-horizontal-graph-branches-v1",
                 "DEC-dag-widget-balanced-motion-timing-v1",
                 "DEC-dag-widget-nonblocking-incident-reproduction-v1",
-                "DEC-static-deduplicated-dag-widget-v1"
+                "DEC-static-deduplicated-dag-widget-v1",
+                "DEC-agent-driven-canonical-dag-dispatch"
               ],
               "title": "Accepted planning and execution direction"
             },
@@ -15364,9 +15418,9 @@
         }
       ]
     },
-    "revision": 244,
+    "revision": 250,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-21T14:46:59.432Z"
+    "updatedAt": "2026-08-24T15:23:28.428Z"
   },
   "proposals": [
     {
@@ -16059,6 +16113,36 @@
       "updatedAt": "2026-07-29T02:26:16.834Z"
     },
     {
+      "body": "Each exact dispatch packet provides immutable worker identity, stage role, objective, authority boundaries, repository/worktree binding, predecessor evidence, required checks, and completion schema. `dag_run_dispatch` additionally accepts a bounded agent-authored directive that may replace the packet's default tactical instructions or add context, investigation priorities, known failures, and implementation guidance. The final prompt preserves the canonical envelope before and after that directive; the agent cannot use prompt text to alter objective authority, stage independence, edit/read-only boundaries, gates, cwd, tools, or completion identity. The normalized directive and final prompt hash are recorded in the launch intent and worker configuration for replay and inspection. A desired semantic or authority change requires replan/retry authorization rather than prompt override.",
+      "createdAt": "2026-08-24T15:22:18.293Z",
+      "id": "PROP-canonical-dispatch-protected-prompt-with-agent-directive-v1",
+      "introducedBy": "agent",
+      "rationale": "Agent-driven orchestration needs judgment at dispatch time, especially after failures or new evidence, but free-form prompt replacement cannot be allowed to erase the exact lifecycle and repository boundaries that make worker results creditable.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-agent-driven-canonical-dag-dispatch",
+        "PROP-dedicated-dag-dispatch-tool-v1",
+        "user-question:top-level-agent-prompt-override"
+      ],
+      "state": "selected",
+      "title": "Combine a protected canonical worker envelope with an agent-authored directive",
+      "tradeoffs": [
+        "Prompt assembly needs explicit protected and agent-authored sections.",
+        "The tool must distinguish tactical replacement from semantic plan changes and fail closed on forbidden override fields.",
+        "Recorded prompt hashes improve replay but do not make prose itself authority."
+      ],
+      "updatedAt": "2026-08-24T15:23:28.427Z"
+    },
+    {
       "body": "Standardize the current artifact approach around browser-loaded Tailwind and DaisyUI versions.",
       "createdAt": "2026-07-28T18:37:09.005Z",
       "id": "PROP-cdn-daisy-shell",
@@ -16417,6 +16501,67 @@
       "updatedAt": "2026-08-03T22:10:11.626Z"
     },
     {
+      "body": "Always render Goal, Current behavior, Accepted direction, Open questions, and Boundaries in a stable order, allowing explicit none entries when a category is empty.",
+      "createdAt": "2026-08-17T22:14:24.702Z",
+      "id": "PROP-current-understanding-fixed-snapshot-template",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-single-current-proof"
+      ],
+      "state": "rejected",
+      "title": "Use a fixed snapshot template for every Current understanding",
+      "updatedAt": "2026-08-17T22:17:42.399Z"
+    },
+    {
+      "body": "Require the synthesis to make the goal, relevant current mechanism or state, and governing accepted direction easy to find. Add open frontier, constraints, boundaries, evidence, or risks when they materially affect alignment. Let headings adapt to the subject, and leave turn-by-turn changes to the separate delta and acknowledgement surfaces.",
+      "createdAt": "2026-08-17T22:14:24.702Z",
+      "id": "PROP-current-understanding-mandatory-core-adaptive-structure",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-current-understanding-renderer-and-delta-separation"
+      ],
+      "state": "selected",
+      "title": "Use a mandatory semantic core with adaptive Markdown headings for Current understanding",
+      "updatedAt": "2026-08-17T22:17:42.399Z"
+    },
+    {
+      "body": "Lead with a compact alignment summary, then expand current behavior, governing direction, frontier, and evidence in adaptive sections. This optimizes scanning but intentionally repeats some facts at two levels.",
+      "createdAt": "2026-08-17T22:14:24.702Z",
+      "id": "PROP-current-understanding-summary-plus-details",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-current-understanding-renderer-and-delta-separation"
+      ],
+      "state": "rejected",
+      "title": "Use an at-a-glance summary followed by adaptive supporting detail",
+      "updatedAt": "2026-08-17T22:17:42.399Z"
+    },
+    {
       "body": "Version the execution projection rather than silently widening V1. For each node, retain the exact joined worker process disposition and expose the ordered F0–F8 stage states plus candidate generation. Keep observation freshness outside the semantic projection. Preserve the existing exact plan/run/scheduler/worker join and omission behavior; V1 remains available for historical compatibility if needed.",
       "createdAt": "2026-08-17T22:04:41.614Z",
       "id": "PROP-dag-execution-projection-v2-widget-fields",
@@ -16434,6 +16579,134 @@
       "state": "recommended",
       "title": "Add a narrow DagExecutionProjectionV2 for liveness and stage progress",
       "updatedAt": "2026-08-17T22:04:41.614Z"
+    },
+    {
+      "body": "Discover migration evidence in tiers: explicit supported legacy model snapshots first; repository orientation and package metadata; README, spec/docs, ADRs and plans; tests and representative code where they establish or contradict behavior; bounded Git history only when current artifacts leave material ambiguity. Record every inspected source and its role, but do not equate file count with semantic coverage or ingest transient/build/vendor/secret paths.",
+      "createdAt": "2026-08-19T02:18:59.932Z",
+      "id": "PROP-dag-migrate-relevant-first-source-inventory",
+      "introducedBy": "agent",
+      "rationale": "Generic repositories need semantic inference, while a fixed adapter-only migration would not satisfy the accepted existing-repository outcome. Relevant-first traversal controls cost and avoids converting implementation detail into false product authority.",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-dag-migrate-staged-candidate-review-cutover"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "COM-mechanical-inference-only",
+        "COM-research-classify-before-ask"
+      ],
+      "state": "selected",
+      "title": "Use a relevant-first repository source inventory",
+      "updatedAt": "2026-08-19T02:25:11.574Z"
+    },
+    {
+      "body": "At cutover, replace only exact projection paths explicitly approved in the artifact disposition manifest. Preserve all other required existing files and directories in place, classify and link relevant documents as manual references or evidence, and label them non-authoritative where ambiguity would otherwise remain. If any legacy artifact must continue as governing semantic authority, block cutover and return to candidate review rather than silently creating dual authority.",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "PROP-dag-migrate-retain-nonauthoritative-artifacts",
+      "introducedBy": "agent",
+      "rationale": "This satisfies directory/file retention needs within the accepted atomic single-authority architecture and avoids treating physical coexistence as semantic dual writing.",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-audited-candidate-atomic-cutover"
+        },
+        {
+          "kind": "supports",
+          "targetId": "INT-dag-migrate-existing-repository"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/projector.ts",
+        "project-model/model.json"
+      ],
+      "state": "selected",
+      "title": "Retain required legacy artifacts without retaining dual authority",
+      "updatedAt": "2026-08-19T02:17:55.019Z"
+    },
+    {
+      "body": "Extend the project model with scoped external-authority declarations so selected existing specifications can remain governing after cutover while the model governs all other declared scopes.",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "PROP-dag-migrate-scoped-external-authority",
+      "introducedBy": "agent",
+      "rationale": "This directly supports repositories with mandatory external specifications, but changes the current global candidate/authoritative model and introduces precedence, drift, and conflict rules that do not exist today.",
+      "relationships": [
+        {
+          "kind": "addresses",
+          "targetId": "INT-dag-migrate-existing-repository"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "DEC-audited-candidate-atomic-cutover"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "project-model/model.json"
+      ],
+      "state": "rejected",
+      "title": "Allow retained specs to remain governing in declared scopes",
+      "updatedAt": "2026-08-19T02:17:55.020Z"
+    },
+    {
+      "body": "A candidate becomes cutover-ready only when the model validates; every proposed governing object is traceable to user direction or repository evidence; every material source is mapped, retained, or explicitly omitted with rationale; contradictions and open authority questions are resolved or declared non-governing; projection previews succeed; every relevant artifact has a disposition; and the exact candidate-plus-manifest hash is fresh. The Lavish summary may still present an incomplete candidate, but its cutover action is disabled and blockers are shown.",
+      "createdAt": "2026-08-19T02:18:59.933Z",
+      "id": "PROP-dag-migrate-semantic-readiness-gates",
+      "introducedBy": "agent",
+      "rationale": "No honest percentage can prove semantic completeness across arbitrary repositories. Explicit fail-closed gates make readiness explainable and testable without claiming the agent understood every file.",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "DEC-dag-migrate-preserve-files-single-authority"
+        },
+        {
+          "kind": "supports",
+          "targetId": "DEC-dag-migrate-staged-candidate-review-cutover"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "COM-mechanical-inference-only",
+        "DEC-audited-candidate-atomic-cutover",
+        "DEC-semantic-current-state-import"
+      ],
+      "state": "selected",
+      "title": "Gate cutover on semantic and artifact readiness, not coverage percentage",
+      "updatedAt": "2026-08-19T02:25:11.574Z"
+    },
+    {
+      "body": "Implement `/dag migrate` as a resumable staged workflow: inventory repository artifacts; infer a non-authoritative candidate model and projection map; validate it without overwriting existing files; render a Lavish audit showing model scope, counts, governing content, unresolved questions, omissions, source-to-model mappings, generated-spec diffs, and artifact dispositions; then apply an exact hash-bound cutover only after explicit approval. Re-running before cutover refreshes or resumes the candidate; an authoritative existing model fails closed.",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "PROP-dag-migrate-staged-candidate-review-cutover",
+      "introducedBy": "agent",
+      "rationale": "This generalizes the current audited migration mechanics while keeping inference separate from authority and making file effects reviewable before any destructive collision.",
+      "relationships": [
+        {
+          "kind": "supports",
+          "targetId": "INT-dag-migrate-existing-repository"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/domain.ts",
+        "extensions/dag-workflow/project-model/review-renderer.ts",
+        "scripts/migrate-brainstorm-to-project-model.mjs"
+      ],
+      "state": "selected",
+      "title": "Use a staged candidate, visual audit, and explicit cutover",
+      "updatedAt": "2026-08-19T02:17:55.019Z"
     },
     {
       "body": "Render a compact header plus an activity-centered topology lane for each currently active or attention node, preserving edges rather than replacing the graph with worker cards. Each lane shows alias/title, exact stage, a stage progress bar, elapsed time, and a spinner only when the joined worker projection proves a live process. Use remaining horizontal width for immediate downstream dependents, grouped by active parent, and collapse all other DAG state into small aggregate counts.",
@@ -16639,6 +16912,36 @@
       "state": "candidate",
       "title": "Use a 1.25-second liveness window and 120 ms active-only animation",
       "updatedAt": "2026-08-18T02:24:08.134Z"
+    },
+    {
+      "body": "Add a read/claim surface that returns bounded canonically ready dispatch packets and a `dag_run_dispatch` mutation that accepts one exact packet identity plus run revision/hash fencing. The tool atomically revalidates readiness, reserves/begins the stage, persists the launch intent, invokes the owned worker manager, records the exact worker binding, and returns the asynchronous launch identity. `/dag run` activates orchestration guidance; completion follow-ups return the agent to reconciliation and further dispatch. Generic `subagent` remains DAG-agnostic.",
+      "createdAt": "2026-08-24T15:19:19.877Z",
+      "id": "PROP-dedicated-dag-dispatch-tool-v1",
+      "introducedBy": "agent",
+      "rationale": "A DAG-specific tool makes every launch an explicit agent action while retaining the canonical reducer and worker manager as the authority boundary. It avoids teaching a generic worker tool about run revisions, stage reservations, plan policy, and canonical bindings.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-agent-driven-canonical-dag-dispatch",
+        "extensions/dag-workflow/dag-runtime/reducer.ts:begin_stage_attempt",
+        "extensions/dag-workflow/index.ts:lifecycle.worker.launchExact"
+      ],
+      "state": "selected",
+      "title": "Expose exact ready packets through a dedicated DAG dispatch tool",
+      "tradeoffs": [
+        "Adds an explicit orchestration tool and run-mode contract.",
+        "The dispatch call spans durable intent, external process launch, and binding reconciliation, so crash recovery must preserve the existing launch-ambiguity rules.",
+        "The agent must loop over bounded ready packets and settle correctly at dependency barriers."
+      ],
+      "updatedAt": "2026-08-24T15:23:28.422Z"
     },
     {
       "body": "Ship `maxActiveNodes=2`. At run authorization the user may choose another positive integer up to validated worker/provider/resource and semantic safety maxima. The count controls admitted work items, not physical phase workers. Each active node retains its lane until integrated/complete, terminally cancelled, or moved to successor-plan/replan; blocked nodes are never parked automatically.",
@@ -17532,6 +17835,61 @@
       "updatedAt": "2026-07-31T13:49:04.589Z"
     },
     {
+      "body": "Determine changed files from an explicit release base tag, map every packaged/runtime path to fail-closed test impact groups, and run only affected focused suites plus one smoke pass against the extracted npm artifact. Split canonical dogfood into named scenario groups and the paired portfolio into selectable templates and individual recovery drills. Persist content-addressed receipts for each scenario/template keyed by its exact relevant source, fixture, toolchain, and policy inputs; unchanged receipts may be reused, while unknown paths or broad shared-runtime changes escalate to the full gate. Keep a periodic full portfolio certification independent of ordinary low-risk releases.",
+      "createdAt": "2026-08-19T15:05:54.535Z",
+      "id": "PROP-impact-aware-release-readiness-v1",
+      "introducedBy": "agent",
+      "rationale": "The current release gate runs broad smoke twice and rebuilds 17 dogfood scenarios, 12 portfolio executions, and three drills sequentially for every change. Most documentation, model-presentation, widget, or worker-guidance releases do not affect canonical execution evidence. Fail-closed impact mapping and exact input hashes can reduce most releases below one hour without treating path heuristics alone as proof.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "scripts/dag-dogfood-portfolio.mjs",
+        "scripts/dag-dogfood-test.mjs",
+        "scripts/release-readiness.mjs",
+        "scripts/smoke-test.mjs",
+        "user:release-readiness-under-one-hour"
+      ],
+      "state": "recommended",
+      "title": "Make release readiness impact-aware with scenario-level evidence reuse",
+      "tradeoffs": [
+        "The impact map becomes maintained release-critical policy and must fail closed for unclassified files.",
+        "Broad runtime primitives such as reducer, store, lifecycle, scheduler, Git integration, or shared canonical hashing may still require the full multi-hour gate.",
+        "Content-addressed reuse requires recording exact environment/toolchain inputs or conservatively invalidating evidence.",
+        "Running smoke only from the packed artifact makes package construction an earlier prerequisite but removes duplicate source smoke."
+      ],
+      "updatedAt": "2026-08-19T15:05:54.535Z"
+    },
+    {
+      "body": "Revise the active-focus mode guidance to cover contextual question briefs, adaptive Markdown Current understanding, selective synthesis rather than model reproduction, no mandatory acknowledgement surface, and automatic next-frontier continuation. Add deterministic tests for guidance injection and structured Markdown rendering without adding a runtime prose-shape validator or semantic quality gate.",
+      "createdAt": "2026-08-17T22:31:54.445Z",
+      "id": "PROP-implement-brainstorm-synthesis-guidance-regressions",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-prompt-and-regression-impact-is-derivable",
+        "SCN-concise-synthesis-is-not-rejected-for-shape",
+        "SCN-current-understanding-demonstrates-selective-synthesis",
+        "SCN-question-brief-explains-decision-origin"
+      ],
+      "state": "selected",
+      "title": "Update mode guidance and targeted structural regressions",
+      "updatedAt": "2026-08-17T23:34:16.562Z"
+    },
+    {
       "body": "Promote the validated seams into production modules: a domain-owned `ModelReviewTurnProjection` generated from the actual active focus, model revision/hash, Current understanding, selected frontier/delta, and exact active review; optional focus presentation metadata; package shell renderer; pinned optional Lavish CLI adapter; active `dag_model_present_review` tool with present/resume/end; bounded feedback details; exact tool-result presentation receipts; resolution cleanup; fake-CLI tests; and one opt-in real-browser gate. Reuse contracts deliberately rather than importing prototype modules. Production dogfood is complete when one real multi-point model review is generated, presented, responded to, semantically resolved through existing tools, and cleaned up without manual presentation-marker recovery.",
       "createdAt": "2026-07-29T03:44:09.947Z",
       "id": "PROP-implement-production-lavish-adapter",
@@ -17894,6 +18252,24 @@
       "updatedAt": "2026-07-29T02:22:55.887Z"
     },
     {
+      "body": "Use a mandatory context core plus adaptively selected supporting sections. Every decision brief establishes the decision, why it matters, the recommendation, and the exact question. Prompts encourage relevant current behavior, change context, constraints, consequences, and model evidence whenever they help explain why the decision exists. The goal is not to render every possible section every time, but to prevent briefs from collapsing into only a description of the recommended option.",
+      "createdAt": "2026-08-17T22:04:30.774Z",
+      "id": "PROP-layered-question-brief",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "selected",
+      "title": "Use layered question briefs with decision context before recommendation",
+      "updatedAt": "2026-08-17T22:10:14.159Z"
+    },
+    {
       "body": "Each catalog check is required, conditional with a deterministic predicate, or plan-declared not applicable; F0 confirms the result. Missing tools, credentials, time, or failed observations are BLOCKED/FAIL, never N/A. Waivers are detached exact-scope human/policy receipts, never self-issued, apply only to checks, expose residual risk, and expire on relevant plan/oracle/candidate/environment/rebase change. Plan/authorization identity, immutable baseline, evidence integrity, independent F2/F5, clean F7, F8 integrity, and authorization for undeclared/production/irreversible scope are non-waivable. External procedures declare pure/idempotent/compensatable/non_repeatable/unknown replay classes; durable effect intent and reconciliation precede retry, and unknown/non-repeatable effects never auto-retry.",
       "createdAt": "2026-08-02T15:20:59.759Z",
       "id": "PROP-lifecycle-applicability-waiver-effect-retry-v1",
@@ -18066,6 +18442,26 @@
       "updatedAt": "2026-08-04T14:15:39.321Z"
     },
     {
+      "body": "After resolution, report the selected option, changed object IDs, generated paths, and unresolved review points, followed by the next action. This is highly auditable but requires the user to interpret model internals.",
+      "createdAt": "2026-08-17T22:20:22.216Z",
+      "id": "PROP-mechanical-resolution-acknowledgement",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "EV-review-resolution-receipt-is-mechanical"
+      ],
+      "state": "rejected",
+      "title": "Expose a concise model transaction receipt",
+      "updatedAt": "2026-08-17T22:25:51.161Z"
+    },
+    {
       "body": "Define `subagent_report` as a terminating tool with required `outcome: completed | needs_attention` and `summary`, plus optional bounded `details`, artifact references, and next steps. It does not require changed files, tests, model/spec IDs, validator verdicts, retryability, or DAG fields. Use schema-level item/string caps and reject a serialized payload over 64 KiB. Suggested bounds: summary 8 KiB, details 32 KiB, at most 32 artifact references, and at most 16 next-step strings. Artifact paths are opaque references and are not automatically read or injected. The latest valid call is captured, though `terminate: true` normally makes the first valid call final.",
       "createdAt": "2026-07-30T18:22:44.808Z",
       "id": "PROP-minimal-generic-terminating-subagent-report",
@@ -18167,6 +18563,24 @@
       "updatedAt": "2026-07-30T03:39:53.266Z"
     },
     {
+      "body": "Current understanding should act as an agent-authored synthesis of goals, relevant current behavior, governing direction, open questions, and boundaries. It should reveal what the agent judges relevant rather than reproduce project documentation. Do not force a separate acknowledgement surface; ordinary acknowledgements may remain conversational.",
+      "createdAt": "2026-08-17T22:04:30.774Z",
+      "id": "PROP-model-grounded-acknowledgement-and-understanding",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "selected",
+      "title": "Make Current understanding an evidence-bearing synthesis",
+      "updatedAt": "2026-08-17T22:31:54.445Z"
+    },
+    {
       "body": "Render a width-aware ASCII slice centered on running nodes and their immediate predecessors, successors, blockers, and ready frontier. Use stable character status marks for running, ready, pending/blocked, complete, failed, and needs-decision. Pair the graph with a compact running list showing node, fixed phase, elapsed time, worker attempt, and short status. Large graphs collapse remote completed/pending regions into counts. Iterate examples through several review turns before implementation.",
       "createdAt": "2026-07-31T12:49:29.377Z",
       "id": "PROP-monospaced-topology-slice-dag-widget",
@@ -18231,6 +18645,28 @@
       "state": "recommended",
       "title": "Represent repositories explicitly and authorize immutable tree baselines",
       "updatedAt": "2026-07-31T13:49:04.589Z"
+    },
+    {
+      "body": "Do not add a dedicated post-resolution acknowledgement. Let the next formal review's Current understanding and model delta demonstrate the result.",
+      "createdAt": "2026-08-17T22:20:22.216Z",
+      "id": "PROP-no-distinct-resolution-acknowledgement",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-single-current-proof",
+        "DEC-model-delta-oversight-loop"
+      ],
+      "state": "selected",
+      "title": "Rely on updated Current understanding and the next review",
+      "updatedAt": "2026-08-17T22:25:51.161Z"
     },
     {
       "body": "Generate one strict content-addressed `RunEvaluationEnvelopeV1` per terminal run or explicit censored checkpoint, with exact profile/source hashes, coverage/censoring/clock status, invariants, outcomes, attempts, findings, integration, timing, parallelism, human, and usage aggregates. Add a separate non-authoritative atomic accumulator for open readiness/active/human/recovery intervals and fixed counters/sums/histograms. It keeps no transition list, folds closed intervals, observes only after authoritative commits, may drop and mark gaps, never backpressures execution, and is never imported by reducer/scheduler/evidence/Git/widget authority.",
@@ -18734,6 +19170,27 @@
       "updatedAt": "2026-08-03T18:34:55.188Z"
     },
     {
+      "body": "Strengthen mode guidance to require scannable Markdown and contextual synthesis. Deterministic tests verify that the guidance is injected, Markdown headings/lists render safely, and required source references remain fresh. Runtime tools do not reject prose based on heading counts or claim to validate comprehension.",
+      "createdAt": "2026-08-17T22:26:34.928Z",
+      "id": "PROP-prompt-guided-structure-with-smoke-tests",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "EV-existing-synthesis-and-validation-boundaries"
+      ],
+      "state": "selected",
+      "title": "Require structured synthesis in guidance and test delivery, not prose quality",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
       "body": "Key circuits by exact provider/model/capability/credential/endpoint failure domain. Open immediately on hard auth/capability failure or after two matching transient infrastructure failures; admit no new dispatch while open and exactly one explicit half-open probe; close only on accepted success/health observation. Start implementation ceiling two; halve it on a plan-affecting invalidation cascade, opened circuit, or sustained downstream backlog, at most once per trigger fact; increase by one after four clean accepted current-generation milestones with no circuit, ambiguity, or downstream watermark. Clamp to validated maxima; never use elapsed time or forbidden global budgets.",
       "createdAt": "2026-08-03T22:10:11.626Z",
       "id": "PROP-provider-circuit-hysteretic-fanout-v1",
@@ -19203,6 +19660,27 @@
       "updatedAt": "2026-07-30T18:22:44.809Z"
     },
     {
+      "body": "Require a minimum Markdown shape such as headings plus multiple blocks for question context and Current understanding, rejecting writes or reviews that do not satisfy it.",
+      "createdAt": "2026-08-17T22:26:34.928Z",
+      "id": "PROP-runtime-validated-markdown-shape",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "PROP-structured-brainstorm-surface-contract"
+      ],
+      "state": "rejected",
+      "title": "Mechanically reject unstructured brainstorm prose",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
       "body": "Bind full model hash/revision for audit plus a versioned selector and closure over relevant workstreams, explicit seeds, transitive governing relationships, effective authority states, and object semantic hashes. Also bind generated-spec input/content hashes, immutable repository commit/tree identities, plan schema/canonicalization/profile hashes, and context artifact digests. Freshness classifies exact, revalidated, stale-model, stale-code, stale-schema, integration-drift, or unknown-impact. A global revision change may revalidate only when the closure is mechanically unchanged; unknown impact blocks.",
       "createdAt": "2026-07-31T13:47:32.910Z",
       "id": "PROP-selector-closure-plan-revalidation",
@@ -19252,6 +19730,26 @@
       "state": "recommended",
       "title": "Ship a self-contained package-owned shell",
       "updatedAt": "2026-07-28T18:37:09.005Z"
+    },
+    {
+      "body": "After resolving user input, produce a short structured Markdown acknowledgement that states what was understood, what materially changed in the model or governing behavior, what remains unresolved, and what happens next. Omit sections that add no information and avoid restating the full Current understanding.",
+      "createdAt": "2026-08-17T22:20:22.216Z",
+      "id": "PROP-semantic-delta-acknowledgement",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-acknowledgement-is-semantic-delta-handoff"
+      ],
+      "state": "rejected",
+      "title": "Acknowledge the accepted direction, semantic effect, and next frontier",
+      "updatedAt": "2026-08-17T22:25:51.161Z"
     },
     {
       "body": "Add an optional `dag_model_present_review` tool outside the six semantic project-model tools. It accepts the active review ID and an action such as present, resume, or end; renders the renderer-neutral review projection; opens or resumes Lavish; waits through poll; marks the exact review presented only when browser feedback proves delivery; and returns bounded feedback for agent interpretation. It never resolves review state or grants authority.",
@@ -19769,6 +20267,24 @@
       "updatedAt": "2026-08-03T23:45:51.046Z"
     },
     {
+      "body": "Superseded as a rigid cross-surface contract. Question briefs and Current understanding still require scannable Markdown and semantic coverage through agent guidance, but no fixed acknowledgement surface or runtime heading-count validator is required.",
+      "createdAt": "2026-08-17T22:04:30.774Z",
+      "id": "PROP-structured-brainstorm-surface-contract",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "superseded",
+      "title": "Define a structured Markdown contract for brainstorm surfaces",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
       "body": "Schema v1 has one executable `change` work-item kind; only it runs fixed F0–F8. Architecture declares outcomes, non-goals, components, contracts, risks, and assumptions. Global semantic subjects use typed behavior, invariant, contract, schema, decision, data, generated-source, or external-resource identities. Each work item contains stable ID/content hash, title/objective, one write repository, outcome/non-goal/model/contract/oracle refs, bounded `extraContext` plus content-addressed context refs, typed semantic reads and writes, risk tier/reasons/hardening profiles, required capability refs by phase, fixed-catalog check applicability with reasons, advisory path/symbol impact evidence with basis/confidence, and integration obligations. Read modes are observe/consume/validate; write modes are create/extend/replace/migrate/delete with compatibility compatible/breaking/unknown and mandatory migration-protocol reference for migrate/delete or breaking replace. Each pre-F1 acceptance oracle has accepted/independent source refs and typed assertions containing subject, observation method/procedure ref, expected pass condition, failure signals, tolerance, environment profile, and required evidence class. Every outcome and work item has an oracle; implementation output or a worker completion claim alone is invalid. Paths never grant or deny edits, and work items cannot define phases, flows, worker boundaries, or arbitrary commands outside bound check/procedure catalogs.",
       "createdAt": "2026-08-01T14:55:54.722Z",
       "id": "PROP-structured-change-work-item-oracle-effect-v1",
@@ -19872,6 +20388,26 @@
         "Extension/tool inheritance must be explicit to avoid recursion and compatibility surprises."
       ],
       "updatedAt": "2026-07-30T03:02:08.972Z"
+    },
+    {
+      "body": "Use Markdown and semantic coverage as scaffolding, but evaluate whether the agent selected, connected, and explained the facts that matter. Avoid fixed documentation-like forms whose completeness can mask shallow retrieval or copied model prose.",
+      "createdAt": "2026-08-17T22:25:51.161Z",
+      "id": "PROP-synthesis-quality-over-template-completeness",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-template-compliance-is-not-understanding-proof"
+      ],
+      "state": "selected",
+      "title": "Prompt for contextual synthesis rather than template completeness",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
     },
     {
       "body": "Make the first runtime require atomic conductor transitions, explicit worker ownership/profile/context, structured terminal results, idempotent recovery and completion receipts, and compact snapshots. Never persist `message_update`, cumulative `partial`/`message`, reasoning deltas, or raw RPC streams. Optional diagnostics may retain normalized final `message_end`, tool, lifecycle, and control records behind asynchronous bounded writing and a configurable per-run cap defaulting to 50 MiB. Treat token, cost, turn, and aggressive timeout budgets as configurable policy rather than mandatory finite v1 constraints.",
@@ -20013,6 +20549,36 @@
       "updatedAt": "2026-07-30T03:50:40.608Z"
     },
     {
+      "body": "Extend `subagent` with an opaque canonical DAG dispatch token. The conductor prepares the exact token for a ready stage; the agent calls `subagent` with that token; the worker runtime validates and consumes it, launches the worker, and reports the binding back into canonical state.",
+      "createdAt": "2026-08-24T15:19:19.879Z",
+      "id": "PROP-tokenized-generic-subagent-dag-dispatch-v1",
+      "introducedBy": "agent",
+      "rationale": "This matches the visible expectation that the agent literally invokes `subagent` and reuses the familiar tool surface.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-agent-driven-canonical-dag-dispatch",
+        "DEC-subagent-runtime-dag-agnostic",
+        "extensions/dag-workflow/worker-runtime/integration.ts"
+      ],
+      "state": "rejected",
+      "title": "Let the agent pass canonical dispatch tokens to the generic subagent tool",
+      "tradeoffs": [
+        "Couples the intentionally DAG-agnostic worker runtime to canonical run authority.",
+        "Makes generic launch schema and error handling carry two materially different authority modes.",
+        "A token must safely bind run, revision, stage, reservation, launch intent, cwd, config, generation, and expiry without becoming a parallel hidden state machine."
+      ],
+      "updatedAt": "2026-08-24T15:23:28.427Z"
+    },
+    {
       "body": "The domain supplies one TurnProjection containing brainstorm/revision identity, Initial/Current understanding, active review points and stored options, selected frontier summaries, and explicitly relevant settled context. Each point chooses context kind: Markdown, semantic helper blocks, trusted raw HTML/CSS/scripts, or linked/embedded artifact. The renderer never reads full brainstorm state and the agent never authors the standard document shell.",
       "createdAt": "2026-07-28T18:37:09.005Z",
       "id": "PROP-turn-projection-flexible-context",
@@ -20126,6 +20692,26 @@
       "state": "candidate",
       "title": "Plan directly as an executable DAG",
       "updatedAt": "2026-07-31T04:21:19.160Z"
+    },
+    {
+      "body": "Describe the desired presentation in guidance but add no deterministic checks for prompt delivery or Markdown rendering beyond existing generic behavior.",
+      "createdAt": "2026-08-17T22:26:34.928Z",
+      "id": "PROP-unvalidated-formatting-guidance",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "PROP-synthesis-quality-over-template-completeness"
+      ],
+      "state": "rejected",
+      "title": "Rely entirely on agent formatting judgment",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
     },
     {
       "body": "Ask Lavish to expose a machine-readable poll mode and a chrome-owned trusted-action control path that binds a user gesture to opaque action data without making the token callable or forgeable by artifact scripts. If such provenance can be audited, the adapter could create a review-scoped interaction receipt and resolve exact displayed options without a Pi confirmation round trip.",
@@ -20327,451 +20913,44 @@
         "Environment metadata must be validated with the RPC launch configuration."
       ],
       "updatedAt": "2026-07-30T15:38:45.351Z"
-    },
-    {
-      "body": "Use a mandatory context core plus adaptively selected supporting sections. Every decision brief establishes the decision, why it matters, the recommendation, and the exact question. Prompts encourage relevant current behavior, change context, constraints, consequences, and model evidence whenever they help explain why the decision exists. The goal is not to render every possible section every time, but to prevent briefs from collapsing into only a description of the recommended option.",
-      "createdAt": "2026-08-17T22:04:30.774Z",
-      "id": "PROP-layered-question-brief",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [],
-      "state": "selected",
-      "title": "Use layered question briefs with decision context before recommendation",
-      "updatedAt": "2026-08-17T22:10:14.159Z"
-    },
-    {
-      "body": "After resolution, report the selected option, changed object IDs, generated paths, and unresolved review points, followed by the next action. This is highly auditable but requires the user to interpret model internals.",
-      "createdAt": "2026-08-17T22:20:22.216Z",
-      "id": "PROP-mechanical-resolution-acknowledgement",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority"
-        ]
-      },
-      "sourceRefs": [
-        "EV-review-resolution-receipt-is-mechanical"
-      ],
-      "state": "rejected",
-      "title": "Expose a concise model transaction receipt",
-      "updatedAt": "2026-08-17T22:25:51.161Z"
-    },
-    {
-      "body": "Describe the desired presentation in guidance but add no deterministic checks for prompt delivery or Markdown rendering beyond existing generic behavior.",
-      "createdAt": "2026-08-17T22:26:34.928Z",
-      "id": "PROP-unvalidated-formatting-guidance",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "PROP-synthesis-quality-over-template-completeness"
-      ],
-      "state": "rejected",
-      "title": "Rely entirely on agent formatting judgment",
-      "updatedAt": "2026-08-17T22:30:39.828Z"
-    },
-    {
-      "body": "Always render Goal, Current behavior, Accepted direction, Open questions, and Boundaries in a stable order, allowing explicit none entries when a category is empty.",
-      "createdAt": "2026-08-17T22:14:24.702Z",
-      "id": "PROP-current-understanding-fixed-snapshot-template",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "COM-single-current-proof"
-      ],
-      "state": "rejected",
-      "title": "Use a fixed snapshot template for every Current understanding",
-      "updatedAt": "2026-08-17T22:17:42.399Z"
-    },
-    {
-      "body": "After resolving user input, produce a short structured Markdown acknowledgement that states what was understood, what materially changed in the model or governing behavior, what remains unresolved, and what happens next. Omit sections that add no information and avoid restating the full Current understanding.",
-      "createdAt": "2026-08-17T22:20:22.216Z",
-      "id": "PROP-semantic-delta-acknowledgement",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "DISC-acknowledgement-is-semantic-delta-handoff"
-      ],
-      "state": "rejected",
-      "title": "Acknowledge the accepted direction, semantic effect, and next frontier",
-      "updatedAt": "2026-08-17T22:25:51.161Z"
-    },
-    {
-      "body": "Use Markdown and semantic coverage as scaffolding, but evaluate whether the agent selected, connected, and explained the facts that matter. Avoid fixed documentation-like forms whose completeness can mask shallow retrieval or copied model prose.",
-      "createdAt": "2026-08-17T22:25:51.161Z",
-      "id": "PROP-synthesis-quality-over-template-completeness",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "DISC-template-compliance-is-not-understanding-proof"
-      ],
-      "state": "selected",
-      "title": "Prompt for contextual synthesis rather than template completeness",
-      "updatedAt": "2026-08-17T22:30:39.828Z"
-    },
-    {
-      "body": "Require the synthesis to make the goal, relevant current mechanism or state, and governing accepted direction easy to find. Add open frontier, constraints, boundaries, evidence, or risks when they materially affect alignment. Let headings adapt to the subject, and leave turn-by-turn changes to the separate delta and acknowledgement surfaces.",
-      "createdAt": "2026-08-17T22:14:24.702Z",
-      "id": "PROP-current-understanding-mandatory-core-adaptive-structure",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "EV-current-understanding-renderer-and-delta-separation"
-      ],
-      "state": "selected",
-      "title": "Use a mandatory semantic core with adaptive Markdown headings for Current understanding",
-      "updatedAt": "2026-08-17T22:17:42.399Z"
-    },
-    {
-      "body": "Lead with a compact alignment summary, then expand current behavior, governing direction, frontier, and evidence in adaptive sections. This optimizes scanning but intentionally repeats some facts at two levels.",
-      "createdAt": "2026-08-17T22:14:24.702Z",
-      "id": "PROP-current-understanding-summary-plus-details",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-artifacts-lavish",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "EV-current-understanding-renderer-and-delta-separation"
-      ],
-      "state": "rejected",
-      "title": "Use an at-a-glance summary followed by adaptive supporting detail",
-      "updatedAt": "2026-08-17T22:17:42.399Z"
-    },
-    {
-      "body": "Require a minimum Markdown shape such as headings plus multiple blocks for question context and Current understanding, rejecting writes or reviews that do not satisfy it.",
-      "createdAt": "2026-08-17T22:26:34.928Z",
-      "id": "PROP-runtime-validated-markdown-shape",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "PROP-structured-brainstorm-surface-contract"
-      ],
-      "state": "rejected",
-      "title": "Mechanically reject unstructured brainstorm prose",
-      "updatedAt": "2026-08-17T22:30:39.828Z"
-    },
-    {
-      "body": "Current understanding should act as an agent-authored synthesis of goals, relevant current behavior, governing direction, open questions, and boundaries. It should reveal what the agent judges relevant rather than reproduce project documentation. Do not force a separate acknowledgement surface; ordinary acknowledgements may remain conversational.",
-      "createdAt": "2026-08-17T22:04:30.774Z",
-      "id": "PROP-model-grounded-acknowledgement-and-understanding",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority"
-        ]
-      },
-      "sourceRefs": [],
-      "state": "selected",
-      "title": "Make Current understanding an evidence-bearing synthesis",
-      "updatedAt": "2026-08-17T22:31:54.445Z"
-    },
-    {
-      "body": "Do not add a dedicated post-resolution acknowledgement. Let the next formal review's Current understanding and model delta demonstrate the result.",
-      "createdAt": "2026-08-17T22:20:22.216Z",
-      "id": "PROP-no-distinct-resolution-acknowledgement",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-artifacts-lavish",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "COM-single-current-proof",
-        "DEC-model-delta-oversight-loop"
-      ],
-      "state": "selected",
-      "title": "Rely on updated Current understanding and the next review",
-      "updatedAt": "2026-08-17T22:25:51.161Z"
-    },
-    {
-      "body": "Strengthen mode guidance to require scannable Markdown and contextual synthesis. Deterministic tests verify that the guidance is injected, Markdown headings/lists render safely, and required source references remain fresh. Runtime tools do not reject prose based on heading counts or claim to validate comprehension.",
-      "createdAt": "2026-08-17T22:26:34.928Z",
-      "id": "PROP-prompt-guided-structure-with-smoke-tests",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "EV-existing-synthesis-and-validation-boundaries"
-      ],
-      "state": "selected",
-      "title": "Require structured synthesis in guidance and test delivery, not prose quality",
-      "updatedAt": "2026-08-17T22:30:39.828Z"
-    },
-    {
-      "body": "Revise the active-focus mode guidance to cover contextual question briefs, adaptive Markdown Current understanding, selective synthesis rather than model reproduction, no mandatory acknowledgement surface, and automatic next-frontier continuation. Add deterministic tests for guidance injection and structured Markdown rendering without adding a runtime prose-shape validator or semantic quality gate.",
-      "createdAt": "2026-08-17T22:31:54.445Z",
-      "id": "PROP-implement-brainstorm-synthesis-guidance-regressions",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "DISC-prompt-and-regression-impact-is-derivable",
-        "SCN-concise-synthesis-is-not-rejected-for-shape",
-        "SCN-current-understanding-demonstrates-selective-synthesis",
-        "SCN-question-brief-explains-decision-origin"
-      ],
-      "state": "selected",
-      "title": "Update mode guidance and targeted structural regressions",
-      "updatedAt": "2026-08-17T23:34:16.562Z"
-    },
-    {
-      "body": "Superseded as a rigid cross-surface contract. Question briefs and Current understanding still require scannable Markdown and semantic coverage through agent guidance, but no fixed acknowledgement surface or runtime heading-count validator is required.",
-      "createdAt": "2026-08-17T22:04:30.774Z",
-      "id": "PROP-structured-brainstorm-surface-contract",
-      "introducedBy": "agent",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [],
-      "state": "superseded",
-      "title": "Define a structured Markdown contract for brainstorm surfaces",
-      "updatedAt": "2026-08-17T22:30:39.828Z"
-    },
-    {
-      "body": "Discover migration evidence in tiers: explicit supported legacy model snapshots first; repository orientation and package metadata; README, spec/docs, ADRs and plans; tests and representative code where they establish or contradict behavior; bounded Git history only when current artifacts leave material ambiguity. Record every inspected source and its role, but do not equate file count with semantic coverage or ingest transient/build/vendor/secret paths.",
-      "createdAt": "2026-08-19T02:18:59.932Z",
-      "id": "PROP-dag-migrate-relevant-first-source-inventory",
-      "introducedBy": "agent",
-      "rationale": "Generic repositories need semantic inference, while a fixed adapter-only migration would not satisfy the accepted existing-repository outcome. Relevant-first traversal controls cost and avoids converting implementation detail into false product authority.",
-      "relationships": [
-        {
-          "kind": "supports",
-          "targetId": "DEC-dag-migrate-staged-candidate-review-cutover"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "COM-mechanical-inference-only",
-        "COM-research-classify-before-ask"
-      ],
-      "state": "selected",
-      "title": "Use a relevant-first repository source inventory",
-      "updatedAt": "2026-08-19T02:25:11.574Z"
-    },
-    {
-      "body": "At cutover, replace only exact projection paths explicitly approved in the artifact disposition manifest. Preserve all other required existing files and directories in place, classify and link relevant documents as manual references or evidence, and label them non-authoritative where ambiguity would otherwise remain. If any legacy artifact must continue as governing semantic authority, block cutover and return to candidate review rather than silently creating dual authority.",
-      "createdAt": "2026-08-18T22:08:48.978Z",
-      "id": "PROP-dag-migrate-retain-nonauthoritative-artifacts",
-      "introducedBy": "agent",
-      "rationale": "This satisfies directory/file retention needs within the accepted atomic single-authority architecture and avoids treating physical coexistence as semantic dual writing.",
-      "relationships": [
-        {
-          "kind": "supports",
-          "targetId": "DEC-audited-candidate-atomic-cutover"
-        },
-        {
-          "kind": "supports",
-          "targetId": "INT-dag-migrate-existing-repository"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "extensions/dag-workflow/project-model/projector.ts",
-        "project-model/model.json"
-      ],
-      "state": "selected",
-      "title": "Retain required legacy artifacts without retaining dual authority",
-      "updatedAt": "2026-08-19T02:17:55.019Z"
-    },
-    {
-      "body": "Extend the project model with scoped external-authority declarations so selected existing specifications can remain governing after cutover while the model governs all other declared scopes.",
-      "createdAt": "2026-08-18T22:08:48.978Z",
-      "id": "PROP-dag-migrate-scoped-external-authority",
-      "introducedBy": "agent",
-      "rationale": "This directly supports repositories with mandatory external specifications, but changes the current global candidate/authoritative model and introduces precedence, drift, and conflict rules that do not exist today.",
-      "relationships": [
-        {
-          "kind": "addresses",
-          "targetId": "INT-dag-migrate-existing-repository"
-        },
-        {
-          "kind": "challenges",
-          "targetId": "DEC-audited-candidate-atomic-cutover"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "project-model/model.json"
-      ],
-      "state": "rejected",
-      "title": "Allow retained specs to remain governing in declared scopes",
-      "updatedAt": "2026-08-19T02:17:55.020Z"
-    },
-    {
-      "body": "A candidate becomes cutover-ready only when the model validates; every proposed governing object is traceable to user direction or repository evidence; every material source is mapped, retained, or explicitly omitted with rationale; contradictions and open authority questions are resolved or declared non-governing; projection previews succeed; every relevant artifact has a disposition; and the exact candidate-plus-manifest hash is fresh. The Lavish summary may still present an incomplete candidate, but its cutover action is disabled and blockers are shown.",
-      "createdAt": "2026-08-19T02:18:59.933Z",
-      "id": "PROP-dag-migrate-semantic-readiness-gates",
-      "introducedBy": "agent",
-      "rationale": "No honest percentage can prove semantic completeness across arbitrary repositories. Explicit fail-closed gates make readiness explainable and testable without claiming the agent understood every file.",
-      "relationships": [
-        {
-          "kind": "supports",
-          "targetId": "DEC-dag-migrate-preserve-files-single-authority"
-        },
-        {
-          "kind": "supports",
-          "targetId": "DEC-dag-migrate-staged-candidate-review-cutover"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "COM-mechanical-inference-only",
-        "DEC-audited-candidate-atomic-cutover",
-        "DEC-semantic-current-state-import"
-      ],
-      "state": "selected",
-      "title": "Gate cutover on semantic and artifact readiness, not coverage percentage",
-      "updatedAt": "2026-08-19T02:25:11.574Z"
-    },
-    {
-      "body": "Implement `/dag migrate` as a resumable staged workflow: inventory repository artifacts; infer a non-authoritative candidate model and projection map; validate it without overwriting existing files; render a Lavish audit showing model scope, counts, governing content, unresolved questions, omissions, source-to-model mappings, generated-spec diffs, and artifact dispositions; then apply an exact hash-bound cutover only after explicit approval. Re-running before cutover refreshes or resumes the candidate; an authoritative existing model fails closed.",
-      "createdAt": "2026-08-18T22:08:48.978Z",
-      "id": "PROP-dag-migrate-staged-candidate-review-cutover",
-      "introducedBy": "agent",
-      "rationale": "This generalizes the current audited migration mechanics while keeping inference separate from authority and making file effects reviewable before any destructive collision.",
-      "relationships": [
-        {
-          "kind": "supports",
-          "targetId": "INT-dag-migrate-existing-repository"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "extensions/dag-workflow/project-model/domain.ts",
-        "extensions/dag-workflow/project-model/review-renderer.ts",
-        "scripts/migrate-brainstorm-to-project-model.mjs"
-      ],
-      "state": "selected",
-      "title": "Use a staged candidate, visual audit, and explicit cutover",
-      "updatedAt": "2026-08-19T02:17:55.019Z"
-    },
-    {
-      "body": "Determine changed files from an explicit release base tag, map every packaged/runtime path to fail-closed test impact groups, and run only affected focused suites plus one smoke pass against the extracted npm artifact. Split canonical dogfood into named scenario groups and the paired portfolio into selectable templates and individual recovery drills. Persist content-addressed receipts for each scenario/template keyed by its exact relevant source, fixture, toolchain, and policy inputs; unchanged receipts may be reused, while unknown paths or broad shared-runtime changes escalate to the full gate. Keep a periodic full portfolio certification independent of ordinary low-risk releases.",
-      "createdAt": "2026-08-19T15:05:54.535Z",
-      "id": "PROP-impact-aware-release-readiness-v1",
-      "introducedBy": "agent",
-      "rationale": "The current release gate runs broad smoke twice and rebuilds 17 dogfood scenarios, 12 portfolio executions, and three drills sequentially for every change. Most documentation, model-presentation, widget, or worker-guidance releases do not affect canonical execution evidence. Fail-closed impact mapping and exact input hashes can reduce most releases below one hour without treating path heuristics alone as proof.",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority"
-        ]
-      },
-      "sourceRefs": [
-        "scripts/dag-dogfood-portfolio.mjs",
-        "scripts/dag-dogfood-test.mjs",
-        "scripts/release-readiness.mjs",
-        "scripts/smoke-test.mjs",
-        "user:release-readiness-under-one-hour"
-      ],
-      "state": "recommended",
-      "title": "Make release readiness impact-aware with scenario-level evidence reuse",
-      "tradeoffs": [
-        "The impact map becomes maintained release-critical policy and must fail closed for unclassified files.",
-        "Broad runtime primitives such as reducer, store, lifecycle, scheduler, Git integration, or shared canonical hashing may still require the full multi-hour gate.",
-        "Content-addressed reuse requires recording exact environment/toolchain inputs or conservatively invalidating evidence.",
-        "Running smoke only from the packed artifact makes package construction an earlier prerequisite but removes duplicate source smoke."
-      ],
-      "updatedAt": "2026-08-19T15:05:54.535Z"
     }
   ],
   "questions": [
+    {
+      "answerObjectIds": [
+        "DEC-agent-driven-canonical-dag-dispatch"
+      ],
+      "body": "Agent-driven dispatch can either remain visibly distinct as an exact `dag_run_dispatch` action or reuse `subagent` with a canonical token. Both make the launch appear in the agent turn, but they differ substantially in whether the generic worker runtime remains DAG-agnostic.",
+      "createdAt": "2026-08-24T15:19:19.879Z",
+      "id": "Q-agent-driven-dag-dispatch-tool-surface",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "PROP-dedicated-dag-dispatch-tool-v1"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-tokenized-generic-subagent-dag-dispatch-v1"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-agent-driven-canonical-dag-dispatch"
+      ],
+      "state": "answered",
+      "title": "Which tool surface should the agent use for canonical DAG dispatch?",
+      "updatedAt": "2026-08-24T15:23:28.422Z"
+    },
     {
       "answerObjectIds": [
         "DEC-workers-survive-pi-reload-exit",
@@ -20807,6 +20986,66 @@
       "state": "answered",
       "title": "Must asynchronous workers survive Pi exit or extension reload?",
       "updatedAt": "2026-07-30T03:31:28.442Z"
+    },
+    {
+      "answerObjectIds": [
+        "COM-question-context"
+      ],
+      "body": "Determine the default depth, progressive-disclosure behavior, and relevance rules for projecting project-model context into question briefs and Current understanding.",
+      "createdAt": "2026-08-17T22:04:30.775Z",
+      "id": "Q-brainstorm-context-budget-and-disclosure",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "answered",
+      "title": "How should brainstorm surfaces balance model visibility against reading burden?",
+      "updatedAt": "2026-08-17T22:10:14.159Z"
+    },
+    {
+      "answerObjectIds": [
+        "COM-structural-proof-validation"
+      ],
+      "body": "Choose whether the workflow should guide and smoke-test structured synthesis, mechanically reject outputs that lack headings or lists, or leave formatting entirely to agent judgment.",
+      "createdAt": "2026-08-17T22:26:34.928Z",
+      "id": "Q-brainstorm-markdown-enforcement-boundary",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "PROP-prompt-guided-structure-with-smoke-tests"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-runtime-validated-markdown-shape"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-unvalidated-formatting-guidance"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-format-enforcement-boundary-is-remaining-risk"
+      ],
+      "state": "answered",
+      "title": "How strongly should meaningful Markdown structure be enforced?",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
     },
     {
       "answerObjectIds": [
@@ -21113,6 +21352,71 @@
     },
     {
       "answerObjectIds": [
+        "COM-single-current-proof"
+      ],
+      "body": "Choose how the latest non-authoritative synthesis should expose goals, relevant current behavior, accepted direction, boundaries, and unresolved frontier without duplicating the separate model-delta receipt or becoming a rigid wall of headings.",
+      "createdAt": "2026-08-17T22:14:24.702Z",
+      "id": "Q-current-understanding-information-architecture",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "PROP-current-understanding-fixed-snapshot-template"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-current-understanding-mandatory-core-adaptive-structure"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-current-understanding-summary-plus-details"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-meaningful-semantic-refresh",
+        "COM-single-current-proof",
+        "DISC-current-understanding-needs-content-contract-not-renderer"
+      ],
+      "state": "answered",
+      "title": "What information architecture should govern Current understanding?",
+      "updatedAt": "2026-08-17T22:17:42.399Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-agent-driven-canonical-dag-dispatch"
+      ],
+      "body": "Current code makes the extension conductor create exact launch intents and invoke the owned worker manager internally; the top-level agent only starts, resumes, inspects, and diagnoses the run. The Operant expectation instead appears to require the agent to invoke subagent calls for ready nodes. These are materially different authority and recovery designs: generic manual launches are currently unbound and cannot advance canonical state.",
+      "createdAt": "2026-08-24T15:01:11.659Z",
+      "id": "Q-dag-agent-vs-conductor-worker-orchestration-authority",
+      "introducedBy": "agent",
+      "kind": "uncertainty",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-dag-agent-orchestrator-contract-mismatch-operant"
+      ],
+      "state": "answered",
+      "title": "Should DAG worker dispatch be agent-orchestrated or extension-automated?",
+      "updatedAt": "2026-08-24T15:18:04.064Z"
+    },
+    {
+      "answerObjectIds": [
         "DEC-passive-live-dag-widget-v1"
       ],
       "body": "Determine how Pi can show running/queued/completed workers in DAG context, whether a live ASCII diagram should be a widget or custom editor surface, how updates are throttled, and how users inspect, cancel, retry, or navigate nodes without overwhelming the main conversation.",
@@ -21249,6 +21553,35 @@
       "state": "answered",
       "title": "What exact denominators define useful parallelism and lost concurrency benefit?",
       "updatedAt": "2026-08-04T14:40:39.757Z"
+    },
+    {
+      "answerObjectIds": [
+        "DEC-dag-migrate-preserve-files-single-authority"
+      ],
+      "body": "Should `/dag migrate` preserve existing spec artifacts only as explicitly non-authoritative references, or must it support repositories where some existing specifications remain governing after the project model becomes authoritative?",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "Q-dag-migrate-retained-artifact-authority",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "PROP-dag-migrate-retain-nonauthoritative-artifacts"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-dag-migrate-scoped-external-authority"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "focus-seed:focus-we-need-to-add-a-new-feature-called-dag-migrate-where-we-m"
+      ],
+      "state": "answered",
+      "title": "What does retaining existing artifacts mean at cutover?",
+      "updatedAt": "2026-08-19T02:59:17.299Z"
     },
     {
       "answerObjectIds": [
@@ -22991,6 +23324,44 @@
     },
     {
       "answerObjectIds": [
+        "COM-meaningful-semantic-refresh"
+      ],
+      "body": "Choose how the assistant should visibly confirm user direction, resulting semantic model changes, governing effect, unresolved points, and automatic next-frontier handoff after a review resolution.",
+      "createdAt": "2026-08-17T22:20:22.216Z",
+      "id": "Q-post-resolution-acknowledgement-contract",
+      "introducedBy": "agent",
+      "kind": "tradeoff",
+      "relationships": [
+        {
+          "kind": "challenges",
+          "targetId": "PROP-mechanical-resolution-acknowledgement"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-no-distinct-resolution-acknowledgement"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-semantic-delta-acknowledgement"
+        }
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-acknowledgement-is-semantic-delta-handoff"
+      ],
+      "state": "answered",
+      "title": "What should a post-resolution acknowledgement prove?",
+      "updatedAt": "2026-08-17T22:25:51.161Z"
+    },
+    {
+      "answerObjectIds": [
         "DEC-closed-content-hashed-plan-envelope-v1"
       ],
       "body": "Reassess plan, run, model, review, worker, Git, publication, and recovery hashing from first principles. Separate practical reliability needs—detecting stale writes, joining retries to exact attempts, avoiding duplicate effects, recognizing changed plans, and crash recovery—from security claims that hashes cannot provide against a trusted agent. Determine which identities need content hashes, which need ordinary IDs/revisions/CAS, which can use direct object references, and which current or proposed contracts are excessive.",
@@ -24009,172 +24380,6 @@
       "state": "answered",
       "title": "Which Pi session owns live workers after fork, new-session, or switch?",
       "updatedAt": "2026-07-30T15:32:17.430Z"
-    },
-    {
-      "answerObjectIds": [
-        "COM-structural-proof-validation"
-      ],
-      "body": "Choose whether the workflow should guide and smoke-test structured synthesis, mechanically reject outputs that lack headings or lists, or leave formatting entirely to agent judgment.",
-      "createdAt": "2026-08-17T22:26:34.928Z",
-      "id": "Q-brainstorm-markdown-enforcement-boundary",
-      "introducedBy": "agent",
-      "kind": "tradeoff",
-      "relationships": [
-        {
-          "kind": "challenges",
-          "targetId": "PROP-prompt-guided-structure-with-smoke-tests"
-        },
-        {
-          "kind": "challenges",
-          "targetId": "PROP-runtime-validated-markdown-shape"
-        },
-        {
-          "kind": "challenges",
-          "targetId": "PROP-unvalidated-formatting-guidance"
-        }
-      ],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "DISC-format-enforcement-boundary-is-remaining-risk"
-      ],
-      "state": "answered",
-      "title": "How strongly should meaningful Markdown structure be enforced?",
-      "updatedAt": "2026-08-17T22:30:39.828Z"
-    },
-    {
-      "answerObjectIds": [
-        "COM-meaningful-semantic-refresh"
-      ],
-      "body": "Choose how the assistant should visibly confirm user direction, resulting semantic model changes, governing effect, unresolved points, and automatic next-frontier handoff after a review resolution.",
-      "createdAt": "2026-08-17T22:20:22.216Z",
-      "id": "Q-post-resolution-acknowledgement-contract",
-      "introducedBy": "agent",
-      "kind": "tradeoff",
-      "relationships": [
-        {
-          "kind": "challenges",
-          "targetId": "PROP-mechanical-resolution-acknowledgement"
-        },
-        {
-          "kind": "challenges",
-          "targetId": "PROP-no-distinct-resolution-acknowledgement"
-        },
-        {
-          "kind": "challenges",
-          "targetId": "PROP-semantic-delta-acknowledgement"
-        }
-      ],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "DISC-acknowledgement-is-semantic-delta-handoff"
-      ],
-      "state": "answered",
-      "title": "What should a post-resolution acknowledgement prove?",
-      "updatedAt": "2026-08-17T22:25:51.161Z"
-    },
-    {
-      "answerObjectIds": [
-        "COM-question-context"
-      ],
-      "body": "Determine the default depth, progressive-disclosure behavior, and relevance rules for projecting project-model context into question briefs and Current understanding.",
-      "createdAt": "2026-08-17T22:04:30.775Z",
-      "id": "Q-brainstorm-context-budget-and-disclosure",
-      "introducedBy": "agent",
-      "kind": "uncertainty",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [],
-      "state": "answered",
-      "title": "How should brainstorm surfaces balance model visibility against reading burden?",
-      "updatedAt": "2026-08-17T22:10:14.159Z"
-    },
-    {
-      "answerObjectIds": [
-        "COM-single-current-proof"
-      ],
-      "body": "Choose how the latest non-authoritative synthesis should expose goals, relevant current behavior, accepted direction, boundaries, and unresolved frontier without duplicating the separate model-delta receipt or becoming a rigid wall of headings.",
-      "createdAt": "2026-08-17T22:14:24.702Z",
-      "id": "Q-current-understanding-information-architecture",
-      "introducedBy": "agent",
-      "kind": "tradeoff",
-      "relationships": [
-        {
-          "kind": "challenges",
-          "targetId": "PROP-current-understanding-fixed-snapshot-template"
-        },
-        {
-          "kind": "challenges",
-          "targetId": "PROP-current-understanding-mandatory-core-adaptive-structure"
-        },
-        {
-          "kind": "challenges",
-          "targetId": "PROP-current-understanding-summary-plus-details"
-        }
-      ],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "COM-meaningful-semantic-refresh",
-        "COM-single-current-proof",
-        "DISC-current-understanding-needs-content-contract-not-renderer"
-      ],
-      "state": "answered",
-      "title": "What information architecture should govern Current understanding?",
-      "updatedAt": "2026-08-17T22:17:42.399Z"
-    },
-    {
-      "answerObjectIds": [
-        "DEC-dag-migrate-preserve-files-single-authority"
-      ],
-      "body": "Should `/dag migrate` preserve existing spec artifacts only as explicitly non-authoritative references, or must it support repositories where some existing specifications remain governing after the project model becomes authoritative?",
-      "createdAt": "2026-08-18T22:08:48.978Z",
-      "id": "Q-dag-migrate-retained-artifact-authority",
-      "introducedBy": "agent",
-      "kind": "tradeoff",
-      "relationships": [
-        {
-          "kind": "challenges",
-          "targetId": "PROP-dag-migrate-retain-nonauthoritative-artifacts"
-        },
-        {
-          "kind": "challenges",
-          "targetId": "PROP-dag-migrate-scoped-external-authority"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "focus-seed:focus-we-need-to-add-a-new-feature-called-dag-migrate-where-we-m"
-      ],
-      "state": "answered",
-      "title": "What does retaining existing artifacts mean at cutover?",
-      "updatedAt": "2026-08-19T02:59:17.299Z"
     }
   ],
   "scenarios": [
@@ -24272,6 +24477,27 @@
       "updatedAt": "2026-07-30T03:52:42.938Z"
     },
     {
+      "body": "A simple focus can produce a short structured synthesis with only the headings needed for comprehension. Runtime validation accepts it when content and source references are valid; tests do not require empty sections or a minimum heading count.",
+      "createdAt": "2026-08-17T22:31:54.445Z",
+      "id": "SCN-concise-synthesis-is-not-rejected-for-shape",
+      "introducedBy": "agent",
+      "kind": "boundary",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "COM-structural-proof-validation"
+      ],
+      "state": "proposed",
+      "title": "A concise but meaningful synthesis is not rejected for shape",
+      "updatedAt": "2026-08-17T22:31:54.445Z"
+    },
+    {
       "action": "On same-session restart, scan session entries, reconcile D into the run snapshot as delivered/in-flight, and do not append another message. If durable visibility cannot be proven, retain the item as unacknowledged and require same-ID redelivery/ack rather than treating it handled.",
       "body": "A custom follow-up containing delivery attempt D is persisted in the Pi session, then the top-level process exits before marking the queue item delivered.",
       "context": "The queue item and custom message both carry the same completion ID, result hash, and delivery-attempt ID.",
@@ -24360,6 +24586,28 @@
       "updatedAt": "2026-07-30T03:53:49.590Z"
     },
     {
+      "body": "After a material decision, Current understanding uses scannable adaptive Markdown to connect the user's goal, relevant current mechanism, and governing direction. It omits unrelated model facts and does not reproduce a fixed project-documentation template.",
+      "createdAt": "2026-08-17T22:31:54.445Z",
+      "id": "SCN-current-understanding-demonstrates-selective-synthesis",
+      "introducedBy": "agent",
+      "kind": "ordinary",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-single-current-proof",
+        "DISC-template-compliance-is-not-understanding-proof"
+      ],
+      "state": "proposed",
+      "title": "Current understanding demonstrates selective synthesis",
+      "updatedAt": "2026-08-17T22:31:54.445Z"
+    },
+    {
       "action": "Fail launch validation before claiming/spawning when possible; otherwise classify the prompt/model-selection response as launch failure. Never silently load all extensions or substitute a model unless the profile explicitly defines fallback.",
       "body": "The parent model comes from an extension-registered provider, but its worker profile does not name the provider extension.",
       "context": "The child launches with `--no-extensions` and explicit approved resources.",
@@ -24387,6 +24635,76 @@
       "state": "proposed",
       "title": "Selected custom provider is unavailable in the isolated child",
       "updatedAt": "2026-07-30T03:50:40.608Z"
+    },
+    {
+      "body": "A repository already has `spec/spec.md` plus manually maintained domain specs. `/dag migrate` builds the candidate without touching them, shows the proposed generated replacement for `spec/spec.md`, preserves unrelated manual specs, identifies whether they become linked references or unresolved authorities, and performs no replacement until the user approves the exact candidate and artifact disposition manifest.",
+      "createdAt": "2026-08-18T22:08:48.979Z",
+      "id": "SCN-dag-migrate-existing-spec-collision",
+      "introducedBy": "agent",
+      "kind": "boundary",
+      "relationships": [
+        {
+          "kind": "related_to",
+          "targetId": "PROP-dag-migrate-retain-nonauthoritative-artifacts"
+        },
+        {
+          "kind": "related_to",
+          "targetId": "PROP-dag-migrate-staged-candidate-review-cutover"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/project-model/projector.ts"
+      ],
+      "state": "proposed",
+      "title": "Migration finds an existing spec path collision",
+      "updatedAt": "2026-08-18T22:08:48.979Z"
+    },
+    {
+      "body": "A repository contains contradictory README and spec requirements plus an undocumented implementation. `/dag migrate` records the contradiction, presents the partial candidate and source map in Lavish, explains which governing question remains unresolved, preserves all existing files, and offers continued refinement rather than a cutover approval action.",
+      "createdAt": "2026-08-19T02:18:59.934Z",
+      "id": "SCN-dag-migrate-incomplete-repository-evidence",
+      "introducedBy": "agent",
+      "kind": "failure",
+      "relationships": [
+        {
+          "kind": "related_to",
+          "targetId": "PROP-dag-migrate-semantic-readiness-gates"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "DEC-audited-candidate-atomic-cutover"
+      ],
+      "state": "proposed",
+      "title": "Migration cannot establish complete current authority",
+      "updatedAt": "2026-08-19T02:18:59.934Z"
+    },
+    {
+      "body": "When a supported legacy brainstorm snapshot exists, `/dag migrate` invokes its deterministic adapter for mappings and omissions, then runs the same repository inventory, candidate validation, Lavish audit, artifact disposition, and explicit cutover flow as a generic repository. The adapter accelerates inference but does not bypass review.",
+      "createdAt": "2026-08-19T02:18:59.934Z",
+      "id": "SCN-dag-migrate-supported-legacy-fast-path",
+      "introducedBy": "agent",
+      "kind": "ordinary",
+      "relationships": [
+        {
+          "kind": "related_to",
+          "targetId": "PROP-dag-migrate-relevant-first-source-inventory"
+        }
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "scripts/migrate-brainstorm-to-project-model.mjs"
+      ],
+      "state": "proposed",
+      "title": "Known legacy state uses a deterministic fast path",
+      "updatedAt": "2026-08-19T02:18:59.934Z"
     },
     {
       "action": "Fence every publish and render request by controller generation, coalesce successor work only within the live generation, and dispose timers/TUI references idempotently.",
@@ -24712,6 +25030,27 @@
       "state": "proposed",
       "title": "A persisted PID now belongs to an unrelated process",
       "updatedAt": "2026-07-30T03:47:45.046Z"
+    },
+    {
+      "body": "When asking the user to choose how existing behavior should change, the brief explains the relevant current mechanism, the insufficiency or trigger, what materially changes across options, the recommendation, and the exact requested judgment. It does not begin and end with a description of the recommended option.",
+      "createdAt": "2026-08-17T22:31:54.445Z",
+      "id": "SCN-question-brief-explains-decision-origin",
+      "introducedBy": "agent",
+      "kind": "ordinary",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "COM-question-context"
+      ],
+      "state": "proposed",
+      "title": "A modification question explains why the decision exists",
+      "updatedAt": "2026-08-17T22:31:54.445Z"
     },
     {
       "action": "Treat the valid terminal result as stronger evidence than the stale running mailbox, ingest it once, enqueue completion once, and mark the attempt terminal in `run.json`; preserve the stale mailbox for diagnostics until run cleanup.",
@@ -25043,140 +25382,6 @@
       "state": "proposed",
       "title": "A worker settles without calling the report tool",
       "updatedAt": "2026-07-30T18:22:44.810Z"
-    },
-    {
-      "body": "After a material decision, Current understanding uses scannable adaptive Markdown to connect the user's goal, relevant current mechanism, and governing direction. It omits unrelated model facts and does not reproduce a fixed project-documentation template.",
-      "createdAt": "2026-08-17T22:31:54.445Z",
-      "id": "SCN-current-understanding-demonstrates-selective-synthesis",
-      "introducedBy": "agent",
-      "kind": "ordinary",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "COM-single-current-proof",
-        "DISC-template-compliance-is-not-understanding-proof"
-      ],
-      "state": "proposed",
-      "title": "Current understanding demonstrates selective synthesis",
-      "updatedAt": "2026-08-17T22:31:54.445Z"
-    },
-    {
-      "body": "A simple focus can produce a short structured synthesis with only the headings needed for comprehension. Runtime validation accepts it when content and source references are valid; tests do not require empty sections or a minimum heading count.",
-      "createdAt": "2026-08-17T22:31:54.445Z",
-      "id": "SCN-concise-synthesis-is-not-rejected-for-shape",
-      "introducedBy": "agent",
-      "kind": "boundary",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-lifecycle-authority"
-        ]
-      },
-      "sourceRefs": [
-        "COM-structural-proof-validation"
-      ],
-      "state": "proposed",
-      "title": "A concise but meaningful synthesis is not rejected for shape",
-      "updatedAt": "2026-08-17T22:31:54.445Z"
-    },
-    {
-      "body": "When asking the user to choose how existing behavior should change, the brief explains the relevant current mechanism, the insufficiency or trigger, what materially changes across options, the recommendation, and the exact requested judgment. It does not begin and end with a description of the recommended option.",
-      "createdAt": "2026-08-17T22:31:54.445Z",
-      "id": "SCN-question-brief-explains-decision-origin",
-      "introducedBy": "agent",
-      "kind": "ordinary",
-      "relationships": [],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "COM-question-context"
-      ],
-      "state": "proposed",
-      "title": "A modification question explains why the decision exists",
-      "updatedAt": "2026-08-17T22:31:54.445Z"
-    },
-    {
-      "body": "A repository already has `spec/spec.md` plus manually maintained domain specs. `/dag migrate` builds the candidate without touching them, shows the proposed generated replacement for `spec/spec.md`, preserves unrelated manual specs, identifies whether they become linked references or unresolved authorities, and performs no replacement until the user approves the exact candidate and artifact disposition manifest.",
-      "createdAt": "2026-08-18T22:08:48.979Z",
-      "id": "SCN-dag-migrate-existing-spec-collision",
-      "introducedBy": "agent",
-      "kind": "boundary",
-      "relationships": [
-        {
-          "kind": "related_to",
-          "targetId": "PROP-dag-migrate-retain-nonauthoritative-artifacts"
-        },
-        {
-          "kind": "related_to",
-          "targetId": "PROP-dag-migrate-staged-candidate-review-cutover"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "extensions/dag-workflow/project-model/projector.ts"
-      ],
-      "state": "proposed",
-      "title": "Migration finds an existing spec path collision",
-      "updatedAt": "2026-08-18T22:08:48.979Z"
-    },
-    {
-      "body": "A repository contains contradictory README and spec requirements plus an undocumented implementation. `/dag migrate` records the contradiction, presents the partial candidate and source map in Lavish, explains which governing question remains unresolved, preserves all existing files, and offers continued refinement rather than a cutover approval action.",
-      "createdAt": "2026-08-19T02:18:59.934Z",
-      "id": "SCN-dag-migrate-incomplete-repository-evidence",
-      "introducedBy": "agent",
-      "kind": "failure",
-      "relationships": [
-        {
-          "kind": "related_to",
-          "targetId": "PROP-dag-migrate-semantic-readiness-gates"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "DEC-audited-candidate-atomic-cutover"
-      ],
-      "state": "proposed",
-      "title": "Migration cannot establish complete current authority",
-      "updatedAt": "2026-08-19T02:18:59.934Z"
-    },
-    {
-      "body": "When a supported legacy brainstorm snapshot exists, `/dag migrate` invokes its deterministic adapter for mappings and omissions, then runs the same repository inventory, candidate validation, Lavish audit, artifact disposition, and explicit cutover flow as a generic repository. The adapter accelerates inference but does not bypass review.",
-      "createdAt": "2026-08-19T02:18:59.934Z",
-      "id": "SCN-dag-migrate-supported-legacy-fast-path",
-      "introducedBy": "agent",
-      "kind": "ordinary",
-      "relationships": [
-        {
-          "kind": "related_to",
-          "targetId": "PROP-dag-migrate-relevant-first-source-inventory"
-        }
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "scripts/migrate-brainstorm-to-project-model.mjs"
-      ],
-      "state": "proposed",
-      "title": "Known legacy state uses a deterministic fast path",
-      "updatedAt": "2026-08-19T02:18:59.934Z"
     }
   ],
   "schemaVersion": 1,
@@ -25216,6 +25421,34 @@
       "state": "resolved",
       "title": "Accepted live DAG widget versus newer DAG-agnostic worker boundary",
       "updatedAt": "2026-07-30T15:32:17.430Z"
+    },
+    {
+      "body": "The project model's accepted architecture forbids continued dual semantic authority after cutover, while existing repositories may need to retain a `spec/` directory or particular documents. File coexistence is compatible only when retained artifacts have an explicit non-authoritative role; a document that must remain governing requires either a scoped-authority design change or a blocked/deferred cutover.",
+      "createdAt": "2026-08-18T22:08:48.978Z",
+      "id": "TEN-dag-migrate-single-authority-vs-retained-specs",
+      "introducedBy": "agent",
+      "poleObjectIds": [
+        "DEC-audited-candidate-atomic-cutover",
+        "PROP-dag-migrate-scoped-external-authority"
+      ],
+      "relationships": [
+        {
+          "kind": "related_to",
+          "targetId": "INT-dag-migrate-existing-repository"
+        }
+      ],
+      "resolutionObjectIds": [
+        "DEC-dag-migrate-preserve-files-single-authority"
+      ],
+      "scope": {
+        "kind": "repository"
+      },
+      "sourceRefs": [
+        "project-model/model.json"
+      ],
+      "state": "resolved",
+      "title": "Single semantic authority versus retained specification artifacts",
+      "updatedAt": "2026-08-19T02:17:55.020Z"
     },
     {
       "body": "An explicit agent-only ack tool adds one call but binds a durable disposition to the stable completion ID; result integrity is checked internally and no hash is echoed by the agent. Automatic ack on `agent_settled` is simpler but cannot prove the worker outcome was actually handled, especially after aborts, failures, reloads, or partial side effects.",
@@ -25386,6 +25619,52 @@
       "updatedAt": "2026-07-29T02:22:55.886Z"
     },
     {
+      "body": "Question briefs and Current understanding need enough Markdown structure and contextual coverage to be readable project-model windows, but a rigid or exhaustive schema can turn the output into project documentation and obscure whether the agent can synthesize what actually matters.",
+      "createdAt": "2026-08-17T22:25:51.161Z",
+      "id": "TEN-scannable-structure-vs-performative-template-compliance",
+      "introducedBy": "agent",
+      "poleObjectIds": [
+        "PROP-structured-brainstorm-surface-contract",
+        "PROP-synthesis-quality-over-template-completeness"
+      ],
+      "relationships": [
+        {
+          "kind": "affects",
+          "targetId": "COM-question-context"
+        },
+        {
+          "kind": "affects",
+          "targetId": "COM-single-current-proof"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-structured-brainstorm-surface-contract"
+        },
+        {
+          "kind": "challenges",
+          "targetId": "PROP-synthesis-quality-over-template-completeness"
+        }
+      ],
+      "resolutionObjectIds": [
+        "COM-structural-proof-validation",
+        "COM-question-context",
+        "COM-single-current-proof"
+      ],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-template-compliance-is-not-understanding-proof"
+      ],
+      "state": "resolved",
+      "title": "Scannable structure versus performative template compliance",
+      "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
       "body": "The accepted session topology binds the top-level conductor to the current worktree and branch, while earlier safety analysis treated the initiating user worktree as observation-only. These are compatible only if the current directory is explicitly designated as the session/conductor worktree and conductor target updates use ordinary worktree-aware fast-forward operations with exact cleanliness/HEAD guards—never raw ref movement, stash, reset, clean, forced checkout, or silent branch switching.",
       "createdAt": "2026-08-03T20:31:06.329Z",
       "id": "TEN-session-worktree-conductor-vs-observation-only-user-worktree",
@@ -25541,80 +25820,6 @@
       "state": "resolved",
       "title": "Session-scoped workers versus daemon durability",
       "updatedAt": "2026-07-30T03:41:37.138Z"
-    },
-    {
-      "body": "Question briefs and Current understanding need enough Markdown structure and contextual coverage to be readable project-model windows, but a rigid or exhaustive schema can turn the output into project documentation and obscure whether the agent can synthesize what actually matters.",
-      "createdAt": "2026-08-17T22:25:51.161Z",
-      "id": "TEN-scannable-structure-vs-performative-template-compliance",
-      "introducedBy": "agent",
-      "poleObjectIds": [
-        "PROP-structured-brainstorm-surface-contract",
-        "PROP-synthesis-quality-over-template-completeness"
-      ],
-      "relationships": [
-        {
-          "kind": "affects",
-          "targetId": "COM-question-context"
-        },
-        {
-          "kind": "affects",
-          "targetId": "COM-single-current-proof"
-        },
-        {
-          "kind": "challenges",
-          "targetId": "PROP-structured-brainstorm-surface-contract"
-        },
-        {
-          "kind": "challenges",
-          "targetId": "PROP-synthesis-quality-over-template-completeness"
-        }
-      ],
-      "resolutionObjectIds": [
-        "COM-structural-proof-validation",
-        "COM-question-context",
-        "COM-single-current-proof"
-      ],
-      "scope": {
-        "kind": "workstreams",
-        "workstreamIds": [
-          "WS-agent-workflow",
-          "WS-surface-interaction"
-        ]
-      },
-      "sourceRefs": [
-        "DISC-template-compliance-is-not-understanding-proof"
-      ],
-      "state": "resolved",
-      "title": "Scannable structure versus performative template compliance",
-      "updatedAt": "2026-08-17T22:30:39.828Z"
-    },
-    {
-      "body": "The project model's accepted architecture forbids continued dual semantic authority after cutover, while existing repositories may need to retain a `spec/` directory or particular documents. File coexistence is compatible only when retained artifacts have an explicit non-authoritative role; a document that must remain governing requires either a scoped-authority design change or a blocked/deferred cutover.",
-      "createdAt": "2026-08-18T22:08:48.978Z",
-      "id": "TEN-dag-migrate-single-authority-vs-retained-specs",
-      "introducedBy": "agent",
-      "poleObjectIds": [
-        "DEC-audited-candidate-atomic-cutover",
-        "PROP-dag-migrate-scoped-external-authority"
-      ],
-      "relationships": [
-        {
-          "kind": "related_to",
-          "targetId": "INT-dag-migrate-existing-repository"
-        }
-      ],
-      "resolutionObjectIds": [
-        "DEC-dag-migrate-preserve-files-single-authority"
-      ],
-      "scope": {
-        "kind": "repository"
-      },
-      "sourceRefs": [
-        "project-model/model.json"
-      ],
-      "state": "resolved",
-      "title": "Single semantic authority versus retained specification artifacts",
-      "updatedAt": "2026-08-19T02:17:55.020Z"
     }
   ],
   "workstreams": [

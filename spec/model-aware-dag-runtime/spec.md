@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:85fe6bb641ba4fb57f6ce0f56a3898dc680d9064e944f133ffe7f55c7160e8a6 -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:617a84f60a1c704e54798e2e2c9b010f35f6c60a7ca83e6149bda9376b146dd0 -->
 
 # Model-aware DAG planning and execution
 
@@ -543,6 +543,14 @@ Proceed with Projection V2, the serialized disposable controller, exact-width Gr
 DagExecutionProjectionV2 preserves the exact plan/run/scheduler/worker join and exposes each bound worker terminal status without process-disposition or retry-safety fields. The session-scoped controller serializes and coalesces status reads, retains last-good fail-closed behavior, and requests a TUI render only when the projection hash or visible diagnostic changes. Active workers use a static activity mark. The widget has no liveness window, animation frame, or animation timer, and unchanged periodic refreshes produce no terminal output.
 
 **Rationale.** A 120 ms animation timer repeatedly redrew the full Pi TUI and amplified into thousands of PTY writes per second. Motion adds no lifecycle authority; a static mark and change-driven rendering preserve useful state while making idle output quiescent.
+
+<a id="obj-dec-agent-driven-canonical-dag-dispatch"></a>
+
+### Make canonical DAG worker dispatch agent-driven through a dedicated tool
+
+The top-level conversational agent is the DAG orchestrator. For each canonically ready and admissible work item or stage, the agent invokes `dag_run_dispatch` over one exact ready packet. The tool atomically revalidates current run authority, readiness, admission, gates, concurrency, and generations; persists or consumes the exact reservation and launch intent; invokes the owned worker manager; and records the canonical binding or durable launch ambiguity. Generic `subagent` remains DAG-agnostic and cannot consume canonical DAG work. Each dispatch may include a bounded agent-authored tactical directive, while an immutable canonical envelope preserves objective, stage role, repository/worktree and edit boundaries, required checks, and completion identity. The directive and final prompt hash are recorded. Timers, session wakes, `agent_end`, and background conductor pumps may reconcile durable observations and surface attention but must not autonomously launch new DAG workers. The agent continues only independent orchestration work and settles at worker dependency barriers so completion follow-ups resume orchestration.
+
+**Rationale.** Visible agent tool calls should own launch timing and tactical worker guidance, while a dedicated canonical dispatch mutation preserves exact reducer and worker-runtime authority without coupling generic subagents to DAG internals.
 
 ## Accepted representative failure scenarios
 
