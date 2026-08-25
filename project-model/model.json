@@ -9011,6 +9011,34 @@
       "updatedAt": "2026-08-17T22:05:47.111Z"
     },
     {
+      "body": "The Fractory session completed and persisted its assistant response at 2026-08-25T15:53:12.107Z, but Pi remained in the working state. The DAG widget timer calls refresh every 1 second while DagWidgetControllerV2.#drain loops as long as any refresh arrived during the prior read. Fractory status reads take at least roughly the timer interval because the repaired run is schema-incompatible with the reinstalled package, so pendingRefresh is continuously renewed. agent_end awaits refreshWidget(), joins the never-settling drain promise, and Pi never emits turn settlement/UI completion. This is a projection scheduling bug, not an active worker or model response.",
+      "createdAt": "2026-08-25T15:59:40.009Z",
+      "evidence": {
+        "completedResponseAt": "2026-08-25T15:53:12.107Z",
+        "processId": 2254187,
+        "runId": "run-984ff4d8-86e8-454f-b59a-bd9f48ef388f",
+        "sessionFile": "/home/jordan/.pi/agent/sessions/--home-jordan-gh-from-nibly-fractory--/2026-07-04T17-25-39-239Z_019f2e2a-1b27-7907-8ccb-25bffce23a36.jsonl",
+        "widgetIntervalMs": 1000
+      },
+      "id": "DISC-dag-widget-refresh-starvation-blocks-pi-agent-end",
+      "implication": "Each refresh caller must settle after a bounded single read even if timer requests continue; later requests may schedule a separate non-awaited refresh. Widget projection failure or slowness must never hold agent_end open.",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "untriaged",
+      "title": "Slow DAG widget reads can keep agent_end pending forever",
+      "updatedAt": "2026-08-25T15:59:40.009Z"
+    },
+    {
       "body": "Canonical run state deliberately separates work-item state, F0–F8 stage state, stage-attempt/process state, check disposition, findings, blockers, integration-train position, and desired/current run state. A single synthesized status label would recreate the ambiguity the lifecycle contract removed. The compact projection should choose one primary node glyph from explicit precedence rules but retain phase, blocker/attention, worker-attempt, retry, and integration annotations as separate fields; full inspect exposes every dimension.",
       "confidence": "high",
       "createdAt": "2026-08-04T01:23:05.824Z",
@@ -15418,9 +15446,9 @@
         }
       ]
     },
-    "revision": 250,
+    "revision": 251,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-24T15:23:28.428Z"
+    "updatedAt": "2026-08-25T15:59:40.009Z"
   },
   "proposals": [
     {

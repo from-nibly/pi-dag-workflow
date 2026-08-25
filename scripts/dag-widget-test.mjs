@@ -149,6 +149,64 @@ assert.equal(renderRequests, 1, "unchanged projection hash and diagnostic reques
 assert.equal(intervals.entries.size, 0, "controller creates no animation interval");
 controller.dispose();
 
+const slowReleases = [];
+let slowReads = 0;
+const slowController = new DagWidgetControllerV2({
+  async read() {
+    slowReads += 1;
+    await new Promise((resolve) => { slowReleases.push(resolve); });
+    return { kind: "projection", projection, fresh: true, diagnostic: null };
+  },
+  requestRender() {},
+});
+const slowA = slowController.refresh();
+await Promise.resolve();
+const slowB = slowController.refresh();
+slowReleases.shift()();
+await slowA;
+assert.equal(slowReads, 2, "the active refresh caller settles after one read even when a successor is queued");
+const slowC = slowController.refresh();
+slowReleases.shift()();
+await slowB;
+assert.equal(slowReads, 3, "each queued refresh batch settles independently under continuous slow-read pressure");
+slowReleases.shift()();
+await slowC;
+slowController.dispose();
+
+let releasePromotedFirst;
+let releasePromotedSecond;
+let promotedReads = 0;
+const promotedController = new DagWidgetControllerV2({
+  async read() {
+    promotedReads += 1;
+    await new Promise((resolve) => {
+      if (promotedReads === 1) releasePromotedFirst = resolve;
+      else releasePromotedSecond = resolve;
+    });
+    return { kind: "projection", projection, fresh: true, diagnostic: null };
+  },
+  requestRender() {},
+});
+const promotedA = promotedController.refresh();
+await Promise.resolve();
+const promotedB = promotedController.refresh();
+releasePromotedFirst();
+await promotedA;
+assert.equal(promotedReads, 2, "queued refresh is promoted to one successor read");
+promotedController.dispose();
+await promotedB;
+releasePromotedSecond();
+
+let throwingRenderCalls = 0;
+const throwingController = new DagWidgetControllerV2({
+  async read() { return { kind: "projection", projection, fresh: true, diagnostic: null }; },
+  requestRender() { throwingRenderCalls += 1; throw new Error("UI gone"); },
+});
+await Promise.all([throwingController.refresh(), throwingController.refresh()]);
+assert.equal(throwingRenderCalls, 2, "throwing render requests are consumed without rejecting or stranding either refresh batch");
+assert.match(throwingController.snapshot().diagnostic, /render request failed: UI gone/);
+throwingController.dispose();
+
 const staleIntervals = new FakeIntervals();
 let staleReadCount = 0;
 const staleController = new DagWidgetControllerV2({

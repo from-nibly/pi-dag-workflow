@@ -37,8 +37,9 @@ export class DagWidgetControllerV2 {
   readonly #clearScheduledInterval: typeof clearInterval;
   readonly #refreshIntervalMs: number;
   #disposed = false;
-  #pendingRefresh = false;
   #drainPromise: Promise<void> | null = null;
+  #queuedRefresh: { promise: Promise<void>; resolve: () => void } | null = null;
+  #outstandingQueuedRefreshes = new Set<{ promise: Promise<void>; resolve: () => void }>();
   #refreshTimer: ReturnType<typeof setInterval> | null = null;
   #projection: DagExecutionProjectionV2 | null = null;
   #diagnostic: string | null = null;
@@ -63,14 +64,30 @@ export class DagWidgetControllerV2 {
 
   refresh(): Promise<void> {
     if (this.#disposed) return Promise.resolve();
-    this.#pendingRefresh = true;
-    if (!this.#drainPromise) {
-      this.#drainPromise = this.#drain().finally(() => {
-        this.#drainPromise = null;
-        if (this.#pendingRefresh && !this.#disposed) void this.refresh();
-      });
+    if (!this.#drainPromise) return this.#startRead();
+    if (!this.#queuedRefresh) {
+      let resolve!: () => void;
+      const promise = new Promise<void>((settle) => { resolve = settle; });
+      this.#queuedRefresh = { promise, resolve };
+      this.#outstandingQueuedRefreshes.add(this.#queuedRefresh);
     }
-    return this.#drainPromise;
+    return this.#queuedRefresh.promise;
+  }
+
+  #startRead(): Promise<void> {
+    const operation = this.#readOnce().finally(() => {
+      if (this.#drainPromise === operation) this.#drainPromise = null;
+      const queued = this.#queuedRefresh;
+      this.#queuedRefresh = null;
+      if (!queued) return;
+      if (this.#disposed) this.#settleQueuedRefresh(queued);
+      else void this.#startRead().then(
+        () => this.#settleQueuedRefresh(queued),
+        () => this.#settleQueuedRefresh(queued),
+      );
+    });
+    this.#drainPromise = operation;
+    return operation;
   }
 
   snapshot(): DagWidgetViewStateV2 {
@@ -96,7 +113,9 @@ export class DagWidgetControllerV2 {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
-    this.#pendingRefresh = false;
+    for (const queued of this.#outstandingQueuedRefreshes) queued.resolve();
+    this.#outstandingQueuedRefreshes.clear();
+    this.#queuedRefresh = null;
     if (this.#refreshTimer) this.#clearScheduledInterval(this.#refreshTimer);
     this.#refreshTimer = null;
     this.#projection = null;
@@ -105,39 +124,48 @@ export class DagWidgetControllerV2 {
     this.#visibleSignature = "disposed";
   }
 
-  async #drain(): Promise<void> {
-    while (this.#pendingRefresh && !this.#disposed) {
-      this.#pendingRefresh = false;
-      try {
-        const result = await this.#read();
-        if (this.#disposed) return;
-        if (result.kind === "terminal") {
-          this.dispose();
-          this.#onTerminal();
-          return;
-        }
-        if (result.kind === "empty") {
-          this.#projection = null;
-          this.#diagnostic = null;
-          this.#observedAtMs = null;
-          this.#requestRenderIfChanged();
-          continue;
-        }
-        this.#projection = result.projection;
-        this.#diagnostic = result.diagnostic;
-        this.#observedAtMs = result.fresh ? this.#now() : null;
-        this.#requestRenderIfChanged();
-      } catch (error) {
-        if (this.#disposed) return;
-        this.failClosed(`DAG projection unavailable: ${String((error as Error).message).slice(0, 160)}`);
+  async #readOnce(): Promise<void> {
+    if (this.#disposed) return;
+    try {
+      const result = await this.#read();
+      if (this.#disposed) return;
+      if (result.kind === "terminal") {
+        this.dispose();
+        this.#onTerminal();
+        return;
       }
+      if (result.kind === "empty") {
+        this.#projection = null;
+        this.#diagnostic = null;
+        this.#observedAtMs = null;
+        this.#requestRenderIfChanged();
+        return;
+      }
+      this.#projection = result.projection;
+      this.#diagnostic = result.diagnostic;
+      this.#observedAtMs = result.fresh ? this.#now() : null;
+      this.#requestRenderIfChanged();
+    } catch (error) {
+      if (this.#disposed) return;
+      this.failClosed(`DAG projection unavailable: ${String((error as Error).message).slice(0, 160)}`);
     }
+  }
+
+  #settleQueuedRefresh(queued: { promise: Promise<void>; resolve: () => void }): void {
+    if (!this.#outstandingQueuedRefreshes.delete(queued)) return;
+    queued.resolve();
   }
 
   #requestRenderIfChanged(): void {
     const signature = JSON.stringify({ projectionHash: this.#projection?.projectionHash ?? null, diagnostic: this.#diagnostic });
     if (signature === this.#visibleSignature) return;
     this.#visibleSignature = signature;
-    this.#requestRender();
+    try { this.#requestRender(); }
+    catch (error) {
+      this.#projection = null;
+      this.#diagnostic = `DAG widget render request failed: ${String((error as Error).message).slice(0, 120)}`;
+      this.#observedAtMs = null;
+      this.#visibleSignature = JSON.stringify({ projectionHash: null, diagnostic: this.#diagnostic });
+    }
   }
 }
