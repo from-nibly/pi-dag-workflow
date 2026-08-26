@@ -161,27 +161,23 @@ export class DagConductorServiceV1 {
     let observedWakeGeneration = this.#wakeGenerations.get(runId)!;
     let observedWakeTime = this.#wakeTimes.get(runId)!;
     const body = (async () => {
-      let result: { state: DagRunStateV1; decision: DagSchedulerDecisionV1 };
-      for (;;) {
-        observedWakeGeneration = this.#wakeGenerations.get(runId)!;
-        observedWakeTime = this.#wakeTimes.get(runId)!;
-        await this.#ensureOperationalOwner(ctx, runId, observedWakeTime);
-        result = await this.advance(ctx, runId, observedWakeTime);
-        // Give terminal-result microtasks queued at the waiting boundary a chance
-        // to mark this run dirty before this pass settles.
-        await Promise.resolve();
-        if (this.#wakeGenerations.get(runId) === observedWakeGeneration) {
-          await this.pumpFailpoint?.("after_quiescent_check", { occurredAt: observedWakeTime, wakeGeneration: observedWakeGeneration });
-          return { result, settledWakeGeneration: observedWakeGeneration };
-        }
-      }
+      observedWakeGeneration = this.#wakeGenerations.get(runId)!;
+      observedWakeTime = this.#wakeTimes.get(runId)!;
+      await this.#ensureOperationalOwner(ctx, runId, observedWakeTime);
+      const result = await this.advance(ctx, runId, observedWakeTime);
+      // Give terminal-result microtasks queued at the waiting boundary a chance
+      // to mark this run dirty before this bounded pass settles. A newer wake
+      // starts a successor pump but never extends this caller's promise.
+      await Promise.resolve();
+      if (this.#wakeGenerations.get(runId) === observedWakeGeneration) await this.pumpFailpoint?.("after_quiescent_check", { occurredAt: observedWakeTime, wakeGeneration: observedWakeGeneration });
+      return { result, settledWakeGeneration: observedWakeGeneration };
     })();
     let pump!: Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }>;
     pump = body.then(
       ({ result, settledWakeGeneration }) => {
         if (this.#pumps.get(runId) === pump) this.#pumps.delete(runId);
         if (["completed", "cancelled", "superseded"].includes(result.state.current.run)) this.#activeContexts.delete(runId);
-        if (!this.#detaching && this.#activeContexts.has(runId) && this.#wakeGenerations.get(runId) !== settledWakeGeneration) return this.#startPump(ctx, runId);
+        if (!this.#detaching && this.#activeContexts.has(runId) && this.#wakeGenerations.get(runId) !== settledWakeGeneration) void this.#startPump(ctx, runId).catch(() => undefined);
         return result;
       },
       async (error) => {

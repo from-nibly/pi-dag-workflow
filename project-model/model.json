@@ -8827,6 +8827,35 @@
       "updatedAt": "2026-08-24T15:18:04.064Z"
     },
     {
+      "body": "The Operant session persisted its completed assistant response at 2026-08-26T15:18:24.416Z, but its Pi process remained at roughly 100% CPU and visibly working. The run state stopped at revision 29. DagConductorServiceV1.activate increments a wake generation every timer tick; #startPump previously looped until the generation stopped changing and returned a recursively started successor pump when dirtied after settlement. When advance takes at least the 1-second timer interval, new wakes continually arrive, so the shared promise awaited by agent_end never resolves. This is the conductor analogue of the v0.3.1 widget refresh starvation defect.",
+      "createdAt": "2026-08-26T15:40:49.513Z",
+      "evidence": {
+        "completedResponseAt": "2026-08-26T15:18:24.416Z",
+        "cpuPercentObserved": 100,
+        "processId": 3651928,
+        "runId": "run-64e81c4f-8f54-4a60-9fab-63ff54880941",
+        "runRevision": 29,
+        "sessionFile": "/home/jordan/.pi/agent/sessions/--home-jordan-gh-from-nibly-operant--/2026-07-16T16-02-56-006Z_019f6baa-af86-725a-81a8-3ce65a3f5155.jsonl"
+      },
+      "id": "DISC-dag-conductor-wake-starvation-blocks-agent-end-operant",
+      "implication": "A pump invocation must perform one bounded pass and settle its callers. A newer generation may start a detached successor pump, but must not extend the completed pass promise. Background successor errors remain durably faulted and surfaced through the existing error path.",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "untriaged",
+      "title": "Continuous timer wakes can keep a slow conductor pump and agent_end pending",
+      "updatedAt": "2026-08-26T15:40:49.513Z"
+    },
+    {
       "body": "Release correctness, comparative outcomes, and explanatory telemetry have different authority. Integrity predicates—exact receipts, no unauthorized effects, no unreconciled partial landing, no worker-success-as-stage-success—are pass/fail safety conditions. Quality-conditioned outcomes assess completed accepted behavior, architecture findings/resolution, integrated verification, and useful parallel work. Durations, queue waits, retries, provider failures, token/cost, and human latency diagnose why an outcome occurred. Combining these into one score would permit throughput or cost to compensate for correctness and would invite gaming.",
       "confidence": "high",
       "createdAt": "2026-08-04T14:05:47.214Z",
@@ -15446,9 +15475,9 @@
         }
       ]
     },
-    "revision": 251,
+    "revision": 252,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-25T15:59:40.009Z"
+    "updatedAt": "2026-08-26T15:40:49.513Z"
   },
   "proposals": [
     {

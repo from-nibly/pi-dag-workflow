@@ -302,12 +302,41 @@ test("plan, show, and run reach the real canonical runtime through the prepared 
     assert.equal(status.state.workItems.commands.currentStage, "F1", "the real runtime reaches the owned implementation boundary");
     assert.equal(launches.length, 0, "post-F0 command and background wakes never launch the ready F1 worker");
     assert.equal(status.readyPackets.length, 1, "the exact F1 packet is agent-visible and actionable");
+
+    const actualAdvance = conductor.advance.bind(conductor);
+    let releaseSlowPass; let releaseSuccessorPass; let enterSlowPass; let enterSuccessorPass;
+    const slowPassEntered = new Promise((resolve) => { enterSlowPass = resolve; });
+    const successorPassEntered = new Promise((resolve) => { enterSuccessorPass = resolve; });
+    const slowPassGate = new Promise((resolve) => { releaseSlowPass = resolve; });
+    const successorPassGate = new Promise((resolve) => { releaseSuccessorPass = resolve; });
+    let boundedPasses = 0;
+    conductor.advance = async (...args) => {
+      boundedPasses += 1;
+      if (boundedPasses === 1) { enterSlowPass(); await slowPassGate; }
+      else if (boundedPasses === 2) { enterSuccessorPass(); await successorPassGate; }
+      return actualAdvance(...args);
+    };
+    const slowWake = conductor.wakeActive(new Date(Date.now() + 61_000).toISOString());
+    await slowPassEntered;
+    const overlappingWake = conductor.wakeActive(new Date(Date.now() + 62_000).toISOString());
+    let slowWakeSettled = false; slowWake.then(() => { slowWakeSettled = true; });
+    releaseSlowPass();
+    await successorPassEntered;
+    await Promise.resolve(); await Promise.resolve();
+    const settledBeforeSuccessor = slowWakeSettled;
+    releaseSuccessorPass();
+    const finalBoundedWakeAt = new Date(Date.now() + 63_000).toISOString();
+    await Promise.all([slowWake, overlappingWake, conductor.wakeActive(finalBoundedWakeAt)]);
+    conductor.advance = actualAdvance;
+    await conductor.wakeActive(finalBoundedWakeAt);
+    assert.equal(settledBeforeSuccessor, true, "a newer timer wake starts a successor pump without extending callers of the completed pass");
+
     await conductor.dispatch(fx.ctx, status.readyPackets[0], null, new Date().toISOString());
     await conductor.activate(fx.ctx, binding.runId, new Date().toISOString());
     status = await conductor.status(fx.ctx, binding.runId);
     assert.equal(launches.length, 1, "only dedicated agent dispatch launches the F1 worker");
     assert(terminalReads >= 1, "post-dispatch reconciliation reads the exact bound worker without launching another");
-    assert.equal(observedPumpTimes.includes(settlementWakeAt), true, "the successor pass preserves the latest dirty wake occurrence time");
+    assert.equal(observedPumpTimes.includes(finalBoundedWakeAt), true, "the final bounded successor preserves the latest dirty wake occurrence time");
     assert(status.state.workerBindings[Object.keys(status.state.stageAttempts).find((id) => status.state.stageAttempts[id].stage === "F1")], "the explicitly dispatched F1 attempt has an exact worker binding");
   } finally { await rm(fx.root, { recursive: true, force: true }); }
 });
