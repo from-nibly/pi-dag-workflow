@@ -138,11 +138,13 @@ export class WorkerManager {
     else this.#stopScanTimer();
   }
 
-  async launch(input, ctx = this.context) {
+  async launch(input, ctx = this.context, signal) {
+    signal?.throwIfAborted?.();
     this.#assertAttached();
     const state = await this.store.load();
     const request = await this.#normalizeLaunchRequest(input, ctx, state);
     const requestHash = sha256(request);
+    signal?.throwIfAborted?.();
     const launchKey = normalizeLaunchKey(input.launchKey ?? `manual-${newNonce()}`);
     const candidateWorkerId = normalizeRuntimeId(input.workerId ?? `worker-${requestHash.slice(7, 19)}-${newNonce(5)}`, "workerId");
     const reserved = await this.store.mutate((draft) => {
@@ -198,12 +200,13 @@ export class WorkerManager {
       await this.#updateScanTimer();
       return { workerId, launchKey, attemptNumber: worker.currentAttempt, status: worker.status, asynchronous: true, idempotentReplay: true };
     }
-    const launched = await this.#launchAttempt(workerId, ctx, { initialOnly: true, launchKey, idempotentReplay: existing });
+    const launched = await this.#launchAttempt(workerId, ctx, { initialOnly: true, launchKey, idempotentReplay: existing }, signal);
     await this.#updateScanTimer();
     return launched;
   }
 
-  async launchOwnedAttempt(input, ctx = this.context) {
+  async launchOwnedAttempt(input, ctx = this.context, signal) {
+    signal?.throwIfAborted?.();
     this.#assertAttached();
     const state = await this.store.load();
     const launchKey = normalizeLaunchKey(input.launchKey);
@@ -232,7 +235,7 @@ export class WorkerManager {
     await mkdir(dirname(worktreeRoot), { recursive: true });
     let worktreeExists = true;
     try { await stat(worktreeRoot); } catch (error) { if (error?.code === "ENOENT") worktreeExists = false; else throw error; }
-    if (!worktreeExists) await execFileAsync("git", ["worktree", "add", "--detach", worktreeRoot, baseCommit], { cwd: state.repositoryRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024 });
+    if (!worktreeExists) await execFileAsync("git", ["worktree", "add", "--detach", worktreeRoot, baseCommit], { cwd: state.repositoryRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024, signal });
     const exactWorktree = await inspectOwnedWorktreeExact(state.repositoryRoot, worktreeRoot, baseCommit);
     const canonicalRoot = exactWorktree.realPath;
     const refreshed = await this.store.load();
@@ -244,7 +247,7 @@ export class WorkerManager {
       approval = (await this.store.load()).approvedDisposableRoots.find((candidate) => candidate.approvalId === created.approvalId);
     }
     if (!approval || approval.realPath !== canonicalRoot || approval.dev !== exactWorktree.dev || approval.ino !== exactWorktree.ino) throw new Error("Owned-worker worktree approval does not bind the exact path/device/inode");
-    await this.launch({ launchKey, workerId, label: input.label, task: input.task, cwd: worktreeRoot, boundConfigRequestHash: input.configRequestHash, ownedWorktreeBaseCommit: baseCommit, ownedWorktreeCommonDir: exactWorktree.commonDir, ownedWorktreeObjectFormat: exactWorktree.objectFormat, ...(disposableRootToken ? { disposableRootToken } : { disposableApprovalId: approval.approvalId }) }, ctx);
+    await this.launch({ launchKey, workerId, label: input.label, task: input.task, cwd: worktreeRoot, boundConfigRequestHash: input.configRequestHash, ownedWorktreeBaseCommit: baseCommit, ownedWorktreeCommonDir: exactWorktree.commonDir, ownedWorktreeObjectFormat: exactWorktree.objectFormat, ...(disposableRootToken ? { disposableRootToken } : { disposableApprovalId: approval.approvalId }) }, ctx, signal);
     const exact = await this.attemptIdentityByLaunchKey(launchKey);
     if (!exact || exact.workerId !== workerId || exact.attemptNumber !== Number(input.expectedAttemptNumber)) throw new Error("Owned-worker launch did not bind the exact requested worker/attempt identity");
     return exact;
@@ -281,17 +284,18 @@ export class WorkerManager {
     };
   }
 
-  async cleanupOwnedWorktreeForBinding(binding, input = {}) {
-    return this.#withBindingStore(binding, () => this.#cleanupOwnedWorktreeForCurrentStore(binding, input));
+  async cleanupOwnedWorktreeForBinding(binding, input = {}, signal) {
+    signal?.throwIfAborted?.();
+    return this.#withBindingStore(binding, () => this.#cleanupOwnedWorktreeForCurrentStore(binding, input, signal));
   }
 
-  async #cleanupOwnedWorktreeForCurrentStore(binding, input = {}) {
+  async #cleanupOwnedWorktreeForCurrentStore(binding, input = {}, signal) {
+    signal?.throwIfAborted?.();
     this.#assertAttached();
     const effectId = String(input.effectId ?? "");
     const requestHash = String(input.requestHash ?? "");
     const launchKey = normalizeLaunchKey(input.launchKey);
     if (!effectId || !requestHash.startsWith("sha256:")) throw new Error("Owned-worktree cleanup requires an exact durable DAG effect identity");
-    await this.scan();
     let state = await this.store.load();
     if (state.storageId !== binding.workerStorageId) throw new Error("Owned-worktree cleanup binding belongs to another manager storage identity");
     let worker = state.workers[binding.workerId];
@@ -332,7 +336,7 @@ export class WorkerManager {
     if (exists) {
       const exact = await inspectOwnedWorktreeExact(state.repositoryRoot, cleanup.realPath, null, { allowDirty: true });
       if (exact.commonDir !== cleanup.commonDir) throw new Error("Owned-worktree common-dir identity changed before cleanup");
-      await execFileAsync("git", ["worktree", "remove", "--force", cleanup.realPath], { cwd: state.repositoryRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024 });
+      await execFileAsync("git", ["worktree", "remove", "--force", cleanup.realPath], { cwd: state.repositoryRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024, signal });
       await this.#hitFailpoint("after_worktree_cleanup_remove", { effectId, workerId: binding.workerId });
     } else if (await worktreeListed(state.repositoryRoot, cleanup.realPath)) throw new Error("Missing owned-worktree path remains registered; cleanup is ambiguous");
     await this.store.mutate((draft) => {
@@ -343,41 +347,69 @@ export class WorkerManager {
     return "applied_exact";
   }
 
-  async terminalResultForBinding(binding) {
-    return this.#withBindingStore(binding, async () => {
-      this.#assertAttached();
-      await this.scan();
-      const repositoryRoot = resolve(this.context.cwd);
-      const store = new WorkerSessionStore(repositoryRoot, binding.workerStorageId);
-      const state = await store.load();
-    if (state.storageId !== binding.workerStorageId) return null;
-    let worker = state.workers[binding.workerId];
-    if (!worker) { const record = (state.launchRecords ?? []).find((candidate) => candidate.workerId === binding.workerId); if (record?.archivedWorkerPath) worker = await readArchivedWorker(state, record); }
-    const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash);
-    if (!attempt?.ingestedAt || !attempt.resultPath) return null;
-    const result = await readJson(resolve(repositoryRoot, attempt.resultPath), { maxBytes: MAX_RESULT_BYTES });
-    assertTerminalResult(result, { recovery: resolve(repositoryRoot, attempt.resultPath) === attemptPaths(repositoryRoot, state.storageId, worker.id, attempt.attemptNumber).recoveryResult });
-    if (result.storageId !== binding.workerStorageId || result.ownerSessionId !== binding.launchOwnerSessionId || result.workerId !== binding.workerId || result.attemptNumber !== binding.attemptNumber || result.attemptNonce !== binding.attemptNonce || result.configHash !== binding.configHash) throw new Error("Terminal worker result conflicts with exact DAG binding");
+  async terminalResultForBinding(binding, options = {}) {
+    options.signal?.throwIfAborted?.();
+    if (options.reconcile === true) await this.#withBindingStore(binding, () => this.#reconcileTerminalBindingExact(binding, options.signal), options.signal);
+    return this.#readBindingStore(binding, async ({ state, worker, attempt, paths, device }) => {
+      options.signal?.throwIfAborted?.();
+      let resultPath = attempt.ingestedAt && attempt.resultPath ? resolve(state.repositoryRoot, attempt.resultPath) : null;
+      if (!resultPath) resultPath = await pathExists(paths.recoveryResult) ? paths.recoveryResult : await pathExists(paths.result) ? paths.result : null;
+      if (!resultPath) return null;
+      const recovery = resultPath === paths.recoveryResult;
+      const result = await readTrustedJson(resultPath, paths.root, device, MAX_RESULT_BYTES, recovery ? "bound worker recovery result" : "bound worker terminal result");
+      assertTerminalResult(result, { recovery });
+      if (result.storageId !== binding.workerStorageId || result.ownerSessionId !== binding.launchOwnerSessionId || result.workerId !== binding.workerId || result.attemptNumber !== binding.attemptNumber || result.attemptNonce !== binding.attemptNonce || result.configHash !== binding.configHash) throw new Error("Terminal worker result conflicts with exact DAG binding");
+      if (!recovery && (result.process?.supervisorPid !== attempt.supervisorPid || result.process?.supervisorStartIdentity !== attempt.supervisorStartIdentity)) throw new Error("Terminal worker process identity conflicts with exact DAG binding");
       return { completionId: result.completionId, terminalStatus: result.terminalStatus };
     });
   }
 
-  async inspectBinding(binding) {
-    return this.#withBindingStore(binding, async () => {
-      await this.scan();
-      const exact = await this.inspect(binding.workerId);
-      if (exact?.attempt?.attemptNumber !== binding.attemptNumber || exact.attempt.attemptNonce !== binding.attemptNonce || exact.attempt.configHash !== binding.configHash) throw new Error("Worker inspection did not resolve the exact DAG-bound prior attempt");
-      return exact;
-    });
+  async #reconcileTerminalBindingExact(binding, signal) {
+    signal?.throwIfAborted?.();
+    const state = await this.store.load();
+    let worker = state.workers[binding.workerId];
+    if (!worker) { const record = (state.launchRecords ?? []).find((candidate) => candidate.workerId === binding.workerId); if (record?.archivedWorkerPath) worker = await readArchivedWorker(state, record); }
+    const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash);
+    if (!worker || !attempt) throw new Error("Targeted terminal reconciliation lost its exact DAG-bound attempt");
+    const paths = attemptPaths(state.repositoryRoot, binding.workerStorageId, binding.workerId, binding.attemptNumber);
+    if (attempt.ingestedAt) {
+      const ingestedPath = attempt.resultPath ? resolve(state.repositoryRoot, attempt.resultPath) : null;
+      if (ingestedPath === paths.recoveryResult && await pathExists(paths.result)) await this.#quarantineAttemptArtifact(binding.workerId, binding.attemptNumber, paths.result, "late-primary-result", "Primary result appeared after recovery result adoption", signal);
+      if (ingestedPath === paths.result && await pathExists(paths.recoveryResult)) await this.#quarantineAttemptArtifact(binding.workerId, binding.attemptNumber, paths.recoveryResult, "late-recovery-result", "Recovery result appeared after primary result adoption", signal);
+      return;
+    }
+    signal?.throwIfAborted?.();
+    if (await pathExists(paths.recoveryResult)) {
+      await this.#ingestResult(binding.workerId, binding.attemptNumber, paths.recoveryResult, true, signal);
+      signal?.throwIfAborted?.();
+      if (await pathExists(paths.result)) await this.#quarantineAttemptArtifact(binding.workerId, binding.attemptNumber, paths.result, "late-primary-result", "Primary result conflicts with an already-published recovery result", signal);
+      return;
+    }
+    if (await pathExists(paths.result)) await this.#ingestResult(binding.workerId, binding.attemptNumber, paths.result, false, signal);
   }
 
-  async cancelBinding(binding, reason) {
+  /** Pure exact lookup for frontier/status reads: never scans, transfers ownership, appends lineage, ingests, or mutates. */
+  async inspectBindingReadOnly(binding) {
+    return this.#readBindingStore(binding, async ({ worker, attempt, config }) => ({ worker: structuredClone(worker), attempt: structuredClone(attempt), config: structuredClone(config) }));
+  }
+
+  async inspectBinding(binding) {
+    await this.#withBindingStore(binding, async () => { await this.scan(); });
+    const exact = await this.inspectBindingReadOnly(binding);
+    if (!exact) throw new Error("Worker inspection did not resolve the exact DAG-bound prior attempt");
+    return exact;
+  }
+
+  async cancelBinding(binding, reason, signal) {
+    signal?.throwIfAborted?.();
     return this.#withBindingStore(binding, async () => {
-      await this.scan();
-      const exact = await this.inspect(binding.workerId);
-      if (exact?.worker?.currentAttempt !== binding.attemptNumber || exact.attempt?.attemptNumber !== binding.attemptNumber || exact.attempt.attemptNonce !== binding.attemptNonce || exact.attempt.configHash !== binding.configHash) throw new Error("Worker cancellation refused to target a different current attempt identity");
-      return this.cancel(binding.workerId, reason);
-    });
+      signal?.throwIfAborted?.();
+      const state = await this.store.load();
+      const worker = state.workers[binding.workerId];
+      const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash);
+      if (worker?.currentAttempt !== binding.attemptNumber || !attempt) throw new Error("Worker cancellation refused to target a different current attempt identity");
+      return this.cancel(binding.workerId, reason, signal);
+    }, signal);
   }
 
   async approveDisposableWorkingRoot(cwd) {
@@ -452,15 +484,17 @@ export class WorkerManager {
     return { workerId, attemptNumber: authorization.result.attemptNumber, retryToken: token };
   }
 
-  async retry(workerId, ctx = this.context, retryToken = null) {
+  async retry(workerId, ctx = this.context, retryToken = null, signal) {
+    signal?.throwIfAborted?.();
     this.#assertAttached();
     const authorization = retryToken ? { retryToken } : await this.authorizeRetry(workerId);
-    const launched = await this.#launchAttempt(workerId, ctx, { retryToken: authorization.retryToken });
+    signal?.throwIfAborted?.();
+    const launched = await this.#launchAttempt(workerId, ctx, { retryToken: authorization.retryToken }, signal);
     await this.#updateScanTimer();
     return launched;
   }
 
-  async #launchAttempt(workerId, ctx, options = {}) {
+  async #launchAttempt(workerId, ctx, options = {}, signal) {
     const before = await this.store.load();
     const workerBefore = before.workers[workerId];
     if (!workerBefore) throw new Error(`Unknown worker: ${workerId}`);
@@ -553,10 +587,16 @@ export class WorkerManager {
     }
     await writeImmutableJson(paths.config, config);
     await this.#hitFailpoint("after_config_publication", { workerId, attemptNumber });
-    return this.#dispatchReservedAttempt(workerId, attemptNumber);
+    if (signal?.aborted) {
+      await this.#writeRecoveryResult(workerId, attemptNumber, "cancelled", `Worker dispatch aborted before spawn: ${abortReason(signal)}`);
+      if (await pathExists(paths.recoveryResult)) await this.#ingestResult(workerId, attemptNumber, paths.recoveryResult, true);
+      throw signal.reason ?? new Error("Worker dispatch aborted");
+    }
+    return this.#dispatchReservedAttempt(workerId, attemptNumber, signal);
   }
 
-  async #dispatchReservedAttempt(workerId, attemptNumber) {
+  async #dispatchReservedAttempt(workerId, attemptNumber, signal) {
+    signal?.throwIfAborted?.();
     const dispatchKey = `${workerId}:${attemptNumber}`;
     if (this.dispatchingAttempts.has(dispatchKey)) {
       const state = await this.store.load();
@@ -565,11 +605,12 @@ export class WorkerManager {
       return { workerId, attemptNumber, status: worker?.currentAttempt === attemptNumber ? worker.status : attempt?.status ?? "dispatching", asynchronous: true, idempotentReplay: true };
     }
     this.dispatchingAttempts.add(dispatchKey);
-    try { return await this.#performReservedAttemptDispatch(workerId, attemptNumber); }
+    try { return await this.#performReservedAttemptDispatch(workerId, attemptNumber, signal); }
     finally { this.dispatchingAttempts.delete(dispatchKey); }
   }
 
-  async #performReservedAttemptDispatch(workerId, attemptNumber) {
+  async #performReservedAttemptDispatch(workerId, attemptNumber, signal) {
+    signal?.throwIfAborted?.();
     const claimed = await this.store.mutate((draft) => {
       const worker = draft.workers[workerId];
       const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === attemptNumber);
@@ -588,22 +629,34 @@ export class WorkerManager {
     const worker = state.workers[workerId];
     const attempt = worker.attempts.find((candidate) => candidate.attemptNumber === attemptNumber);
     const paths = attemptPaths(state.repositoryRoot, state.storageId, workerId, attemptNumber);
-    try { await this.#assertWorkingRootCurrent(state, worker.normalizedRequest); }
+    try {
+      signal?.throwIfAborted?.();
+      await this.#assertWorkingRootCurrent(state, worker.normalizedRequest);
+      signal?.throwIfAborted?.();
+    }
     catch (error) {
-      await this.#writeRecoveryResult(workerId, attemptNumber, "failed", `Working-root validation failed before dispatch: ${error.message}`);
+      const aborted = signal?.aborted === true;
+      await this.#writeRecoveryResult(workerId, attemptNumber, aborted ? "cancelled" : "failed", aborted ? `Supervisor dispatch aborted before spawn: ${abortReason(signal)}` : `Working-root validation failed before dispatch: ${error.message}`);
       if (await pathExists(paths.recoveryResult)) await this.#ingestResult(workerId, attemptNumber, paths.recoveryResult, true);
+      if (aborted) throw signal.reason ?? error;
       return { workerId, attemptNumber, status: "failed", asynchronous: true };
     }
     let processHandle;
+    let supervisorStartIdentity = null;
     try {
+      signal?.throwIfAborted?.();
       const launch = this.options.spawnSupervisor ?? spawnDetachedSupervisor;
-      processHandle = await launch(this.options.supervisorPath ?? defaultSupervisorPath, paths.config, worker.cwd);
+      processHandle = await launch(this.options.supervisorPath ?? defaultSupervisorPath, paths.config, worker.cwd, signal);
+      signal?.throwIfAborted?.();
+      supervisorStartIdentity = await waitForIdentity(processHandle.pid, signal);
+      signal?.throwIfAborted?.();
     } catch (error) {
-      await this.#writeRecoveryResult(workerId, attemptNumber, "failed", `Supervisor launch failed: ${error.message}`);
+      if (processHandle) await containSpawnedSupervisor(processHandle);
+      const aborted = signal?.aborted === true;
+      await this.#writeRecoveryResult(workerId, attemptNumber, aborted ? "cancelled" : "failed", aborted ? `Supervisor dispatch aborted and the spawned process was contained: ${abortReason(signal)}` : `Supervisor launch failed: ${error.message}`);
       if (await pathExists(paths.recoveryResult)) await this.#ingestResult(workerId, attemptNumber, paths.recoveryResult, true);
       throw error;
     }
-    const supervisorStartIdentity = await waitForIdentity(processHandle.pid);
     let launchReceipt = null;
     if (supervisorStartIdentity) {
       const launchReceiptPayload = { schemaVersion: 1, kind: "worker_supervisor_launch", storageId: state.storageId, ownerSessionId: attempt.launchSessionId, workerId, attemptNumber, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash, supervisorPid: processHandle.pid, supervisorStartIdentity, observedAt: attempt.createdAt };
@@ -625,6 +678,12 @@ export class WorkerManager {
         throw new Error(`Supervisor launch receipt publication conflicted: ${error.message}`);
       }
       await this.#hitFailpoint("after_launch_receipt_publication", { workerId, attemptNumber, supervisorPid: processHandle.pid, supervisorStartIdentity, launchReceiptHash: launchReceipt.receiptHash });
+    }
+    if (signal?.aborted) {
+      await containSpawnedSupervisor(processHandle);
+      await this.#writeRecoveryResult(workerId, attemptNumber, "cancelled", `Supervisor dispatch aborted after launch receipt publication and the spawned process was contained: ${abortReason(signal)}`);
+      if (await pathExists(paths.recoveryResult)) await this.#ingestResult(workerId, attemptNumber, paths.recoveryResult, true);
+      throw signal.reason ?? new Error("Worker dispatch aborted");
     }
     let launchStatus;
     await this.store.mutate((draft) => {
@@ -648,6 +707,11 @@ export class WorkerManager {
       launchStatus = isCurrent ? current.status : currentAttempt.status;
     });
     await this.#hitFailpoint("after_supervisor_spawn", { workerId, attemptNumber, supervisorPid: processHandle.pid });
+    if (signal?.aborted) {
+      await this.cancel(workerId, `dispatch aborted after durable supervisor binding: ${abortReason(signal)}`);
+      await containSpawnedSupervisor(processHandle);
+      throw signal.reason ?? new Error("Worker dispatch aborted");
+    }
     return { workerId, launchKey: worker.launchKey, attemptNumber, status: launchStatus, asynchronous: true };
   }
 
@@ -711,16 +775,19 @@ export class WorkerManager {
   async scan(options = { includeTerminal: true }) {
     const operation = this.scanQueue.then(async () => {
       if (!this.attached) return;
+      options.signal?.throwIfAborted?.();
       this.scanning = true;
       try {
         const state = await this.store.load();
       for (const worker of Object.values(state.workers)) {
+        options.signal?.throwIfAborted?.();
         if (TERMINAL_STATUSES.has(worker.status) && !options.includeTerminal) continue;
         if (worker.currentAttempt === 0 && worker.launchKey && worker.normalizedRequest) {
-          await this.#launchAttempt(worker.id, this.context, { initialOnly: true, launchKey: worker.launchKey, idempotentReplay: true });
+          await this.#launchAttempt(worker.id, this.context, { initialOnly: true, launchKey: worker.launchKey, idempotentReplay: true }, options.signal);
           continue;
         }
         for (const attempt of worker.attempts ?? []) {
+          options.signal?.throwIfAborted?.();
           if (attempt.ingestedAt) {
             const terminalPaths = attemptPaths(state.repositoryRoot, state.storageId, worker.id, attempt.attemptNumber);
             const ingestedPath = attempt.resultPath ? resolve(state.repositoryRoot, attempt.resultPath) : null;
@@ -733,7 +800,7 @@ export class WorkerManager {
           if (await pathExists(paths.launchReceipt)) await this.#bindLaunchReceipt(state, worker, attempt, paths);
           if (attempt.status === "planned") {
             await writeImmutableJson(paths.config, attempt.config);
-            await this.#dispatchReservedAttempt(worker.id, attempt.attemptNumber);
+            await this.#dispatchReservedAttempt(worker.id, attempt.attemptNumber, options.signal);
             continue;
           }
           if (await pathExists(paths.recoveryResult)) {
@@ -885,7 +952,8 @@ export class WorkerManager {
     this.#scheduleCancellationEscalation(worker.id, attempt, attempt.childPid, attempt.childStartIdentity);
   }
 
-  async #quarantineAttemptArtifact(workerId, attemptNumber, sourcePath, kind, reason) {
+  async #quarantineAttemptArtifact(workerId, attemptNumber, sourcePath, kind, reason, signal) {
+    signal?.throwIfAborted?.();
     let observed;
     let factHash;
     try {
@@ -901,6 +969,7 @@ export class WorkerManager {
     const paths = attemptPaths(state.repositoryRoot, state.storageId, workerId, attemptNumber);
     const retainedPath = join(paths.quarantine, `${normalizeRuntimeId(kind, "quarantine kind")}-${factHash.slice(7)}.bin`);
     await mkdir(paths.quarantine, { recursive: true });
+    signal?.throwIfAborted?.();
     try { await rename(sourcePath, retainedPath); }
     catch (error) {
       if (error?.code !== "EEXIST" || await sha256File(retainedPath) !== factHash) throw error;
@@ -910,7 +979,9 @@ export class WorkerManager {
     const envelopePath = join(paths.quarantine, `${normalizeRuntimeId(kind, "quarantine kind")}-${factHash.slice(7)}.envelope.json`);
     const record = { quarantineId: `worker-artifact-${factHash.slice(7, 31)}`, workerId, attemptNumber, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash, kind, reason, sourcePath: relative(state.repositoryRoot, sourcePath), retainedPath: relative(state.repositoryRoot, retainedPath), envelopePath: relative(state.repositoryRoot, envelopePath), factHash, byteLength: observed.size, retainedComplete: true };
     const envelopePayload = { schemaVersion: 1, kind: "quarantined_worker_artifact", storageId: state.storageId, record };
+    signal?.throwIfAborted?.();
     await writeImmutableJson(envelopePath, { ...envelopePayload, envelopeHash: sha256(envelopePayload) }, { maxBytes: 64 * 1024 });
+    signal?.throwIfAborted?.();
     await this.store.mutate((draft) => {
       draft.quarantinedArtifacts ??= [];
       const existing = draft.quarantinedArtifacts.find((candidate) => candidate.workerId === workerId && candidate.attemptNumber === attemptNumber && candidate.kind === kind && candidate.factHash === factHash);
@@ -920,8 +991,10 @@ export class WorkerManager {
     return record;
   }
 
-  async #writeRecoveryResult(workerId, attemptNumber, terminalStatus, summary, allowPrimaryResult = false) {
+  async #writeRecoveryResult(workerId, attemptNumber, terminalStatus, summary, allowPrimaryResult = false, signal) {
+    signal?.throwIfAborted?.();
     const publication = await this.store.mutate(async (draft) => {
+      signal?.throwIfAborted?.();
       const worker = draft.workers[workerId];
       const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === attemptNumber);
       if (!attempt || attempt.ingestedAt) return { published: false };
@@ -952,20 +1025,24 @@ export class WorkerManager {
     return publication.result.published;
   }
 
-  async #ingestResult(workerId, attemptNumber, path, recovery) {
+  async #ingestResult(workerId, attemptNumber, path, recovery, signal) {
+    signal?.throwIfAborted?.();
     let result;
     try {
       result = await readJson(path, { maxBytes: MAX_RESULT_BYTES });
       assertTerminalResult(result, { recovery });
     } catch (error) {
-      await this.#quarantineAttemptArtifact(workerId, attemptNumber, path, recovery ? "corrupt-recovery-result" : "corrupt-primary-result", error.message);
+      signal?.throwIfAborted?.();
+      await this.#quarantineAttemptArtifact(workerId, attemptNumber, path, recovery ? "corrupt-recovery-result" : "corrupt-primary-result", error.message, signal);
       if (!recovery) {
-        await this.#writeRecoveryResult(workerId, attemptNumber, "lost", `Terminal result is corrupt: ${error.message}`, true);
+        await this.#writeRecoveryResult(workerId, attemptNumber, "lost", `Terminal result is corrupt: ${error.message}`, true, signal);
         const state = await this.store.load();
         const recoveryPath = attemptPaths(state.repositoryRoot, state.storageId, workerId, attemptNumber).recoveryResult;
-        if (await pathExists(recoveryPath)) await this.#ingestResult(workerId, attemptNumber, recoveryPath, true);
+        if (await pathExists(recoveryPath)) await this.#ingestResult(workerId, attemptNumber, recoveryPath, true, signal);
       } else {
+        signal?.throwIfAborted?.();
         await this.store.mutate((draft) => {
+          signal?.throwIfAborted?.();
           const worker = draft.workers[workerId];
           const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === attemptNumber);
           if (!attempt || attempt.ingestedAt) return;
@@ -983,15 +1060,17 @@ export class WorkerManager {
     const processIdentityConflict = !recovery && ((!attempt.supervisorPid || !attempt.supervisorStartIdentity) || result.process.supervisorPid !== attempt.supervisorPid || result.process.supervisorStartIdentity !== attempt.supervisorStartIdentity || (attempt.childPid && result.process.childPid !== attempt.childPid) || (attempt.childStartIdentity && result.process.childStartIdentity !== attempt.childStartIdentity));
     const temporalConflict = !recovery && (Date.parse(result.startedAt) < Date.parse(attempt.createdAt) || Date.parse(result.endedAt) > Date.now() + 5 * 60_000);
     if (result.storageId !== state.storageId || result.workerId !== workerId || result.attemptNumber !== attemptNumber || result.attemptNonce !== attempt.attemptNonce || result.configHash !== attempt.configHash || result.ownerSessionId !== attempt.launchSessionId || processIdentityConflict || temporalConflict) {
-      await this.#quarantineAttemptArtifact(workerId, attemptNumber, path, recovery ? "conflicting-recovery-result" : "conflicting-primary-result", "Terminal result identity mismatch");
+      await this.#quarantineAttemptArtifact(workerId, attemptNumber, path, recovery ? "conflicting-recovery-result" : "conflicting-primary-result", "Terminal result identity mismatch", signal);
       if (!recovery) {
-        await this.#writeRecoveryResult(workerId, attemptNumber, "lost", "Terminal result identity mismatch", true);
+        await this.#writeRecoveryResult(workerId, attemptNumber, "lost", "Terminal result identity mismatch", true, signal);
         const recoveryPath = attemptPaths(state.repositoryRoot, state.storageId, workerId, attemptNumber).recoveryResult;
-        if (await pathExists(recoveryPath)) await this.#ingestResult(workerId, attemptNumber, recoveryPath, true);
+        if (await pathExists(recoveryPath)) await this.#ingestResult(workerId, attemptNumber, recoveryPath, true, signal);
       }
       return;
     }
+    signal?.throwIfAborted?.();
     const ingestion = await this.store.mutate(async (draft) => {
+      signal?.throwIfAborted?.();
       const currentWorker = draft.workers[workerId];
       const currentAttempt = currentWorker?.attempts.find((candidate) => candidate.attemptNumber === attemptNumber);
       if (!currentAttempt || currentAttempt.ingestedAt) return { adopted: false };
@@ -1019,9 +1098,9 @@ export class WorkerManager {
       return { adopted: true };
     });
     if (ingestion.result?.rejectedByCancellation) {
-      await this.#quarantineAttemptArtifact(workerId, attemptNumber, path, "late-post-cancellation-result", "Non-cancelled terminal result did not precede the serialized cancellation intent");
-      await this.#writeRecoveryResult(workerId, attemptNumber, "lost", "Non-cancelled terminal result conflicted with serialized cancellation authority", true);
-      if (await pathExists(paths.recoveryResult)) await this.#ingestResult(workerId, attemptNumber, paths.recoveryResult, true);
+      await this.#quarantineAttemptArtifact(workerId, attemptNumber, path, "late-post-cancellation-result", "Non-cancelled terminal result did not precede the serialized cancellation intent", signal);
+      await this.#writeRecoveryResult(workerId, attemptNumber, "lost", "Non-cancelled terminal result conflicted with serialized cancellation authority", true, signal);
+      if (await pathExists(paths.recoveryResult)) await this.#ingestResult(workerId, attemptNumber, paths.recoveryResult, true, signal);
     } else if (ingestion.result?.adopted) await this.#notifyTerminalResult({ workerId, attemptNumber, completionId: result.completionId, terminalStatus: result.terminalStatus });
   }
 
@@ -1111,12 +1190,13 @@ export class WorkerManager {
     ];
     if (result.artifacts?.length) lines.push("", "Artifacts:", ...result.artifacts.map((artifact) => `- ${artifact.path}${artifact.label ? ` — ${artifact.label}` : ""}`));
     if (result.report?.nextSteps?.length) lines.push("", "Next steps:", ...result.report.nextSteps.map((step) => `- ${step}`));
-    if (worker.normalizedRequest?.ownedWorktree) lines.push("", "Canonical DAG orchestration: call dag_run_status now and dispatch any exact readyPacket with dag_run_dispatch. Do not use subagent inspection, status, results, tails, or generic subagent launch for canonical progress.");
+    if (worker.normalizedRequest?.ownedWorktree) lines.push("", "Canonical DAG orchestration: this completion report is notification evidence only. Follow the exact canonical DAG completion callback, or call dag_next_action to obtain the current recovery/recording/finalization choice. Do not call dag_record_completion unconditionally: a pre-bind completion must first replay its exact dag_start_work action. Refresh dag_next_action after every mutation. Do not use subagent inspection, status, results, tails, or generic subagent launch for canonical progress.");
     else lines.push("", `Use subagent_inspect({ workerId: \"${worker.id}\" }) for the full bounded result or subagent_tail for diagnostics.`);
     return truncateUtf8(lines.join("\n"), MAX_COMPLETION_MESSAGE_BYTES);
   }
 
-  async cancel(workerId, reason = "requested") {
+  async cancel(workerId, reason = "requested", signal) {
+    signal?.throwIfAborted?.();
     this.#assertAttached();
     const state = await this.store.load();
     const worker = state.workers[workerId];
@@ -1128,6 +1208,7 @@ export class WorkerManager {
     const identity = attempt.childStartIdentity;
     const paths = attemptPaths(state.repositoryRoot, state.storageId, workerId, attempt.attemptNumber);
     const processStatus = pid && identity ? await processIdentityStatus(pid, identity) : "unbound";
+    signal?.throwIfAborted?.();
     const cancellationCommit = await this.store.mutate(async (draft) => {
       const current = draft.workers[workerId];
       if (!current) throw new Error(`Unknown worker: ${workerId}`);
@@ -1225,15 +1306,9 @@ export class WorkerManager {
   }
 
   async readBoundAttempts(bindings) {
-    this.#assertAttached(); const repositoryRoot = resolve(this.context.cwd); const outputs = [];
+    this.#assertAttached(); const outputs = [];
     for (const binding of [...bindings].sort((a, b) => a.workerStorageId.localeCompare(b.workerStorageId) || a.workerId.localeCompare(b.workerId) || a.attemptNumber - b.attemptNumber)) {
-      const output = await this.#withBindingStore(binding, async () => {
-        await this.scan();
-        const state = await this.store.load(); if (state.storageId !== binding.workerStorageId) return null;
-        let worker = state.workers[binding.workerId]; if (!worker) { const record = (state.launchRecords ?? []).find(({ workerId }) => workerId === binding.workerId); if (record?.archivedWorkerPath) worker = await readArchivedWorker(state, record); }
-        const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash); if (!attempt) return null; const config = await readJson(resolve(repositoryRoot, attempt.configPath)); if (config.ownerSessionId !== binding.launchOwnerSessionId) return null;
-        return { storageId: state.storageId, launchOwnerSessionId: config.ownerSessionId, workerId: worker.id, attemptNumber: attempt.attemptNumber, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash, terminalStatus: attempt.ingestedAt ? attempt.status : null, resultHash: attempt.resultHash ?? null };
-      });
+      const output = await this.#readBindingStore(binding, async ({ state, worker, attempt, config }) => ({ storageId: state.storageId, launchOwnerSessionId: config.ownerSessionId, workerId: worker.id, attemptNumber: attempt.attemptNumber, attemptNonce: attempt.attemptNonce, configHash: attempt.configHash, terminalStatus: attempt.ingestedAt ? attempt.status : null, resultHash: attempt.resultHash ?? null }));
       if (output) outputs.push(output);
     }
     return outputs;
@@ -1296,9 +1371,34 @@ export class WorkerManager {
     return { attached: true, storageId: state.storageId, ownerSessionId: state.ownerSessionId, workerCount: Object.keys(state.workers).length, queuedCompletions: state.completionQueue.length, inFlightCompletionId: state.inFlightCompletionId };
   }
 
-  async #withBindingStore(binding, operation) {
+  async #readBindingStore(binding, operation) {
+    this.#assertAttached();
+    const repositoryRoot = resolve(this.context.cwd);
+    const canonicalRepositoryRoot = await realpath(repositoryRoot); const repositoryInfo = await lstat(repositoryRoot);
+    if (canonicalRepositoryRoot !== repositoryRoot || !repositoryInfo.isDirectory() || repositoryInfo.isSymbolicLink()) throw new Error("DAG worker binding repository root is not canonical trusted storage authority");
+    const sessionsRoot = workerSessionsRoot(repositoryRoot); const sessionsInfo = await assertTrustedDirectory(sessionsRoot, sessionsRoot, repositoryInfo.dev, "worker storage root");
+    const boundStorageRoot = join(sessionsRoot, normalizeRuntimeId(binding.workerStorageId, "workerStorageId")); await assertTrustedDirectory(boundStorageRoot, boundStorageRoot, sessionsInfo.dev, "bound worker storage root");
+    const exactStore = this.store.storageId === binding.workerStorageId ? this.store : new WorkerSessionStore(repositoryRoot, binding.workerStorageId);
+    const state = await exactStore.load();
+    if (state.storageId !== binding.workerStorageId || resolve(state.repositoryRoot) !== repositoryRoot) throw new Error("DAG worker binding storage identity does not resolve in the attached repository");
+    let worker = state.workers[binding.workerId];
+    if (!worker) { const record = (state.launchRecords ?? []).find((candidate) => candidate.workerId === binding.workerId); if (record?.archivedWorkerPath) worker = await readArchivedWorker(state, record); }
+    const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === binding.attemptNumber && candidate.attemptNonce === binding.attemptNonce && candidate.configHash === binding.configHash);
+    if (!worker || !attempt) throw new Error("DAG worker binding does not resolve the exact immutable prior attempt");
+    const paths = attemptPaths(repositoryRoot, binding.workerStorageId, binding.workerId, binding.attemptNumber);
+    if (attempt.configPath !== relative(repositoryRoot, paths.config)) throw new Error("DAG worker binding config path is not the canonical attempt storage path");
+    const attemptInfo = await assertTrustedDirectory(paths.root, paths.root, sessionsInfo.dev, "bound worker attempt root");
+    const config = await readTrustedJson(paths.config, paths.root, sessionsInfo.dev, 256 * 1024, "bound worker config");
+    assertAttemptConfig(config);
+    if (config.storageId !== binding.workerStorageId || config.ownerSessionId !== binding.launchOwnerSessionId || config.workerId !== binding.workerId || config.attemptNumber !== binding.attemptNumber || config.attemptNonce !== binding.attemptNonce || config.configHash !== binding.configHash) throw new Error("DAG worker binding conflicts with its immutable attempt config");
+    assertLaunchOwnerLineage(state, binding.launchOwnerSessionId);
+    return operation({ store: exactStore, state, worker, attempt, config, paths, device: attemptInfo.dev });
+  }
+
+  async #withBindingStore(binding, operation, signal) {
     this.#assertAttached();
     const run = this.bindingOperationQueue.then(async () => {
+      signal?.throwIfAborted?.();
       await this.scanQueue;
       const repositoryRoot = resolve(this.context.cwd);
       const canonicalRepositoryRoot = await realpath(repositoryRoot); const repositoryInfo = await lstat(repositoryRoot);
@@ -1320,35 +1420,40 @@ export class WorkerManager {
       const config = await readTrustedJson(paths.config, paths.root, sessionsInfo.dev, 256 * 1024, "bound worker config");
       assertAttemptConfig(config);
       if (config.storageId !== binding.workerStorageId || config.ownerSessionId !== binding.launchOwnerSessionId || config.workerId !== binding.workerId || config.attemptNumber !== binding.attemptNumber || config.attemptNonce !== binding.attemptNonce || config.configHash !== binding.configHash) throw new Error("DAG worker binding conflicts with its immutable attempt config");
-      let lineageSessionId = binding.launchOwnerSessionId;
-      for (const transfer of exactState.lineage ?? []) {
-        if (transfer.fromSessionId !== lineageSessionId) throw new Error("Bound worker storage contains a discontinuous immutable session lineage");
-        lineageSessionId = transfer.toSessionId;
-      }
-      if (lineageSessionId !== exactState.ownerSessionId) throw new Error("Bound worker storage owner is not the immutable successor of the exact launch owner");
+      assertLaunchOwnerLineage(exactState, binding.launchOwnerSessionId);
       if (exactStore !== originalStore) {
         const successorSessionId = originalState.ownerSessionId;
         const successorOwner = this.#owner(successorSessionId);
-        const observedOwner = structuredClone(exactState.owner);
-        const status = observedOwner?.pid === process.pid && observedOwner?.processStartIdentity === this.processStartIdentity ? "same_manager" : await processIdentityStatus(observedOwner?.pid, observedOwner?.processStartIdentity);
-        if (status !== "same_manager" && !processIdentityIsGone(status)) throw new Error(`Bound worker storage has a non-dead owner identity (${status}); refusing a second manager identity`);
-        await exactStore.mutate(async (draft) => {
-          if (canonicalOwnerIdentity(draft.owner) !== canonicalOwnerIdentity(observedOwner) || draft.ownerSessionId !== exactState.ownerSessionId) throw new Error("Bound worker storage owner changed during proven-dead transfer");
-          if (status !== "same_manager") {
-            const rechecked = await processIdentityStatus(draft.owner.pid, draft.owner.processStartIdentity);
-            if (!processIdentityIsGone(rechecked)) throw new Error(`Bound worker storage owner revived or is ambiguous (${rechecked})`);
-          }
-          draft.lineage ??= [];
-          draft.lineage.push({
-            fromSessionId: draft.ownerSessionId, toSessionId: successorSessionId, transferredAt: nowIso(), transferId: `binding-transfer-${newNonce(8)}`,
-            disposition: status === "same_manager" ? "same_manager" : "proven_dead", priorOwner: structuredClone(draft.owner), successorOwner: structuredClone(successorOwner),
-            immutableBindingHash: sha256({ workerStorageId: binding.workerStorageId, launchOwnerSessionId: binding.launchOwnerSessionId, workerId: binding.workerId, attemptNumber: binding.attemptNumber, attemptNonce: binding.attemptNonce, configHash: binding.configHash }),
+        if (exactState.ownerSessionId === successorSessionId) {
+          if (canonicalOwnerIdentity(exactState.owner) !== canonicalOwnerIdentity(successorOwner)) throw new Error("Previously transferred worker storage is not owned by this exact successor manager generation");
+        } else {
+          const observedOwner = structuredClone(exactState.owner);
+          const status = observedOwner?.pid === process.pid && observedOwner?.processStartIdentity === this.processStartIdentity ? "same_manager" : await processIdentityStatus(observedOwner?.pid, observedOwner?.processStartIdentity);
+          if (status !== "same_manager" && !processIdentityIsGone(status)) throw new Error(`Bound worker storage has a non-dead owner identity (${status}); refusing a second manager identity`);
+          signal?.throwIfAborted?.();
+          await exactStore.mutate(async (draft) => {
+            signal?.throwIfAborted?.();
+            if (canonicalOwnerIdentity(draft.owner) !== canonicalOwnerIdentity(observedOwner) || draft.ownerSessionId !== exactState.ownerSessionId) throw new Error("Bound worker storage owner changed during proven-dead transfer");
+            if (draft.ownerSessionId === successorSessionId) return;
+            if (status !== "same_manager") {
+              const rechecked = await processIdentityStatus(draft.owner.pid, draft.owner.processStartIdentity);
+              if (!processIdentityIsGone(rechecked)) throw new Error(`Bound worker storage owner revived or is ambiguous (${rechecked})`);
+            }
+            if (draft.ownerSessionId === successorSessionId) return;
+            draft.lineage ??= [];
+            draft.lineage.push({
+              fromSessionId: draft.ownerSessionId, toSessionId: successorSessionId, transferredAt: nowIso(), transferId: `binding-transfer-${newNonce(8)}`,
+              disposition: status === "same_manager" ? "same_manager" : "proven_dead", priorOwner: structuredClone(draft.owner), successorOwner: structuredClone(successorOwner),
+              immutableBindingHash: sha256({ workerStorageId: binding.workerStorageId, launchOwnerSessionId: binding.launchOwnerSessionId, workerId: binding.workerId, attemptNumber: binding.attemptNumber, attemptNonce: binding.attemptNonce, configHash: binding.configHash }),
+            });
+            draft.ownerSessionId = successorSessionId; draft.sessionFile = originalState.sessionFile; draft.owner = successorOwner;
+            if (draft.inFlightCompletionId) { if (!draft.completionQueue.includes(draft.inFlightCompletionId)) draft.completionQueue.unshift(draft.inFlightCompletionId); draft.inFlightCompletionId = null; }
           });
-          draft.ownerSessionId = successorSessionId; draft.sessionFile = originalState.sessionFile; draft.owner = successorOwner;
-          if (draft.inFlightCompletionId) { if (!draft.completionQueue.includes(draft.inFlightCompletionId)) draft.completionQueue.unshift(draft.inFlightCompletionId); draft.inFlightCompletionId = null; }
-        });
-        exactState = await exactStore.load();
+          exactState = await exactStore.load();
+        }
+        assertLaunchOwnerLineage(exactState, binding.launchOwnerSessionId);
       }
+      signal?.throwIfAborted?.();
       this.store = exactStore;
       try { return await operation(exactState); }
       finally { this.store = originalStore; }
@@ -1407,6 +1512,7 @@ export class WorkerManager {
   }
 
   async #transferDirectParent(repositoryRoot, parentSessionId, sessionId, sessionFile) {
+    if (parentSessionId === sessionId) throw new Error("Direct-fork transfer requires distinct direct-parent and successor sessions");
     const parents = await findOwnedStores(repositoryRoot, parentSessionId);
     if (parents.length > 1) throw new Error(`Multiple worker sessions claim parent session ${parentSessionId}`);
     const store = parents[0];
@@ -1508,9 +1614,7 @@ async function recoverUnboundOwnedAttempt(repositoryRootValue, expected) {
       if (!receiptExact) throw new Error("immutable launch receipt differs from the exact config/attempt/process identity");
       const processStatus = await processIdentityStatus(receipt.supervisorPid, receipt.supervisorStartIdentity);
       if (processStatus !== "live") await assertRecoveredTerminalProcessIdentity(state, worker, attempt, paths, receipt, rootInfo.dev, processStatus);
-      let lineageSessionId = config.ownerSessionId;
-      for (const transfer of state.lineage ?? []) { if (transfer.fromSessionId !== lineageSessionId || typeof transfer.toSessionId !== "string" || !transfer.toSessionId) throw new Error("worker session lineage is discontinuous"); lineageSessionId = transfer.toSessionId; }
-      if (lineageSessionId !== state.ownerSessionId) throw new Error("worker session owner is not the exact launch-owner lineage successor");
+      assertLaunchOwnerLineage(state, config.ownerSessionId);
       const { configHash, ...configPayload } = config; const configFactCore = { kind: "worker_config", configHash, config: configPayload };
       matches.push({ workerStorageId: state.storageId, launchOwnerSessionId: config.ownerSessionId, workerId: worker.id, attemptNumber: attempt.attemptNumber, attemptNonce: attempt.attemptNonce, configHash, configFact: { ...configFactCore, hash: sha256(configFactCore) }, supervisorPid: receipt.supervisorPid, supervisorStartIdentity: receipt.supervisorStartIdentity, childPid: attempt.childPid ?? null, childStartIdentity: attempt.childStartIdentity ?? null, mailboxHash: attempt.mailboxHash ?? null, heartbeatAt: attempt.updatedAt ?? attempt.createdAt });
     } catch (error) { conflicts.push(`${entry.name}: ${error.message}`); }
@@ -1518,6 +1622,27 @@ async function recoverUnboundOwnedAttempt(repositoryRootValue, expected) {
   if (conflicts.length) throw new Error(`Unbound owned-worker launch recovery failed closed: ${conflicts.join("; ")}`);
   if (matches.length > 1) throw new Error("Unbound owned-worker launch recovery found multiple exact manager-store matches");
   return matches[0] ?? null;
+}
+
+function assertLaunchOwnerLineage(state, launchOwnerSessionId) {
+  const lineage = state.lineage ?? [];
+  const seenSessions = new Set();
+  for (let index = 0; index < lineage.length; index += 1) {
+    const transfer = lineage[index];
+    if (typeof transfer?.fromSessionId !== "string" || !transfer.fromSessionId || typeof transfer?.toSessionId !== "string" || !transfer.toSessionId || transfer.fromSessionId === transfer.toSessionId) throw new Error("Bound worker storage contains an invalid immutable direct-parent transfer");
+    if (index > 0 && lineage[index - 1].toSessionId !== transfer.fromSessionId) throw new Error("Bound worker storage contains a discontinuous immutable session lineage");
+    if ((index === 0 && seenSessions.has(transfer.fromSessionId)) || seenSessions.has(transfer.toSessionId)) throw new Error("Bound worker storage contains a cyclic or repeated immutable session successor");
+    seenSessions.add(transfer.fromSessionId); seenSessions.add(transfer.toSessionId);
+  }
+  if (state.ownerSessionId === launchOwnerSessionId) return;
+  const suffixStart = lineage.findIndex((transfer) => transfer.fromSessionId === launchOwnerSessionId);
+  if (suffixStart < 0) throw new Error("Bound worker storage lineage does not contain the exact launch owner");
+  let lineageSessionId = launchOwnerSessionId;
+  for (const transfer of lineage.slice(suffixStart)) {
+    if (transfer.fromSessionId !== lineageSessionId) throw new Error("Bound worker storage contains a discontinuous immutable launch-owner suffix");
+    lineageSessionId = transfer.toSessionId;
+  }
+  if (lineageSessionId !== state.ownerSessionId) throw new Error("Bound worker storage owner is not the immutable successor of the exact launch owner");
 }
 
 async function assertRecoveredTerminalProcessIdentity(state, worker, attempt, paths, receipt, device, processStatus) {
@@ -1563,10 +1688,12 @@ async function findOwnedStores(repositoryRoot, sessionId) {
   return stores;
 }
 
-function spawnDetachedSupervisor(supervisorPath, configPath, cwd) {
+function spawnDetachedSupervisor(supervisorPath, configPath, cwd, signal) {
+  signal?.throwIfAborted?.();
   const child = spawn(process.execPath, [supervisorPath, configPath], { cwd, detached: true, stdio: "ignore", env: { ...process.env } });
   if (!child.pid) throw new Error("Detached supervisor did not return a PID");
   child.unref();
+  child.__dagDetachedSupervisor = true;
   return child;
 }
 
@@ -1584,14 +1711,36 @@ async function resolvePiCliPath(explicit) {
   throw new Error("Unable to resolve the exact installed Pi CLI path");
 }
 
-async function waitForIdentity(pid) {
+async function waitForIdentity(pid, signal) {
   for (let attempt = 0; attempt < 50; attempt++) {
+    signal?.throwIfAborted?.();
     const identity = await processStartIdentity(pid);
     if (identity) return identity;
-    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    await abortableDelay(10, signal);
   }
   return null;
 }
+
+async function containSpawnedSupervisor(processHandle) {
+  if (!processHandle || processHandle.exitCode !== undefined && processHandle.exitCode !== null) return;
+  try {
+    if (processHandle.__dagDetachedSupervisor === true && Number.isInteger(processHandle.pid) && processHandle.pid > 0) process.kill(-processHandle.pid, "SIGTERM");
+    else processHandle.kill?.("SIGTERM");
+  } catch (error) { if (error?.code !== "ESRCH") throw error; }
+}
+
+function abortableDelay(milliseconds, signal) {
+  if (!signal) return new Promise((resolveWait) => setTimeout(resolveWait, milliseconds));
+  signal.throwIfAborted?.();
+  return new Promise((resolveWait, reject) => {
+    const timer = setTimeout(done, milliseconds);
+    function done() { signal.removeEventListener("abort", aborted); resolveWait(); }
+    function aborted() { clearTimeout(timer); signal.removeEventListener("abort", aborted); reject(signal.reason ?? new Error("Operation aborted")); }
+    signal.addEventListener("abort", aborted, { once: true });
+  });
+}
+
+function abortReason(signal) { return String(signal?.reason?.message ?? signal?.reason ?? "operation aborted").slice(0, 1024); }
 
 async function sessionIdFromFile(path) {
   if (!isAbsolute(path)) return null;

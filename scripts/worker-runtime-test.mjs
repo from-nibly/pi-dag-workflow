@@ -258,6 +258,30 @@ try {
   assert(delayedLaunch.status === "cancelling" && cancellingStatus.status === "cancelling", "late supervisor identity binding preserves concurrent cancellation state");
   await cancellingManager.detach();
 
+  const abortSessionFile = join(root, "abort-session.jsonl");
+  await writeFile(abortSessionFile, `${JSON.stringify({ type: "session", version: 3, id: "abort-parent", timestamp: new Date().toISOString(), cwd: root })}\n`);
+  const abortController = new AbortController(); let spawnSawSignal = false; const containmentSignals = [];
+  const abortManager = new WorkerManager(createFakeParentPi(), {
+    piCliPath: resolve("scripts/fixtures/fake-worker-rpc.mjs"), watchIntervalMs: 60_000,
+    spawnSupervisor: async (_supervisorPath, _configPath, _cwd, signal) => {
+      spawnSawSignal = signal === abortController.signal;
+      setTimeout(() => abortController.abort(new Error("abort exact launch boundary")), 15);
+      return { pid: 99_999_999, unref() {}, kill(signalName) { containmentSignals.push(signalName); return true; } };
+    },
+  });
+  await abortManager.attach(managerContext(root, "abort-parent", abortSessionFile));
+  let launchAborted = false;
+  try { await abortManager.launch({ task: "Abort at the reserved supervisor dispatch boundary.", launchKey: "abort-boundary" }, undefined, abortController.signal); }
+  catch (error) { launchAborted = /abort exact launch boundary/.test(error.message); }
+  assert(launchAborted && spawnSawSignal, "AbortSignal reaches reserved dispatch and supervisor spawn");
+  assert(containmentSignals.includes("SIGTERM"), "a child spawned across an abort race is explicitly contained");
+  const abortedWorker = (await abortManager.store.load()).workers[Object.keys((await abortManager.store.load()).workers)[0]];
+  assert(abortedWorker.status === "cancelled" && abortedWorker.attempts[0].ingestedAt, "aborted dispatch durably closes as cancelled instead of leaving a background-launchable attempt");
+  await abortManager.detach();
+
+  const managerSource = await readFile(resolve("extensions/dag-workflow/worker-runtime/manager.mjs"), "utf8");
+  assert(managerSource.includes("Follow the exact canonical DAG completion callback") && managerSource.includes("Do not call dag_record_completion unconditionally") && managerSource.includes("pre-bind completion must first replay its exact dag_start_work action"), "generic owned-worktree completion text defers to exact callback recovery guidance");
+
   const valid = await runSupervisor(root, "valid", 2);
   assert(valid.terminalStatus === "succeeded" && valid.reportStatus === "valid", "supervisor captures a valid terminating report");
   const repaired = await runSupervisor(root, "repair", 2);
@@ -361,6 +385,21 @@ try {
   assert(byLaunchKey.result.resultHash === inspection.result.resultHash, "latest immutable result is readable by opaque launch key");
   const historicalInspection = await manager.inspect(cancelledCompletionId);
   assert(historicalInspection.result.completionId === cancelledCompletionId && historicalInspection.result.attemptNumber === 1 && historicalInspection.result.terminalStatus === "cancelled", "completion inspection remains bound to its historical attempt after retry");
+  const postTransferState = await manager.store.load(); const postTransferWorker = postTransferState.workers[live.workerId]; const postTransferAttempt = postTransferWorker.attempts.find(({ attemptNumber }) => attemptNumber === retried.attemptNumber); const postTransferConfig = await readJson(resolve(postTransferState.repositoryRoot, postTransferAttempt.configPath));
+  const postTransferBinding = { workerStorageId: postTransferState.storageId, launchOwnerSessionId: postTransferConfig.ownerSessionId, workerId: postTransferWorker.id, attemptNumber: postTransferAttempt.attemptNumber, attemptNonce: postTransferAttempt.attemptNonce, configHash: postTransferAttempt.configHash };
+  assert(postTransferBinding.launchOwnerSessionId === "manager-descendant", "retry launched after the first transfer binds its actual launch-owner suffix root");
+  const granddaughterSessionFile = join(managerRoot, "manager-granddaughter.jsonl");
+  await writeFile(granddaughterSessionFile, `${JSON.stringify({ type: "session", version: 3, id: "manager-granddaughter", timestamp: new Date().toISOString(), cwd: managerRoot })}\n`);
+  await manager.attach(managerContext(managerRoot, "manager-granddaughter", granddaughterSessionFile, descendantSessionFile));
+  const postTransferProjection = await manager.readBoundAttempts([postTransferBinding]);
+  assert(postTransferProjection[0].launchOwnerSessionId === "manager-descendant", "post-transfer launch remains readable through the lineage suffix after another direct-parent transfer");
+  const firstPostTransferTerminal = await manager.terminalResultForBinding(postTransferBinding, { reconcile: true });
+  const lineageAfterFirstReconcile = structuredClone((await manager.store.load()).lineage);
+  const secondPostTransferTerminal = await manager.terminalResultForBinding(postTransferBinding, { reconcile: true });
+  const lineageAfterSecondReconcile = (await manager.store.load()).lineage;
+  assert(JSON.stringify(secondPostTransferTerminal) === JSON.stringify(firstPostTransferTerminal), "post-transfer terminal reconciliation replays the exact attempt result");
+  assert(JSON.stringify(lineageAfterSecondReconcile) === JSON.stringify(lineageAfterFirstReconcile), "repeated reconciliation is lineage-idempotent and never appends a same-successor/self transfer");
+  assert(JSON.stringify(lineageAfterSecondReconcile.map(({ fromSessionId, toSessionId }) => [fromSessionId, toSessionId])) === JSON.stringify([["manager-source", "manager-descendant"], ["manager-descendant", "manager-granddaughter"]]), "lineage retains direct-parent proof while launch validation starts at the launch-owner suffix");
   await manager.onAgentSettled();
   await manager.detach();
   delete process.env.FAKE_WORKER_RPC_MODE;

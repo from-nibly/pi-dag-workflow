@@ -166,7 +166,7 @@ test("agent dispatch is the sole fresh-launch boundary with exact CAS, replay, p
     await service.resumeBound(ctx, new Date(Date.parse(AT) + 1).toISOString());
     const recovery = await service.status(ctx, packet.runId);
     assert.equal(recovery.readyPackets.length, 1, "the successor owner receives one exact agent-visible in-flight recovery packet");
-    assert.equal(recovery.readyPackets[0].ownerEpoch, packet.ownerEpoch + 1);
+    assert.equal(recovery.readyPackets[0].ownerEpoch, packet.ownerEpoch, "same-process tool recovery derives the durable lock without rotating an owner epoch");
     assert.equal(recovery.readyPackets[0].recoveryDirective, normalizeDagTacticalDirectiveV1(directive), "the bounded normalized directive survives owner transfer for exact replay");
     const firstDispatch = service.dispatch(ctx, recovery.readyPackets[0], undefined, new Date(Date.parse(AT) + 2).toISOString());
     const conflictingDispatch = service.dispatch(ctx, recovery.readyPackets[0], "Conflicting concurrent directive", new Date(Date.parse(AT) + 2).toISOString());
@@ -189,13 +189,18 @@ test("agent dispatch is the sole fresh-launch boundary with exact CAS, replay, p
     assert.equal(launches, 1);
 
     terminal = { completionId: "dispatch-completion", terminalStatus: "succeeded", workerOutput: { outputRepositoryId: fx.repositoryId, outputCommonDirIdentityHash: canonicalHash({ dispatch: "common" }), outputWorktreeIdentityHash: canonicalHash({ dispatch: "worktree" }), outputSourceBase: { repositoryId: fx.repositoryId, commit: fx.baselineCommit, tree: fx.baselineTree }, outputCommit: fx.baselineCommit, outputTree: fx.baselineTree, outputObjectFormat: "sha1", candidateObservedAt: AT } };
-    const reconciled = await service.activate(ctx, prepared.genesis.runId, new Date(Date.parse(AT) + 3).toISOString());
+    const beforeNotice = await service.status(ctx, prepared.genesis.runId);
+    const notice = await service.completionNotice(ctx, { workerId: dispatched.binding.workerId, attemptNumber: dispatched.binding.attemptNumber, completionId: terminal.completionId, terminalStatus: terminal.terminalStatus });
+    assert.equal((await service.status(ctx, prepared.genesis.runId)).state.revision, beforeNotice.state.revision, "owned-worker completion notification is read-only");
+    const completionAction = (await service.nextAction(ctx, prepared.genesis.runId)).frontier.find((candidate) => candidate.operation === "record_completion" && candidate.stageAttemptId === notice.stageAttemptId);
+    assert(completionAction, "terminal observation exposes the exact semantic completion action");
+    const reconciled = await service.recordCompletion(ctx, prepared.genesis.runId, completionAction.actionId, notice.stageAttemptId, notice.completionId);
     const attempt = reconciled.state.stageAttempts[packet.stageAttemptId];
-    assert(attempt.workerResult, "worker-completion wake reconciles the exact terminal result after agent dispatch");
+    assert(attempt.workerResult, "explicit semantic completion tool records the exact terminal result after agent dispatch");
     assert.equal(reconciled.state.workerBindings[packet.stageAttemptId].resultHash, attempt.workerResult.hash);
     const acknowledgementAfterRelease = await service.dispatch(ctx, packet, directive, AT);
     assert.equal(acknowledgementAfterRelease.idempotentReplay, true);
-    assert.deepEqual(acknowledgementAfterRelease.binding, reconciled.state.workerBindings[packet.stageAttemptId], "acknowledgement-loss replay returns the durable binding after terminal reconciliation and reservation release");
+    assert.equal(canonicalHash(acknowledgementAfterRelease.binding), canonicalHash(reconciled.state.workerBindings[packet.stageAttemptId]), "acknowledgement-loss replay returns the durable binding after explicit terminal recording");
     const oversized = structuredClone(packet); oversized.packet.checks = [{ nested: { value: "x".repeat(17 * 1024) } }];
     await assert.rejects(() => service.dispatch(ctx, oversized, directive, AT), /oversized string|bounded canonical/, "nested packet data is bounded before dispatch hashing");
     const tooDeep = structuredClone(packet); let nested = {}; tooDeep.packet.checks = [nested];

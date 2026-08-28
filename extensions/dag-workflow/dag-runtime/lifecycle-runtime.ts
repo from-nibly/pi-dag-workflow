@@ -84,10 +84,10 @@ export interface DagOwnedWorkerTerminalObservationV1 {
 }
 
 export interface DagOwnedWorkerAdapterV1 {
-  launchExact(request: DagOwnedWorkerLaunchRequestV1, state: DagRunStateV1): Promise<DagOwnedWorkerLaunchObservationV1>;
-  readTerminalExact(binding: WorkerBindingV1, state: DagRunStateV1): Promise<DagOwnedWorkerTerminalObservationV1 | null>;
-  cancelExact?(binding: WorkerBindingV1, input: { effectId: string; requestHash: string }, state: DagRunStateV1): Promise<"applied_exact" | "proven_absent" | null>;
-  cleanupExact?(binding: WorkerBindingV1, input: { effectId: string; requestHash: string; launchKey: string }, state: DagRunStateV1): Promise<"applied_exact" | "proven_absent" | null>;
+  launchExact(request: DagOwnedWorkerLaunchRequestV1, state: DagRunStateV1, signal?: AbortSignal): Promise<DagOwnedWorkerLaunchObservationV1>;
+  readTerminalExact(binding: WorkerBindingV1, state: DagRunStateV1, signal?: AbortSignal, input?: { reconcile?: boolean }): Promise<DagOwnedWorkerTerminalObservationV1 | null>;
+  cancelExact?(binding: WorkerBindingV1, input: { effectId: string; requestHash: string }, state: DagRunStateV1, signal?: AbortSignal): Promise<"applied_exact" | "proven_absent" | null>;
+  cleanupExact?(binding: WorkerBindingV1, input: { effectId: string; requestHash: string; launchKey: string }, state: DagRunStateV1, signal?: AbortSignal): Promise<"applied_exact" | "proven_absent" | null>;
 }
 
 export interface DagCandidateSealingResultV1 {
@@ -109,7 +109,7 @@ export interface DagCandidateSealingResultV1 {
 }
 
 export interface DagCandidateSealingAdapterV1 {
-  inspectAndSealCandidate(input: { plan: CanonicalDagPlanV1; state: DagRunStateV1; attempt: AttemptV1; binding: WorkerBindingV1; repositoryId: string }): Promise<Record<string, unknown> | DagCandidateSealingResultV1 | null>;
+  inspectAndSealCandidate(input: { plan: CanonicalDagPlanV1; state: DagRunStateV1; attempt: AttemptV1; binding: WorkerBindingV1; repositoryId: string; signal?: AbortSignal }): Promise<Record<string, unknown> | DagCandidateSealingResultV1 | null>;
 }
 
 export interface DagProcedureExecutionResultV1 {
@@ -129,11 +129,11 @@ export interface DagProcedureExecutionAdapterV1 {
   readonly allowlistedProcedureHashes?: readonly string[];
   readonly allowlistHash?: string;
   allowsProcedure?(procedure: ProcedureCatalogBindingV1): boolean;
-  executeExact(input: { plan: CanonicalDagPlanV1; state: DagRunStateV1; attempt: AttemptV1; procedure: ProcedureCatalogBindingV1; effectId: string; requestHash: string; executionRequest: Readonly<Record<string, unknown>> }): Promise<DagProcedureExecutionResultV1 | null>;
+  executeExact(input: { plan: CanonicalDagPlanV1; state: DagRunStateV1; attempt: AttemptV1; procedure: ProcedureCatalogBindingV1; effectId: string; requestHash: string; executionRequest: Readonly<Record<string, unknown>>; signal?: AbortSignal }): Promise<DagProcedureExecutionResultV1 | null>;
 }
 
 export interface DagIntegrationReconciliationAdapterV1 {
-  reconcileExact(input: { plan: CanonicalDagPlanV1; state: DagRunStateV1; reservation: ReservationV1; repositoryRoot: string }): Promise<void>;
+  reconcileExact(input: { plan: CanonicalDagPlanV1; state: DagRunStateV1; reservation: ReservationV1; repositoryRoot: string; signal?: AbortSignal }): Promise<void>;
 }
 
 export type DagLifecycleRuntimeFailpointV1 = "after_procedure_intent" | "after_procedure_dispatch" | "after_procedure_result" | "after_procedure_execution_commit" | "after_procedure_reconcile" | "after_owned_dispatch_mark" | "after_owned_worker_launch";
@@ -169,6 +169,71 @@ export class DagLifecycleRuntimeV1 {
     this.repositoryRoot = repositoryRoot;
     this.options = options;
   }
+
+  /** Read durable owned-worker terminals without changing canonical DAG state. */
+  async terminalCompletions(stateValue?: DagRunStateV1, signal?: AbortSignal): Promise<Array<{ stageAttemptId: string; workItemId: string; stage: string; completionId: string; terminalStatus: string }>> {
+    throwIfAborted(signal);
+    const state = stateValue ?? await this.store.read(this.context);
+    if (!this.options.worker) return [];
+    const completions = [];
+    for (const attempt of Object.values(state.stageAttempts).sort((left, right) => left.stageAttemptId.localeCompare(right.stageAttemptId))) {
+      if (!["running", "settling"].includes(attempt.state) || attempt.producerKind !== "owned_worker") continue;
+      const binding = state.workerBindings[attempt.stageAttemptId];
+      if (!binding) continue;
+      throwIfAborted(signal);
+      const terminal = await this.options.worker.readTerminalExact(binding, state, signal);
+      if (terminal) completions.push({ stageAttemptId: attempt.stageAttemptId, workItemId: attempt.workItemId, stage: attempt.stage, completionId: terminal.completionId, terminalStatus: terminal.terminalStatus });
+    }
+    return completions;
+  }
+
+  /** Advance only one explicitly selected semantic reservation. */
+  async reconcileSemanticOne(reservationId: string, occurredAt: string, signal?: AbortSignal): Promise<DagLifecycleReconcileResultV1> {
+    throwIfAborted(signal);
+    const state = await this.store.read(this.context);
+    const reservation = state.scheduler.reservations[reservationId];
+    if (!reservation || ["released", "fenced", "launch_ambiguous"].includes(reservation.state)) return { state, progressed: false, waiting: false, reason: `reservation ${reservationId} is not actionable` };
+    if (reservation.state === "reserved") return this.mutate(state, "mark_scheduler_reservation_dispatch", "command", { reservationId, normalizedRequestHash: reservation.normalizedRequestHash }, occurredAt, `activate-intent-${reservationId}`);
+    if (reservation.state === "dispatch_intent") return this.mutate(state, "record_scheduler_reservation_dispatch", "observation", { reservationId, normalizedRequestHash: reservation.normalizedRequestHash, disposition: "active" }, occurredAt, `activate-observe-${reservationId}`);
+    return this.reconcileActive(state, reservation, occurredAt, signal);
+  }
+
+  /** Record exactly one durable owned-worker completion selected by the agent. */
+  async recordCompletion(stageAttemptId: string, completionId: string, occurredAt: string, signal?: AbortSignal): Promise<DagLifecycleReconcileResultV1> {
+    throwIfAborted(signal);
+    const state = await this.store.read(this.context);
+    const attempt = state.stageAttempts[stageAttemptId];
+    if (!attempt || attempt.producerKind !== "owned_worker") throw new Error("Completion does not resolve an exact owned-worker stage attempt");
+    if (attempt.workerResult) {
+      const prior = await this.store.readImmutableFact(attempt.workerResult.hash) as any;
+      if (prior?.completionId !== completionId) throw new Error("Completion identity conflicts with the canonical worker result");
+      return { state, progressed: false, waiting: false, reason: "completion already recorded" };
+    }
+    if (!["running", "settling"].includes(attempt.state)) throw new Error(`Owned-worker attempt ${stageAttemptId} is not awaiting completion`);
+    const binding = state.workerBindings[stageAttemptId];
+    if (!binding || !this.options.worker) throw new Error("Completion lacks the exact durable worker binding or adapter");
+    const terminal = await this.options.worker.readTerminalExact(binding, state, signal, { reconcile: true });
+    if (!terminal || terminal.completionId !== completionId) throw new Error("Notified completion does not match the exact durable worker terminal");
+    const result = await this.reconcileWorker(state, attempt, occurredAt, signal);
+    const recorded = result.state.stageAttempts[stageAttemptId]?.workerResult;
+    if (!recorded) throw new Error("Exact worker completion was not recorded");
+    const fact = await this.store.readImmutableFact(recorded.hash) as any;
+    if (fact?.completionId !== completionId) throw new Error("Recorded worker result changed the exact completion identity");
+    return result;
+  }
+
+  /** Finalize the canonical output of one already-recorded owned-worker result. */
+  async finalizeWorkerResult(stageAttemptId: string, occurredAt: string, signal?: AbortSignal): Promise<DagLifecycleReconcileResultV1> {
+    throwIfAborted(signal);
+    const state = await this.store.read(this.context);
+    const attempt = state.stageAttempts[stageAttemptId];
+    if (!attempt || attempt.producerKind !== "owned_worker" || attempt.state !== "result_observed" || !attempt.workerResult) throw new Error("Worker result is not ready for exact finalization");
+    return this.reconcileWorker(state, attempt, occurredAt, signal);
+  }
+
+  async reconcileCancellationOne(occurredAt: string, signal?: AbortSignal): Promise<DagLifecycleReconcileResultV1 | null> { throwIfAborted(signal); return this.reconcileCancellation(await this.store.read(this.context), occurredAt, signal); }
+  async reconcileCleanupOne(occurredAt: string, signal?: AbortSignal): Promise<DagLifecycleReconcileResultV1 | null> { throwIfAborted(signal); return this.reconcileCleanup(await this.store.read(this.context), occurredAt, signal); }
+  async reconcileCleanupAttempt(stageAttemptId: string, occurredAt: string, signal?: AbortSignal): Promise<DagLifecycleReconcileResultV1 | null> { throwIfAborted(signal); return this.reconcileCleanup(await this.store.read(this.context), occurredAt, signal, stageAttemptId); }
 
   async reconcileOne(occurredAt: string): Promise<DagLifecycleReconcileResultV1> {
     const state = await this.store.read(this.context);
@@ -212,7 +277,8 @@ export class DagLifecycleRuntimeV1 {
     return { state: fresh, progressed: false, waiting: true, reason: waitingReasons.join("; ") || "active reservations are waiting" };
   }
 
-  private async reconcileCancellation(state: DagRunStateV1, occurredAt: string): Promise<DagLifecycleReconcileResultV1 | null> {
+  private async reconcileCancellation(state: DagRunStateV1, occurredAt: string, signal?: AbortSignal): Promise<DagLifecycleReconcileResultV1 | null> {
+    throwIfAborted(signal);
     const cancellation = Object.values(state.cancellations).filter((candidate) => candidate.state !== "closed").sort((left, right) => left.requestedAt.localeCompare(right.requestedAt))[0];
     if (!cancellation) return null;
     const cancelEffects = cancellation.effectIds.map((effectId) => state.effects[effectId]).filter(Boolean);
@@ -231,15 +297,15 @@ export class DagLifecycleRuntimeV1 {
         if (!launch || !effect) return { state, progressed: false, waiting: true, reason: `pre-bind cancellation lacks exact launch authority for ${attempt.stageAttemptId}` };
         if (effect.dispatchCount === 0 && effect.state === "cancelled" && effect.reconciliation === "proven_absent") continue;
         if (effect.dispatchCount <= 0 || launch.state !== "cancel_requested" || effect.state !== "ambiguous" || effect.reconciliation !== "unknown") return { state, progressed: false, waiting: true, reason: `pre-bind cancellation launch boundary is inconsistent for ${attempt.stageAttemptId}` };
-        return { state, progressed: false, waiting: true, reason: `pre-bind cancellation for ${attempt.stageAttemptId} requires an exact dag_run_dispatch replay; reconciliation wakes never launch workers` };
+        return { state, progressed: false, waiting: true, reason: `pre-bind cancellation for ${attempt.stageAttemptId} requires an exact dag_start_work recovery; read-only notifications never launch workers` };
       }
       if (!this.options.worker) return { state, progressed: false, waiting: true, reason: "owned-worker cancellation adapter unavailable" };
       const effect = cancelEffects.find((candidate) => candidate.subject.kind === "work_item" && candidate.subject.id === attempt.workItemId && candidate.requestHash === cancelRequestHash(state, attempt, binding));
       if (!effect || !["dispatching", "reconciled"].includes(effect.state)) return { state, progressed: false, waiting: true, reason: `exact cancellation effect is not dispatching or reconciled for ${attempt.stageAttemptId}` };
       if (!this.options.worker.cancelExact) return { state, progressed: false, waiting: true, reason: "owned-worker adapter has no exact cancellation operation" };
-      const disposition = effect.state === "reconciled" ? effect.reconciliation as "applied_exact" | "proven_absent" : await this.options.worker.cancelExact(binding, { effectId: effect.effectId, requestHash: effect.requestHash }, state);
+      const disposition = effect.state === "reconciled" ? effect.reconciliation as "applied_exact" | "proven_absent" : await this.options.worker.cancelExact(binding, { effectId: effect.effectId, requestHash: effect.requestHash }, state, signal);
       if (!disposition || !["applied_exact", "proven_absent"].includes(disposition)) return { state, progressed: false, waiting: true, reason: `worker cancellation is pending for ${attempt.stageAttemptId}` };
-      const terminal = await this.options.worker.readTerminalExact(binding, state);
+      const terminal = await this.options.worker.readTerminalExact(binding, state, signal, { reconcile: true });
       if (!terminal) return { state, progressed: false, waiting: true, reason: `worker cancellation awaits the exact terminal result for ${attempt.stageAttemptId}` };
       const result = withHash({
         kind: "worker_result", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce,
@@ -270,9 +336,10 @@ export class DagLifecycleRuntimeV1 {
     return this.mutate(fresh, "record_cancellation", "observation", { ...payloadCore, resultHash }, occurredAt, `cancel-result-${cancellation.cancellationId}`);
   }
 
-  private async reconcileCleanup(state: DagRunStateV1, occurredAt: string): Promise<DagLifecycleReconcileResultV1 | null> {
+  private async reconcileCleanup(state: DagRunStateV1, occurredAt: string, signal?: AbortSignal, targetStageAttemptId?: string): Promise<DagLifecycleReconcileResultV1 | null> {
+    throwIfAborted(signal);
     if (!this.options.worker?.cleanupExact) return null;
-    const terminal = Object.values(state.stageAttempts).filter((attempt) => attempt.producerKind === "owned_worker" && attempt.terminalAt && state.workerBindings[attempt.stageAttemptId]).sort((left, right) => left.stageAttemptId.localeCompare(right.stageAttemptId));
+    const terminal = Object.values(state.stageAttempts).filter((attempt) => attempt.producerKind === "owned_worker" && attempt.terminalAt && state.workerBindings[attempt.stageAttemptId] && (!targetStageAttemptId || attempt.stageAttemptId === targetStageAttemptId)).sort((left, right) => left.stageAttemptId.localeCompare(right.stageAttemptId));
     for (const attempt of terminal) {
       const binding = state.workerBindings[attempt.stageAttemptId];
       const launch = state.launchIntents[binding.launchIntentId];
@@ -288,7 +355,7 @@ export class DagLifecycleRuntimeV1 {
       }
       if (effect.state === "intended") return this.mutate(state, "mark_effect_dispatching", "command", { effectId, expectedDispatchCount: effect.dispatchCount }, occurredAt, `cleanup-dispatch-${effectId}-${effect.dispatchCount}`);
       if (["dispatching", "ambiguous"].includes(effect.state)) {
-        const reconciliation = await this.options.worker.cleanupExact(binding, { effectId, requestHash: effect.requestHash, launchKey: launch.launchKey }, state);
+        const reconciliation = await this.options.worker.cleanupExact(binding, { effectId, requestHash: effect.requestHash, launchKey: launch.launchKey }, state, signal);
         if (!reconciliation) return { state, progressed: false, waiting: true, reason: `worker cleanup is pending for ${attempt.stageAttemptId}` };
         const fact = withHash({ kind: "effect_reconciliation", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, effectId, requestHash: effect.requestHash, reconciliation, closedAt: occurredAt });
         const reference = await this.publishRef("effect_reconciliation", effectId, fact);
@@ -299,10 +366,11 @@ export class DagLifecycleRuntimeV1 {
     return null;
   }
 
-  private async reconcileActive(state: DagRunStateV1, reservation: ReservationV1, occurredAt: string): Promise<DagLifecycleReconcileResultV1> {
+  private async reconcileActive(state: DagRunStateV1, reservation: ReservationV1, occurredAt: string, signal?: AbortSignal): Promise<DagLifecycleReconcileResultV1> {
+    throwIfAborted(signal);
     if (reservation.operationKind === "integration") {
       const integration = this.options.integration ?? new DagReducerGitIntegrationDriverV1({ store: this.store, context: this.context, lock: this.lock });
-      await integration.reconcileExact({ plan: this.plan, state, reservation, repositoryRoot: this.repositoryRoot });
+      await integration.reconcileExact({ plan: this.plan, state, reservation, repositoryRoot: this.repositoryRoot, signal });
       const fresh = await this.store.read(this.context);
       return { state: fresh, progressed: fresh.revision !== state.revision || fresh.snapshotHash !== state.snapshotHash, waiting: true, reason: `integration ${reservation.reservationId} delegated` };
     }
@@ -310,8 +378,8 @@ export class DagLifecycleRuntimeV1 {
     const currentAttempt = item?.stages[reservation.stage].currentAttemptId;
     const attempt = currentAttempt ? state.stageAttempts[currentAttempt] : null;
     if (!attempt) return this.beginAttempt(state, reservation, occurredAt);
-    if (attempt.producerKind === "owned_worker") return this.reconcileWorker(state, attempt, occurredAt);
-    return this.reconcileEvidence(state, attempt, occurredAt);
+    if (attempt.producerKind === "owned_worker") return this.reconcileWorker(state, attempt, occurredAt, signal);
+    return this.reconcileEvidence(state, attempt, occurredAt, signal);
   }
 
   private async beginAttempt(state: DagRunStateV1, reservation: ReservationV1, occurredAt: string): Promise<DagLifecycleReconcileResultV1> {
@@ -447,7 +515,8 @@ export class DagLifecycleRuntimeV1 {
     return packets;
   }
 
-  async dispatch(packet: DagOwnedWorkerReadyPacketV1, directive: string | null | undefined, occurredAt: string): Promise<DagOwnedWorkerDispatchResultV1> {
+  async dispatch(packet: DagOwnedWorkerReadyPacketV1, directive: string | null | undefined, occurredAt: string, signal?: AbortSignal): Promise<DagOwnedWorkerDispatchResultV1> {
+    throwIfAborted(signal);
     if (!this.options.worker) throw new Error("Owned-worker dispatch adapter unavailable");
     let state = await this.store.read(this.context);
     assertBoundedDagReadyPacketV1(packet);
@@ -506,7 +575,7 @@ export class DagLifecycleRuntimeV1 {
     const cancellationRecovery = currentAttempt.state === "cancelling" && currentLaunch.state === "cancel_requested" && currentEffect.state === "ambiguous" && currentEffect.reconciliation === "unknown";
     if ((!ordinaryDispatch && !cancellationRecovery) || currentEffect.dispatchCount !== 1) throw new Error("Owned-worker dispatch replay lacks exact positive dispatching or cancellation-recovery authority");
 
-    const observation = await this.options.worker.launchExact(await this.exactLaunchRequest(state, currentAttempt, normalizedDirective), state);
+    const observation = await this.options.worker.launchExact(await this.exactLaunchRequest(state, currentAttempt, normalizedDirective), state, signal);
     await this.options.failpoint?.("after_owned_worker_launch", { stageAttemptId: attempt.stageAttemptId, readyPacketHash: packet.readyPacketHash });
     const bound = await this.bindLaunchObservation(attempt.stageAttemptId, observation, occurredAt);
     const binding = bound.state.workerBindings[attempt.stageAttemptId];
@@ -563,7 +632,8 @@ export class DagLifecycleRuntimeV1 {
     return this.mutate(fresh, "bind_worker_attempt", "observation", { stageAttemptId: attempt.stageAttemptId, binding, launchObservation }, occurredAt, `bind-${attempt.stageAttemptId}`);
   }
 
-  private async reconcileWorker(state: DagRunStateV1, attempt: AttemptV1, occurredAt: string): Promise<DagLifecycleReconcileResultV1> {
+  private async reconcileWorker(state: DagRunStateV1, attempt: AttemptV1, occurredAt: string, signal?: AbortSignal): Promise<DagLifecycleReconcileResultV1> {
+    throwIfAborted(signal);
     if (!attempt.launchIntentId) return { state, progressed: false, waiting: true, reason: "owned attempt lacks launch intent" };
     const launch = state.launchIntents[attempt.launchIntentId];
     const effect = launch ? state.effects[launch.effectId] : null;
@@ -572,20 +642,20 @@ export class DagLifecycleRuntimeV1 {
     if (!state.workerBindings[attempt.stageAttemptId] && ["dispatchable", "launching"].includes(attempt.state)) {
       const modernReady = launch.dispatchProtocolVersion === 1 && attempt.state === "dispatchable" && launch.state === "dispatchable" && effect.state === "intended";
       return { state, progressed: false, waiting: true, reason: modernReady
-        ? `owned worker ${attempt.stageAttemptId} is ready; inspect the exact ready packet and call dag_run_dispatch`
-        : `unbound legacy or in-flight owned launch ${attempt.stageAttemptId} is fail-closed; only an exact dag_run_dispatch replay may launch or bind it` };
+        ? `owned worker ${attempt.stageAttemptId} is ready; call dag_start_work for its exact semantic action`
+        : `unbound legacy or in-flight owned launch ${attempt.stageAttemptId} is fail-closed; only dag_start_work may derive the exact recovery packet and launch or bind it` };
     }
 
     if (["running", "settling"].includes(attempt.state)) {
       if (!this.options.worker) return { state, progressed: false, waiting: true, reason: "owned-worker adapter unavailable" };
       const binding = state.workerBindings[attempt.stageAttemptId];
       if (!binding) return { state, progressed: false, waiting: true, reason: "owned-worker binding unavailable" };
-      const terminal = await this.options.worker.readTerminalExact(binding, state);
+      const terminal = await this.options.worker.readTerminalExact(binding, state, signal, { reconcile: true });
       if (!terminal) return { state, progressed: false, waiting: true, reason: "owned worker still active" };
       let workerOutput: DagCandidateSealingResultV1["workerOutput"] | null = terminal.workerOutput ?? null;
       if (terminal.terminalStatus === "succeeded" && ["F1", "F3"].includes(attempt.stage)) {
         if (!this.options.candidate) return { state, progressed: false, waiting: true, reason: `${attempt.stage} candidate output observation adapter unavailable` };
-        const sealed = await this.options.candidate.inspectAndSealCandidate({ plan: this.plan, state, attempt, binding, repositoryId: state.workItems[attempt.workItemId].writeRepositoryId });
+        const sealed = await this.options.candidate.inspectAndSealCandidate({ plan: this.plan, state, attempt, binding, repositoryId: state.workItems[attempt.workItemId].writeRepositoryId, signal });
         const candidateOutput = (sealed as DagCandidateSealingResultV1 | null)?.workerOutput ?? null;
         if (workerOutput && candidateOutput && canonicalHash(workerOutput) !== canonicalHash(candidateOutput)) throw new Error(`${attempt.stage} terminal and candidate adapters disagree on exact Git output identity`);
         workerOutput = candidateOutput ?? workerOutput;
@@ -623,7 +693,7 @@ export class DagLifecycleRuntimeV1 {
       if (resultFact.terminalStatus === "succeeded" && ["F1", "F3"].includes(attempt.stage) && state.workItems[attempt.workItemId].candidate?.producedByStageAttemptId !== attempt.stageAttemptId) {
         if (!this.options.candidate) return { state, progressed: false, waiting: true, reason: `${attempt.stage} candidate sealing adapter unavailable` };
         const binding = state.workerBindings[attempt.stageAttemptId];
-        const sealed = await this.options.candidate.inspectAndSealCandidate({ plan: this.plan, state, attempt, binding, repositoryId: state.workItems[attempt.workItemId].writeRepositoryId });
+        const sealed = await this.options.candidate.inspectAndSealCandidate({ plan: this.plan, state, attempt, binding, repositoryId: state.workItems[attempt.workItemId].writeRepositoryId, signal });
         if (!sealed) return { state, progressed: false, waiting: true, reason: "candidate is not sealed" };
         const candidate = (sealed as DagCandidateSealingResultV1).candidate ?? sealed as Record<string, unknown>;
         const transitionFromAdapter = (sealed as DagCandidateSealingResultV1).candidate ? (sealed as DagCandidateSealingResultV1).f2Transition : undefined;
@@ -632,7 +702,7 @@ export class DagLifecycleRuntimeV1 {
         const candidateGit = (candidate as any).git;
         // F3 is codification, not a second implementation lineage. Exact no-delta output
         // reuses the F1 candidate and proceeds without consuming a generation.
-        if (attempt.stage === "F3" && prior && canonicalHash(candidateGit) === canonicalHash(prior.git)) return this.reconcileEvidence(state, attempt, occurredAt);
+        if (attempt.stage === "F3" && prior && canonicalHash(candidateGit) === canonicalHash(prior.git)) return this.reconcileEvidence(state, attempt, occurredAt, signal);
         const reference = await this.publishRef("candidate", String((candidate as any).candidateId ?? attempt.stageAttemptId), candidate);
         let f2Transition: any = undefined;
         if (attempt.stage === "F3") {
@@ -654,12 +724,13 @@ export class DagLifecycleRuntimeV1 {
       }
       // Genuine retry-safe failed/cancelled/lost results still execute the exact catalog
       // evidence adapter and must seal a non-PASS disposition instead of waiting forever.
-      return this.reconcileEvidence(state, attempt, occurredAt);
+      return this.reconcileEvidence(state, attempt, occurredAt, signal);
     }
     return { state, progressed: false, waiting: true, reason: `attempt ${attempt.stageAttemptId} is ${attempt.state}` };
   }
 
-  private async reconcileEvidence(state: DagRunStateV1, attempt: AttemptV1, occurredAt: string): Promise<DagLifecycleReconcileResultV1> {
+  private async reconcileEvidence(state: DagRunStateV1, attempt: AttemptV1, occurredAt: string, signal?: AbortSignal): Promise<DagLifecycleReconcileResultV1> {
+    throwIfAborted(signal);
     if (!this.options.procedure) return { state, progressed: false, waiting: true, reason: "immutable catalog command mapping is absent; lifecycle procedure execution is blocked" };
     const adapter = this.options.procedure;
     const allowlist = [...(adapter.allowlistedProcedureHashes ?? [])].sort();
@@ -702,7 +773,7 @@ export class DagLifecycleRuntimeV1 {
     if (effect.state === "dispatching") {
       let observation = await this.findDurableProcedureObservation(effect);
       if (!observation) {
-        const output = await adapter.executeExact({ plan: this.plan, state, attempt, procedure, effectId, requestHash, executionRequest });
+        const output = await adapter.executeExact({ plan: this.plan, state, attempt, procedure, effectId, requestHash, executionRequest, signal });
         if (!output) return { state, progressed: false, waiting: true, reason: "lifecycle procedure is blocked" };
         assertProcedureOutput(output, state, attempt, procedure);
         if ((output.evidence as any).effectReconciliationHashes?.length !== 0) throw new Error("Procedure adapter cannot pre-authorize its own effect reconciliation closure");
@@ -970,4 +1041,10 @@ function cancellationAffects(state: DagRunStateV1, scope: string, workItemIds: s
 
 function opaqueId(prefix: string, value: unknown): string {
   return `${prefix}-${canonicalHash(value).slice("sha256:".length, "sha256:".length + 32)}`;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  if (typeof signal.throwIfAborted === "function") signal.throwIfAborted();
+  throw signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted", "AbortError");
 }

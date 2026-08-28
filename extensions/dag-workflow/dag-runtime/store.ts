@@ -46,6 +46,7 @@ export interface DagRunStoreMutationV1 {
   input: DagRunInputV1;
   context: DagRunValidationContextV1;
   lock: DagRunStoreLockIdentityV1;
+  signal?: AbortSignal;
 }
 
 export class DagRunStoreLockedError extends Error {
@@ -170,11 +171,14 @@ export class DagRunSnapshotStoreV1 {
     }
   }
 
-  async mutate({ input, context, lock }: DagRunStoreMutationV1): Promise<DagRunReducerResultV1> {
+  async mutate({ input, context, lock, signal }: DagRunStoreMutationV1): Promise<DagRunReducerResultV1> {
     let committedState: DagRunStateV1 | null = null;
     try {
+      signal?.throwIfAborted?.();
       await this.ensureDirectories();
+      signal?.throwIfAborted?.();
       return await this.withLock(lock, async () => {
+      signal?.throwIfAborted?.();
       const current = await this.read(context);
       this.assertPostCommitEvaluationBinding(current);
       let effectiveContext = await this.contextWithReferencedFacts(current, context);
@@ -206,14 +210,18 @@ export class DagRunSnapshotStoreV1 {
           currentRevision: current.revision, blockerIds: Object.values(current.blockers).filter(({ active }) => active).map(({ blockerId }) => blockerId).sort(),
         };
       }
+      signal?.throwIfAborted?.();
       const reduced = reduceDagRunV1(current, input, effectiveContext);
       if (!reduced.accepted || reduced.duplicate) return reduced;
       this.assertPostCommitEvaluationBinding(reduced.state);
+      signal?.throwIfAborted?.();
       await this.archiveSnapshot(current);
       await this.archiveSnapshot(reduced.state);
       await this.options.failpoint?.("after_archive");
+      signal?.throwIfAborted?.();
       await this.writeSnapshot(reduced.state);
       committedState = reduced.state;
+      signal?.throwIfAborted?.();
       await this.pruneSnapshotArchives(reduced.state);
       return reduced;
       });
@@ -222,18 +230,22 @@ export class DagRunSnapshotStoreV1 {
     }
   }
 
-  async putImmutableFact(value: unknown): Promise<{ hash: string; path: string; bytes: number }> {
+  async putImmutableFact(value: unknown, signal?: AbortSignal): Promise<{ hash: string; path: string; bytes: number }> {
+    signal?.throwIfAborted?.();
     const normalized = parseStrictJson(canonicalStringify(value));
     const text = canonicalStringify(normalized);
     const hash = immutableFactHash(normalized);
     const path = join(this.factsDirectory, `${hash.slice("sha256:".length)}.json`);
     await this.ensureDirectories();
+    signal?.throwIfAborted?.();
     if (await exists(path)) {
       const existing = await readFile(path, "utf8");
       if (existing !== text) throw new DagRunStoreCorruptError(`Immutable fact collision at ${path}`);
       await fsyncDirectory(this.factsDirectory);
+      signal?.throwIfAborted?.();
       return { hash, path, bytes: Buffer.byteLength(text) };
     }
+    signal?.throwIfAborted?.();
     try { await durablePublishImmutable(path, text, async () => this.options.failpoint?.("after_immutable_link")); }
     catch (error: any) {
       if (error?.code !== "EEXIST") throw error;
@@ -241,6 +253,7 @@ export class DagRunSnapshotStoreV1 {
       if (existing !== text) throw new DagRunStoreCorruptError(`Immutable fact race conflict at ${path}`);
     }
     await fsyncDirectory(this.factsDirectory);
+    signal?.throwIfAborted?.();
     return { hash, path, bytes: Buffer.byteLength(text) };
   }
 

@@ -158,9 +158,9 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
   registerTool(pi, {
     name: "dag_model_present_review",
     label: "Present Model Review",
-    description: "Render and present the active hash-bound model review through the optional Lavish adapter without mutating semantic outcomes.",
+    description: "Present an active hash-bound model review, nonblockingly collect already-submitted feedback without reopening it, explicitly resume waiting, or end the session. Presentation never mutates semantic outcomes.",
     parameters: Type.Object({
-      action: Type.Optional(StringEnum(["present", "resume", "end"] as const)),
+      action: Type.Optional(StringEnum(["present", "collect", "resume", "end"] as const)),
       presentationBlocks: Type.Optional(Type.Array(VALUE_SCHEMA)),
       reopen: Type.Optional(Type.Boolean()),
     }),
@@ -177,16 +177,17 @@ export function registerProjectModelIntegration(pi: ExtensionAPI) {
         if (!marked) throw new Error("Active review changed before Lavish presentation completed");
       };
       const action = params.action ?? "present";
-      if (action === "end") return asToolResult(await manager.end(projection, runtime.signal), "present_review.end");
-      const result = action === "resume"
-        ? await manager.resume(projection, { signal: runtime.signal, onUpdate, onPresented, reopen: params.reopen })
-        : await manager.present(projection, { signal: runtime.signal, onUpdate, onPresented });
-      if (result.feedback.prompts.length) {
-        const current = await domain(ctx.cwd).reviewTurn(focusId);
-        if (current.review.id !== projection.review.id || current.review.semanticHash !== projection.review.semanticHash) throw new Error("Lavish feedback no longer matches the active review");
-        currentInteractionRef = lavishFeedbackInteractionRef(projection.review.id, projection.review.semanticHash, result.feedback);
-      }
-      return asToolResult({ action: `present_review.${action}`, focusId, reviewId: projection.review.id, artifactPath: result.paths.html, status: result.metadata.status, feedback: result.feedback }, `present_review.${action}`);
+      const result = action === "end"
+        ? await manager.end(projection, runtime.signal)
+        : action === "collect"
+          ? await manager.collect(projection, { signal: runtime.signal, onUpdate })
+          : action === "resume"
+            ? await manager.resume(projection, { signal: runtime.signal, onUpdate, onPresented, reopen: params.reopen })
+            : await manager.present(projection, { signal: runtime.signal, onUpdate, onPresented });
+      const current = await domain(ctx.cwd).reviewTurn(focusId);
+      const feedbackMatchesActiveReview = feedbackMatchesReviewHash(result.metadata.reviewHash, current.review.semanticHash);
+      if (result.feedback.prompts.length && feedbackMatchesActiveReview) currentInteractionRef = lavishFeedbackInteractionRef(current.review.id, current.review.semanticHash, result.feedback);
+      return asToolResult({ action: `present_review.${action}`, focusId, reviewId: projection.review.id, artifactPath: result.paths.html, status: result.metadata.status, feedbackMatchesActiveReview, feedback: result.feedback }, `present_review.${action}`);
     },
   });
 
@@ -369,6 +370,10 @@ function asToolResult(value: any, action: string) {
     content: [{ type: "text", text: truncated.content }],
     details: { action, ...(value && typeof value === "object" ? compactDetails(value) : {}) },
   };
+}
+
+export function feedbackMatchesReviewHash(feedbackReviewHash: string, currentReviewHash: string): boolean {
+  return feedbackReviewHash === currentReviewHash;
 }
 
 export function lavishFeedbackInteractionRef(reviewId: string, reviewHash: string, feedback: LavishFeedback): string {

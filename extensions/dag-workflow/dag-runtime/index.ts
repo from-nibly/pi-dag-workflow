@@ -105,6 +105,9 @@ export {
   DagConductorServiceV1,
   type DagConductorContextV1,
   type DagMutationGuardV1,
+  type DagNextActionResultV1,
+  type DagSemanticActionV1,
+  type DagSemanticOperationV1,
   type DagRunStartInputV1,
   type DagSessionRunBindingV1,
 } from "./conductor.ts";

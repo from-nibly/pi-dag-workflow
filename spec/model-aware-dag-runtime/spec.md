@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:617a84f60a1c704e54798e2e2c9b010f35f6c60a7ca83e6149bda9376b146dd0 -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:a5ba0f612e52da78b0876e792ba501903f893924f91d1f1cbcc7003d87a65a67 -->
 
 # Model-aware DAG planning and execution
 
@@ -551,6 +551,38 @@ DagExecutionProjectionV2 preserves the exact plan/run/scheduler/worker join and 
 The top-level conversational agent is the DAG orchestrator. For each canonically ready and admissible work item or stage, the agent invokes `dag_run_dispatch` over one exact ready packet. The tool atomically revalidates current run authority, readiness, admission, gates, concurrency, and generations; persists or consumes the exact reservation and launch intent; invokes the owned worker manager; and records the canonical binding or durable launch ambiguity. Generic `subagent` remains DAG-agnostic and cannot consume canonical DAG work. Each dispatch may include a bounded agent-authored tactical directive, while an immutable canonical envelope preserves objective, stage role, repository/worktree and edit boundaries, required checks, and completion identity. The directive and final prompt hash are recorded. Timers, session wakes, `agent_end`, and background conductor pumps may reconcile durable observations and surface attention but must not autonomously launch new DAG workers. The agent continues only independent orchestration work and settles at worker dependency barriers so completion follow-ups resume orchestration.
 
 **Rationale.** Visible agent tool calls should own launch timing and tactical worker guidance, while a dedicated canonical dispatch mutation preserves exact reducer and worker-runtime authority without coupling generic subagents to DAG internals.
+
+<a id="obj-dec-tool-driven-dag-public-action-surface"></a>
+
+### Use explicit semantic tools for top-level DAG orchestration
+
+Expose `dag_next_action` and named semantic mutation tools for starting work, recording completion, integration, retry, cancellation, and finalization. Tools derive internal revisions, epochs, hashes, locks, and idempotency identities rather than requiring routine agent transport of those fields.
+
+**Rationale.** Named operations preserve a visible, understandable orchestration history while code retains safety invariants.
+
+<a id="obj-dec-dag-next-action-returns-independent-frontier"></a>
+
+### Return the full independent semantic frontier
+
+`dag_next_action` returns all currently admissible independent semantic actions with explanations and any mutex or concurrency constraints. The top-level agent chooses which to perform and in what order.
+
+**Rationale.** The agent remains the orchestrator without forcing artificial serialization.
+
+<a id="obj-dec-canonical-completion-recorded-by-agent-tool"></a>
+
+### Record canonical worker completion through an explicit agent tool call
+
+Owned-worker completion delivery starts a follow-up turn containing the exact run and completion identities. The top-level agent calls `dag_record_completion`, which validates the durable worker binding and records the result before returning next-action guidance. Completion notification itself does not mutate canonical DAG state.
+
+**Rationale.** The callback keeps work moving while canonical mutation remains visible and agent-driven.
+
+<a id="obj-dec-tool-driven-dag-preserves-canonical-run-history"></a>
+
+### Preserve canonical run history while removing conductor ceremony
+
+The tool-driven cutover preserves current canonical run snapshots, worker bindings, lifecycle evidence, and historical readers. It removes timer pumps and process-local conductor-generation requirements from normal operation. Tools derive operation-scoped consistency guards and perform safe same-session resume or proven-dead-owner recovery without requiring the agent to transport internal lock and hash fields.
+
+**Rationale.** Existing evidence remains usable while routine operation becomes simple.
 
 ## Accepted representative failure scenarios
 

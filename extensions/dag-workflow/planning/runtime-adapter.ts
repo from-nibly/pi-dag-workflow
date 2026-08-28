@@ -106,9 +106,9 @@ export function createBuiltInLifecycleProcedureAdapterV1(input: { repositoryRoot
   return {
     adapterKind: "immutable-catalog-command-v1",
     allowsProcedure: isBuiltInProcedure,
-    async executeExact({ plan, state, attempt, procedure }) {
+    async executeExact({ plan, state, attempt, procedure, signal }) {
       if (!isBuiltInProcedure(procedure)) throw new Error("Lifecycle procedure is not an exact built-in compatibility mapping");
-      return executeLifecycleProcedure(repositoryRoot, plan, state, attempt, procedure);
+      return executeLifecycleProcedure(repositoryRoot, plan, state, attempt, procedure, signal);
     },
   };
 }
@@ -381,7 +381,9 @@ async function executeLifecycleProcedure(
   state: DagRunStateV1,
   attempt: StageAttempt,
   procedure: ProcedureCatalogBindingV1,
+  signal?: AbortSignal,
 ): Promise<DagProcedureExecutionResultV1> {
+  signal?.throwIfAborted?.();
   const item = state.workItems[attempt.workItemId];
   const planItem = plan.workItems.find(({ workItemId }) => workItemId === attempt.workItemId);
   const repository = item && plan.repositories.find(({ repositoryId }) => repositoryId === item.writeRepositoryId);
@@ -408,13 +410,13 @@ async function executeLifecycleProcedure(
   let observationHash = workerResult?.hash ?? canonicalHash({ repository: repository.baseline, stage: attempt.stage });
   try {
     const commit = candidateTree.commit;
-    const observedTree = await git(repositoryRoot, ["rev-parse", `${commit}^{tree}`]);
+    const observedTree = await git(repositoryRoot, ["rev-parse", `${commit}^{tree}`], signal);
     if (observedTree !== candidateTree.tree) throw new Error("candidate tree mismatch");
-    await git(repositoryRoot, ["cat-file", "-e", `${commit}^{commit}`]);
-    await git(repositoryRoot, ["diff-tree", "--check", "--root", commit]);
-    const ancestor = await gitResult(repositoryRoot, ["merge-base", "--is-ancestor", repository.baseline.commit, commit]);
+    await git(repositoryRoot, ["cat-file", "-e", `${commit}^{commit}`], signal);
+    await git(repositoryRoot, ["diff-tree", "--check", "--root", commit], signal);
+    const ancestor = await gitResult(repositoryRoot, ["merge-base", "--is-ancestor", repository.baseline.commit, commit], signal);
     if (ancestor.exitCode !== 0) throw new Error("candidate is not descended from the exact baseline");
-    if (attempt.stage === "F7" && await git(repositoryRoot, ["status", "--porcelain=v2", "--untracked-files=all"]) !== "") throw new Error("F7 requires a clean repository root");
+    if (attempt.stage === "F7" && await git(repositoryRoot, ["status", "--porcelain=v2", "--untracked-files=all"], signal) !== "") throw new Error("F7 requires a clean repository root");
     if (workerResult && ["F2", "F5", "F6"].includes(attempt.stage)) {
       if (workerResult.outputRepositoryId !== repository.repositoryId
         || workerResult.outputCommit !== candidateTree.commit || workerResult.outputTree !== candidateTree.tree
@@ -424,7 +426,8 @@ async function executeLifecycleProcedure(
       }
     }
     observationHash = workerResult?.hash ?? canonicalHash({ repositoryId: repository.repositoryId, commit, tree: observedTree, stage: attempt.stage });
-  } catch {
+  } catch (error: any) {
+    if (signal?.aborted || error?.name === "AbortError" || error?.code === "ABORT_ERR") throw error;
     disposition = "FAIL";
   }
   const common = {
@@ -437,7 +440,7 @@ async function executeLifecycleProcedure(
     if (!candidateHash || !item.candidate) disposition = "BLOCKED";
     const identities = workerResult && ["F2", "F5"].includes(attempt.stage)
       ? { commonDirIdentityHash: workerResult.outputCommonDirIdentityHash, worktreeIdentityHash: workerResult.outputWorktreeIdentityHash }
-      : await repositoryIdentities(repositoryRoot);
+      : await repositoryIdentities(repositoryRoot, signal);
     if (!identities.commonDirIdentityHash || !identities.worktreeIdentityHash) disposition = "FAIL";
     workspaceMaterialization = withHash({ kind: "workspace_materialization", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stageAttemptId: attempt.stageAttemptId, repositoryId: repository.repositoryId, candidateGeneration, candidateHash: candidateHash!, candidateTree, ...identities, materializedAt: state.updatedAt });
     environmentObservation = withHash({ kind: "environment_observation", ...common, repositoryId: repository.repositoryId, candidateGeneration, candidateHash: candidateHash!, candidateTree, environmentProfileHash: procedure.environmentProfileHash, workspaceMaterializationHash: workspaceMaterialization.hash, ...identities, cleanliness: disposition === "PASS" ? "clean" : "unknown", observedAt: state.updatedAt });
@@ -592,13 +595,13 @@ function assertUnique(values: string[], label: string): void {
   if (new Set(values).size !== values.length) throw new Error(`Duplicate ${label} are not compatible with CanonicalDagPlanV1`);
 }
 
-async function repositoryIdentities(repositoryRoot: string): Promise<{ commonDirIdentityHash: string; worktreeIdentityHash: string }> {
-  const common = resolve(repositoryRoot, await git(repositoryRoot, ["rev-parse", "--git-common-dir"]));
+async function repositoryIdentities(repositoryRoot: string, signal?: AbortSignal): Promise<{ commonDirIdentityHash: string; worktreeIdentityHash: string }> {
+  const common = resolve(repositoryRoot, await git(repositoryRoot, ["rev-parse", "--git-common-dir"], signal));
   return { commonDirIdentityHash: canonicalHash({ realPath: await realpath(common) }), worktreeIdentityHash: canonicalHash({ realPath: await realpath(repositoryRoot) }) };
 }
 
-async function git(cwd: string, args: string[]): Promise<string> {
-  const result = await run("git", args, { cwd, encoding: "utf8", maxBuffer: 4 * 1024 * 1024, env: { ...process.env, LC_ALL: "C", LANG: "C", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" } });
+async function git(cwd: string, args: string[], signal?: AbortSignal): Promise<string> {
+  const result = await run("git", args, { cwd, encoding: "utf8", maxBuffer: 4 * 1024 * 1024, signal, env: { ...process.env, LC_ALL: "C", LANG: "C", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" } });
   return result.stdout.trim();
 }
 
@@ -607,7 +610,7 @@ async function gitBuffer(cwd: string, args: string[]): Promise<Buffer> {
   return result.stdout as Buffer;
 }
 
-async function gitResult(cwd: string, args: string[]): Promise<{ exitCode: number }> {
-  try { await git(cwd, args); return { exitCode: 0 }; }
-  catch (error: any) { return { exitCode: Number.isInteger(error?.code) ? error.code : 1 }; }
+async function gitResult(cwd: string, args: string[], signal?: AbortSignal): Promise<{ exitCode: number }> {
+  try { await git(cwd, args, signal); return { exitCode: 0 }; }
+  catch (error: any) { if (signal?.aborted || error?.name === "AbortError" || error?.code === "ABORT_ERR") throw error; return { exitCode: Number.isInteger(error?.code) ? error.code : 1 }; }
 }

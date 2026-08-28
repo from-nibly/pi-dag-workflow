@@ -12,7 +12,9 @@ import { ProjectModelStore } from "../extensions/dag-workflow/project-model/stor
 import { LavishCliAdapter, parsePollOutput } from "../extensions/dag-workflow/project-model/lavish-cli.ts";
 import { ReviewPresentationManager } from "../extensions/dag-workflow/project-model/review-presentation.ts";
 import { renderReviewTurn } from "../extensions/dag-workflow/project-model/review-renderer.ts";
-import { lavishFeedbackInteractionRef } from "../extensions/dag-workflow/project-model/integration.ts";
+import { feedbackMatchesReviewHash, lavishFeedbackInteractionRef } from "../extensions/dag-workflow/project-model/integration.ts";
+
+assert(feedbackMatchesReviewHash("review-current", "review-current") && !feedbackMatchesReviewHash("review-stale", "review-current"), "Lavish feedback binding rejects a review that changed while collection was in flight");
 
 async function testDomainAndProjection() {
   await withTemp("domain", async (root) => {
@@ -81,6 +83,8 @@ async function testDomainAndProjection() {
 const c=a[0]==="poll"||a[0]==="end"?a[0]:"open";
 const f=c==="open"?a[0]:a[1];
 if(c==="poll"&&process.env.FAKE_MODE==="wait")await new Promise(r=>setTimeout(r,30000));
+if(c==="end"&&process.env.FAKE_MODE==="end-fail"){process.stderr.write("end failed");process.exit(2);}
+if(c==="poll"&&process.env.FAKE_MODE==="collect-fail"){process.stderr.write("collect failed");process.exit(2);}
 const session=(status,extra="")=>"session:\n  file: "+f+"\n  status: "+status+"\n"+extra;
 if(c==="poll"&&process.env.FAKE_MODE==="ended")process.stdout.write(session("ended","  session_ended: true\n  ended_by: user\nprompts[0]:\nlayout_warnings[0]:\n"));
 else if(c==="poll")process.stdout.write(session("feedback","prompts[1]:\n  - uid: \"1\"\n    prompt: \"Selected option\"\n    selector: \"#point-one\"\n    tag: model-review\n    text: \"Select One\"\nlayout_warnings[0]:\n"));
@@ -121,15 +125,37 @@ process.stdout.write("session:\n  file: "+args[0]+"\n  status: opened\n");
     assert(feedbackRef.startsWith(`lavish-feedback:${turn.review.id}:sha256:`) && !feedbackRef.includes("Selected option"), "Lavish feedback binds a hash-only human interaction receipt");
     assert(phases.includes("rendered") && phases.includes("waiting") && phases.includes("feedback"), "production lifecycle reports long-running phases");
     assert(Boolean((await domain.sessions.load(focus.id)).activeReview?.presentedAt), "successful Lavish open records presentation before resolution");
+    const artifactBeforeCollect = await readFile(feedbackManager.paths(turn).html, "utf8");
+    const collected = await feedbackManager.collect(turn);
+    assert(collected.metadata.status === "feedback" && collected.feedback.prompts.length === 1, "nonblocking collection consumes already-submitted feedback");
+    assert(await readFile(feedbackManager.paths(turn).html, "utf8") === artifactBeforeCollect, "feedback collection never rerenders the existing artifact");
+    let duplicatePresentRejected = false;
+    try { await feedbackManager.present(turn, { noOpen: true }); } catch (error) { duplicatePresentRejected = String(error.message).includes("already presented"); }
+    assert(duplicatePresentRejected, "re-presenting an exact live review fails before replacing queued browser state");
 
     const waitManager = new ReviewPresentationManager(root, { cli: new LavishCliAdapter({ command: process.execPath, argsPrefix: [fakeLavish], env: { FAKE_MODE: "wait" } }) });
     const controller = new AbortController(); setTimeout(() => controller.abort(), 30);
+    const waiting = waitManager.resume(turn, { signal: controller.signal });
+    let concurrentCollectRejected = false;
+    try { await waitManager.collect(turn); } catch (error) { concurrentCollectRejected = String(error.message).includes("already active"); }
+    assert(concurrentCollectRejected, "concurrent presentation and collection cannot race or replace review metadata");
     let aborted = false;
-    try { await waitManager.resume(turn, { signal: controller.signal }); } catch (error) { aborted = error?.name === "AbortError"; }
+    try { await waiting; } catch (error) { aborted = error?.name === "AbortError"; }
     assert(aborted, "aborting a production Lavish poll propagates AbortError");
     assert((await waitManager.readMetadata(waitManager.paths(turn)))?.status === "interrupted", "aborted production poll remains resumable");
     const resumed = await feedbackManager.resume(turn);
     assert(resumed.metadata.status === "feedback", "production poll resumes the stable artifact");
+    const failingEndManager = new ReviewPresentationManager(root, { cli: new LavishCliAdapter({ command: process.execPath, argsPrefix: [fakeLavish], env: { FAKE_MODE: "end-fail" } }) });
+    let failedEndRejected = false;
+    try { await failingEndManager.end(turn); } catch { failedEndRejected = true; }
+    assert(failedEndRejected && (await failingEndManager.readMetadata(failingEndManager.paths(turn)))?.status === "interrupted", "failed end never publishes stale ended authority");
+    const failingDrainManager = new ReviewPresentationManager(root, { cli: new LavishCliAdapter({ command: process.execPath, argsPrefix: [fakeLavish], env: { FAKE_MODE: "collect-fail" } }) });
+    let failedDrainRejected = false;
+    try { await failingDrainManager.end(turn); } catch { failedDrainRejected = true; }
+    const failedDrainMetadata = await failingDrainManager.readMetadata(failingDrainManager.paths(turn));
+    assert(failedDrainRejected && failedDrainMetadata?.status === "interrupted" && !failedDrainMetadata.feedbackDrainedAt, "failed final drain never publishes stale ended authority");
+    const agentEnded = await feedbackManager.end(turn);
+    assert(agentEnded.metadata.status === "ended" && Boolean(agentEnded.metadata.feedbackDrainedAt) && agentEnded.feedback.prompts.length === 1, "successful end drains final queued feedback before replacement is allowed");
 
     const endedManager = new ReviewPresentationManager(root, { cli: new LavishCliAdapter({ command: process.execPath, argsPrefix: [fakeLavish], env: { FAKE_MODE: "ended" } }) });
     const endedPresentation = await endedManager.resume(turn);
@@ -138,7 +164,7 @@ process.stdout.write("session:\n  file: "+args[0]+"\n  status: opened\n");
     try { await endedManager.resume(turn); } catch (error) { implicitReopenRejected = String(error.message).includes("explicit reopen"); }
     assert(implicitReopenRejected, "user-ended Lavish sessions do not resume implicitly");
     let implicitPresentRejected = false;
-    try { await feedbackManager.present(turn, { noOpen: true }); } catch (error) { implicitPresentRejected = String(error.message).includes("explicit reopen"); }
+    try { await feedbackManager.present(turn, { noOpen: true }); } catch (error) { implicitPresentRejected = String(error.message).includes("ended by the user"); }
     assert(implicitPresentRejected, "user-ended Lavish sessions do not restart through present");
     await feedbackManager.cleanup(focus.id, turn.review.id);
 

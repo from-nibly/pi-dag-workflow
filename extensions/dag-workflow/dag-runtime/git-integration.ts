@@ -185,36 +185,41 @@ export interface RepositoryBindingV1 {
 export interface GitOperationGuardV1 { effectId: string; requestHash: string; ownerEpoch: number; }
 export interface GitIntegrationLockHandleV1 { binding: RepositoryBindingV1; identityHash: string; recoveredStaleIdentityHashes: string[]; release(): Promise<void>; }
 
-export async function readRepositoryBindingIdentityV1(repositoryRoot: string): Promise<GitIntegrationRequestV1["expectedRepositoryBinding"]> {
-  const root = await realpath(repositoryRoot); const commonDir = await realpath(resolve(root, (await git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim())); const gitDir = await realpath(resolve(root, (await git(root, ["rev-parse", "--path-format=absolute", "--git-dir"])).trim()));
-  const commonStat = await stat(commonDir); const gitStat = await stat(gitDir); const objectFormat = (await git(root, ["rev-parse", "--show-object-format"])).trim() as "sha1" | "sha256"; const gitVersion = (await git(root, ["--version"])).trim(); const configText = await git(root, ["config", "--local", "--null", "--list"], { allowExit: [0, 1] });
+export async function readRepositoryBindingIdentityV1(repositoryRoot: string, signal?: AbortSignal): Promise<GitIntegrationRequestV1["expectedRepositoryBinding"]> {
+  signal?.throwIfAborted?.();
+  const root = await realpath(repositoryRoot); const commonDir = await realpath(resolve(root, (await git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"], { signal })).trim())); const gitDir = await realpath(resolve(root, (await git(root, ["rev-parse", "--path-format=absolute", "--git-dir"], { signal })).trim()));
+  const commonStat = await stat(commonDir); const gitStat = await stat(gitDir); const objectFormat = (await git(root, ["rev-parse", "--show-object-format"], { signal })).trim() as "sha1" | "sha256"; const gitVersion = (await git(root, ["--version"], { signal })).trim(); const configText = await git(root, ["config", "--local", "--null", "--list"], { allowExit: [0, 1], signal });
   return { commonDirIdentityHash: canonicalHash({ pathHash: canonicalHash(commonDir), dev: String(commonStat.dev), ino: String(commonStat.ino), objectFormat }), worktreeIdentityHash: canonicalHash({ pathHash: canonicalHash(root), gitDirHash: canonicalHash(gitDir), dev: String(gitStat.dev), ino: String(gitStat.ino) }), objectFormat, gitVersion, configHash: canonicalHash(configText) };
 }
-export async function preflightBoundRepositoryV1(request: GitIntegrationRequestV1): Promise<RepositoryBindingV1> { assertRequest(request); return preflightRepository(request); }
-export async function acquireGitIntegrationLockV1(request: GitIntegrationRequestV1, binding: RepositoryBindingV1, guard: GitOperationGuardV1): Promise<GitIntegrationLockHandleV1> {
+export async function preflightBoundRepositoryV1(request: GitIntegrationRequestV1, signal?: AbortSignal): Promise<RepositoryBindingV1> { signal?.throwIfAborted?.(); assertRequest(request); return preflightRepository(request, signal); }
+export async function acquireGitIntegrationLockV1(request: GitIntegrationRequestV1, binding: RepositoryBindingV1, guard: GitOperationGuardV1, signal?: AbortSignal): Promise<GitIntegrationLockHandleV1> {
+  signal?.throwIfAborted?.();
   assertOperationGuard(guard, "acquire_lock", { transactionId: request.transactionId, repositoryId: request.repositoryId, commonDirIdentityHash: binding.commonDirIdentityHash, ownerEpoch: request.ownerEpoch });
   const key = digestHex({ commonDirIdentityHash: binding.commonDirIdentityHash });
-  const lock = await IntegrationDirectoryLockV1.acquire(join(binding.commonDir, "pi-dag-v1", "integration-locks", `${key}.lock`), request.transactionId, request.planCreatedAt);
+  const lock = await IntegrationDirectoryLockV1.acquire(join(binding.commonDir, "pi-dag-v1", "integration-locks", `${key}.lock`), request.transactionId, request.planCreatedAt, signal);
   return { binding, identityHash: lock.identityHash, recoveredStaleIdentityHashes: lock.recoveredStaleIdentityHashes, release: () => lock.release() };
 }
-export async function ensurePrivateGitRefV1(binding: RepositoryBindingV1, ref: string, oid: string, guard: GitOperationGuardV1): Promise<"created" | "exact"> {
+export async function ensurePrivateGitRefV1(binding: RepositoryBindingV1, ref: string, oid: string, guard: GitOperationGuardV1, signal?: AbortSignal): Promise<"created" | "exact"> {
+  signal?.throwIfAborted?.();
   assertOperationGuard(guard, "anchor_ref", { commonDirIdentityHash: binding.commonDirIdentityHash, refHash: canonicalHash(ref), oid });
-  return createImmutableRef(binding, ref, oid);
+  return createImmutableRef(binding, ref, oid, signal);
 }
-export async function composeGitProposalV1(request: GitIntegrationRequestV1, binding: RepositoryBindingV1, guard: GitOperationGuardV1): Promise<{ composed: GitTreeRefV1; messageHash: string }> {
+export async function composeGitProposalV1(request: GitIntegrationRequestV1, binding: RepositoryBindingV1, guard: GitOperationGuardV1, signal?: AbortSignal): Promise<{ composed: GitTreeRefV1; messageHash: string }> {
+  signal?.throwIfAborted?.();
   const payload = { sourceBase: request.sourceBase, candidate: request.candidate, expectedPrefix: request.expectedPrefix, compositionProfileHash: request.compositionProfileHash, ownerEpoch: request.ownerEpoch };
   assertOperationGuard(guard, "compose", payload);
-  const tree = await mergeTree(binding, request.sourceBase.commit, request.expectedPrefix.commit, request.candidate.commit); const message = integrationCommitMessage(request);
-  const commit = await commitTree(binding, tree, request.expectedPrefix.commit, message, request.planCreatedAt); await assertCommit(binding, commit, tree, request.expectedPrefix.commit);
+  const tree = await mergeTree(binding, request.sourceBase.commit, request.expectedPrefix.commit, request.candidate.commit, signal); const message = integrationCommitMessage(request);
+  const commit = await commitTree(binding, tree, request.expectedPrefix.commit, message, request.planCreatedAt, signal); await assertCommit(binding, commit, tree, request.expectedPrefix.commit, signal);
   return { composed: { repositoryId: request.repositoryId, commit, tree }, messageHash: canonicalHash(message) };
 }
-export async function landOrReconcileBoundWorktreeV1(binding: RepositoryBindingV1, targetRef: string, expectedOld: GitTreeRefV1, intended: GitTreeRefV1, guard: GitOperationGuardV1): Promise<"applied_exact" | "proven_absent"> {
+export async function landOrReconcileBoundWorktreeV1(binding: RepositoryBindingV1, targetRef: string, expectedOld: GitTreeRefV1, intended: GitTreeRefV1, guard: GitOperationGuardV1, signal?: AbortSignal): Promise<"applied_exact" | "proven_absent"> {
+  signal?.throwIfAborted?.();
   assertOperationGuard(guard, "land", { commonDirIdentityHash: binding.commonDirIdentityHash, targetRef, expectedOld, intended });
-  const before = observeTarget(binding, targetRef); const disposition = classifyTarget(await before, expectedOld, intended);
+  const before = observeTarget(binding, targetRef, signal); const disposition = classifyTarget(await before, expectedOld, intended);
   if (disposition === "third") throw new GitIntegrationBlockedError("TARGET_DRIFT", "Target is neither exact old nor exact intended new");
-  if (disposition === "old") { await assertBoundSessionFastForwardSafe(binding, targetRef, expectedOld.commit); await ordinaryFastForward(binding, intended.commit); }
-  const after = await observeTarget(binding, targetRef); const reconciled = classifyTarget(after, expectedOld, intended);
-  if (reconciled === "new") { await assertBoundSessionLandedExact(binding, targetRef, intended.commit, intended.tree); return "applied_exact"; }
+  if (disposition === "old") { await assertBoundSessionFastForwardSafe(binding, targetRef, expectedOld.commit, signal); signal?.throwIfAborted?.(); await ordinaryFastForward(binding, intended.commit, signal); }
+  const after = await observeTarget(binding, targetRef, signal); const reconciled = classifyTarget(after, expectedOld, intended);
+  if (reconciled === "new") { await assertBoundSessionLandedExact(binding, targetRef, intended.commit, intended.tree, signal); return "applied_exact"; }
   if (reconciled === "old") return "proven_absent";
   throw new GitIntegrationBlockedError("LANDING_AMBIGUOUS", "Landing reconciled to a third target identity");
 }
@@ -408,42 +413,44 @@ export class ExactGitIntegrationV1 {
   async #hit(point: GitIntegrationFailpointV1, context: Record<string, unknown>): Promise<void> { await this.runtime.failpoint?.(point, context); }
 }
 
-async function preflightRepository(request: GitIntegrationRequestV1): Promise<RepositoryBindingV1> {
+async function preflightRepository(request: GitIntegrationRequestV1, signal?: AbortSignal): Promise<RepositoryBindingV1> {
+  signal?.throwIfAborted?.();
   const root = await realpath(request.repositoryRoot);
-  const top = await git(root, ["rev-parse", "--show-toplevel"]);
+  const boundGit = (args: string[], options: { allowExit?: number[]; env?: NodeJS.ProcessEnv } = {}) => git(root, args, { ...options, signal });
+  const top = await boundGit(["rev-parse", "--show-toplevel"]);
   if (await realpath(top.trim()) !== root) throw new GitIntegrationBlockedError("WRONG_WORKTREE_ROOT", "Repository root must be the exact bound session worktree root");
-  const commonDir = await realpath(resolve(root, (await git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim()));
-  const gitDir = await realpath(resolve(root, (await git(root, ["rev-parse", "--path-format=absolute", "--git-dir"])).trim()));
+  const commonDir = await realpath(resolve(root, (await boundGit(["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim()));
+  const gitDir = await realpath(resolve(root, (await boundGit(["rev-parse", "--path-format=absolute", "--git-dir"])).trim()));
   const commonStat = await stat(commonDir); const gitStat = await stat(gitDir);
-  const objectFormat = (await git(root, ["rev-parse", "--show-object-format"])).trim() as "sha1" | "sha256";
+  const objectFormat = (await boundGit(["rev-parse", "--show-object-format"])).trim() as "sha1" | "sha256";
   if (!(objectFormat in ZERO_OID)) throw new GitIntegrationBlockedError("UNSUPPORTED_OBJECT_FORMAT", `Unsupported Git object format ${objectFormat}`);
-  if ((await git(root, ["rev-parse", "--is-shallow-repository"])).trim() !== "false") throw new GitIntegrationBlockedError("UNSUPPORTED_SHALLOW_REPOSITORY", "Shallow repositories are unsupported");
-  const configText = await git(root, ["config", "--local", "--null", "--list"], { allowExit: [0, 1] });
+  if ((await boundGit(["rev-parse", "--is-shallow-repository"])).trim() !== "false") throw new GitIntegrationBlockedError("UNSUPPORTED_SHALLOW_REPOSITORY", "Shallow repositories are unsupported");
+  const configText = await boundGit(["config", "--local", "--null", "--list"], { allowExit: [0, 1] });
   const configLower = configText.toLowerCase();
   if (/(^|\0)(?:filter\.|merge\..*\.driver|extensions\.partialclone|extensions\.worktreeconfig|remote\..*\.promisor|submodule\.|core\.hookspath(?:\n|=)|core\.fsmonitor(?:\n|=))/.test(configLower)) throw new GitIntegrationBlockedError("UNSUPPORTED_GIT_CONFIG", "Custom filters, merge drivers, partial clones, submodules, hooks paths, and filesystem monitors are unsupported");
-  if ((await git(root, ["for-each-ref", "--format=%(refname)", "refs/replace"])).trim()) throw new GitIntegrationBlockedError("UNSUPPORTED_REPLACE_REFS", "Replace refs are unsupported");
+  if ((await boundGit(["for-each-ref", "--format=%(refname)", "refs/replace"])).trim()) throw new GitIntegrationBlockedError("UNSUPPORTED_REPLACE_REFS", "Replace refs are unsupported");
   const alternates = join(commonDir, "objects", "info", "alternates"); const httpAlternates = join(commonDir, "objects", "info", "http-alternates");
   if (await exists(alternates) || await exists(httpAlternates)) throw new GitIntegrationBlockedError("UNSUPPORTED_ALTERNATES", "Object alternates are unsupported");
   const grafts = join(commonDir, "info", "grafts");
   if (await exists(grafts) && (await stat(grafts)).size > 0) throw new GitIntegrationBlockedError("UNSUPPORTED_GRAFTS", "Legacy grafts are unsupported");
-  await assertCoreOnlyTree(root, request.sourceBase.commit);
-  await assertCoreOnlyTree(root, request.candidate.commit);
-  await assertCoreOnlyTree(root, request.expectedPrefix.commit);
+  await assertCoreOnlyTree(root, request.sourceBase.commit, signal);
+  await assertCoreOnlyTree(root, request.candidate.commit, signal);
+  await assertCoreOnlyTree(root, request.expectedPrefix.commit, signal);
   if (!TARGET_RE.test(request.targetRef) || request.targetRef.includes("..") || request.targetRef.endsWith(".") || request.targetRef.includes("@{")) throw new GitIntegrationBlockedError("INVALID_TARGET_REF", "Target must be a direct fully qualified branch ref");
   for (const treeRef of [request.sourceBase, request.candidate, request.expectedPrefix]) {
-    await assertObject(root, treeRef.commit, "commit"); await assertObject(root, treeRef.tree, "tree");
-    const tree = (await git(root, ["rev-parse", `${treeRef.commit}^{tree}`])).trim();
+    await assertObject(root, treeRef.commit, "commit", signal); await assertObject(root, treeRef.tree, "tree", signal);
+    const tree = (await boundGit(["rev-parse", `${treeRef.commit}^{tree}`])).trim();
     if (tree !== treeRef.tree) throw new GitIntegrationBlockedError("TREE_IDENTITY_MISMATCH", `Commit ${treeRef.commit} does not resolve to declared tree ${treeRef.tree}`);
   }
-  await git(root, ["merge-base", "--is-ancestor", request.sourceBase.commit, request.candidate.commit]);
-  await git(root, ["merge-base", "--is-ancestor", request.sourceBase.commit, request.expectedPrefix.commit]);
-  const currentTarget = await observeTarget({ repositoryRoot: root } as RepositoryBindingV1, request.targetRef);
+  await boundGit(["merge-base", "--is-ancestor", request.sourceBase.commit, request.candidate.commit]);
+  await boundGit(["merge-base", "--is-ancestor", request.sourceBase.commit, request.expectedPrefix.commit]);
+  const currentTarget = await observeTarget({ repositoryRoot: root } as RepositoryBindingV1, request.targetRef, signal);
   const candidateTarget = [request.expectedPrefix.commit];
   if (!candidateTarget.includes(currentTarget.commit)) {
     // Deterministic replay after landing is allowed only after composition proves the intended new OID.
     if (currentTarget.commit === "missing") throw new GitIntegrationBlockedError("TARGET_MISSING", "Target ref is missing");
   }
-  const gitVersion = (await git(root, ["--version"])).trim();
+  const gitVersion = (await boundGit(["--version"])).trim();
   const binding = {
     repositoryRoot: root, commonDir, gitDir, objectFormat, gitVersion, configHash: canonicalHash(configText),
     commonDirIdentityHash: canonicalHash({ pathHash: canonicalHash(commonDir), dev: String(commonStat.dev), ino: String(commonStat.ino), objectFormat }),
@@ -454,60 +461,63 @@ async function preflightRepository(request: GitIntegrationRequestV1): Promise<Re
   return binding;
 }
 
-async function assertCoreOnlyTree(root: string, commit: string): Promise<void> {
-  const entries = (await git(root, ["ls-tree", "-r", "-z", "--format=%(objectmode) %(objecttype) %(path)", commit])).split("\0").filter(Boolean);
+async function assertCoreOnlyTree(root: string, commit: string, signal?: AbortSignal): Promise<void> {
+  const entries = (await git(root, ["ls-tree", "-r", "-z", "--format=%(objectmode) %(objecttype) %(path)", commit], { signal })).split("\0").filter(Boolean);
   if (entries.some((entry) => entry.startsWith("160000 commit "))) throw new GitIntegrationBlockedError("UNSUPPORTED_GITLINK", "Gitlink/submodule tree entries are unsupported even without .gitmodules");
   const files = entries.map((entry) => entry.split(" ").slice(2).join(" "));
   if (files.includes(".gitmodules")) throw new GitIntegrationBlockedError("UNSUPPORTED_SUBMODULES", "Submodules are unsupported");
   for (const path of files.filter((value) => value === ".gitattributes" || value.endsWith("/.gitattributes"))) {
-    const text = await git(root, ["show", `${commit}:${path}`]);
+    const text = await git(root, ["show", `${commit}:${path}`], { signal });
     if (/(?:^|\s)(?:filter=|merge=|diff=lfs|working-tree-encoding=|-filter(?:\s|$))/m.test(text)) throw new GitIntegrationBlockedError("UNSUPPORTED_ATTRIBUTES", `Unsupported Git attributes in ${path}`);
   }
 }
 
-async function mergeTree(binding: RepositoryBindingV1, base: string, prefix: string, candidate: string): Promise<string> {
+async function mergeTree(binding: RepositoryBindingV1, base: string, prefix: string, candidate: string, signal?: AbortSignal): Promise<string> {
   let output: string;
-  try { output = await git(binding.repositoryRoot, ["merge-tree", "--write-tree", "--no-messages", `--merge-base=${base}`, prefix, candidate]); }
-  catch (error) { throw new GitIntegrationBlockedError("COMPOSITION_CONFLICT", "merge-tree did not produce an accepted composed tree", { diagnostics: boundedError(error) }); }
+  try { output = await git(binding.repositoryRoot, ["merge-tree", "--write-tree", "--no-messages", `--merge-base=${base}`, prefix, candidate], { signal }); }
+  catch (error) { signal?.throwIfAborted?.(); throw new GitIntegrationBlockedError("COMPOSITION_CONFLICT", "merge-tree did not produce an accepted composed tree", { diagnostics: boundedError(error) }); }
   const oid = output.trim();
   if (!OID_RE.test(oid)) throw new GitIntegrationBlockedError("COMPOSITION_AMBIGUOUS", "merge-tree output was not exactly one tree OID", { output: output.slice(0, 4096) });
-  await assertObject(binding.repositoryRoot, oid, "tree");
+  await assertObject(binding.repositoryRoot, oid, "tree", signal);
   return oid;
 }
 
-async function commitTree(binding: RepositoryBindingV1, tree: string, parent: string, message: string, timestamp: string): Promise<string> {
+async function commitTree(binding: RepositoryBindingV1, tree: string, parent: string, message: string, timestamp: string, signal?: AbortSignal): Promise<string> {
   const env = gitEnvironment({
     GIT_AUTHOR_NAME: "Pi DAG Integration", GIT_AUTHOR_EMAIL: "pi-dag@localhost.invalid",
     GIT_COMMITTER_NAME: "Pi DAG Integration", GIT_COMMITTER_EMAIL: "pi-dag@localhost.invalid",
     GIT_AUTHOR_DATE: timestamp, GIT_COMMITTER_DATE: timestamp,
   });
-  const output = await git(binding.repositoryRoot, ["commit-tree", tree, "-p", parent, "-m", message], { env });
+  const output = await git(binding.repositoryRoot, ["commit-tree", tree, "-p", parent, "-m", message], { env, signal });
   const oid = output.trim();
   if (!OID_RE.test(oid)) throw new GitIntegrationBlockedError("COMMIT_TREE_AMBIGUOUS", "commit-tree output was not exactly one commit OID");
   return oid;
 }
 
-async function assertCommit(binding: RepositoryBindingV1, commit: string, tree: string, parent: string): Promise<void> {
-  await assertObject(binding.repositoryRoot, commit, "commit");
-  const actualTree = (await git(binding.repositoryRoot, ["rev-parse", `${commit}^{tree}`])).trim();
-  const parents = (await git(binding.repositoryRoot, ["show", "-s", "--format=%P", commit])).trim().split(/\s+/).filter(Boolean);
+async function assertCommit(binding: RepositoryBindingV1, commit: string, tree: string, parent: string, signal?: AbortSignal): Promise<void> {
+  await assertObject(binding.repositoryRoot, commit, "commit", signal);
+  const actualTree = (await git(binding.repositoryRoot, ["rev-parse", `${commit}^{tree}`], { signal })).trim();
+  const parents = (await git(binding.repositoryRoot, ["show", "-s", "--format=%P", commit], { signal })).trim().split(/\s+/).filter(Boolean);
   if (actualTree !== tree || parents.length !== 1 || parents[0] !== parent) throw new GitIntegrationBlockedError("SYNTHETIC_COMMIT_INVALID", "Synthetic commit tree or parent identity is invalid");
 }
 
-async function createImmutableRef(binding: RepositoryBindingV1, ref: string, oid: string): Promise<"created" | "exact"> {
-  await git(binding.repositoryRoot, ["check-ref-format", ref]);
-  const existing = (await git(binding.repositoryRoot, ["show-ref", "--verify", "--hash", ref], { allowExit: [0, 1, 2, 128] })).trim();
+async function createImmutableRef(binding: RepositoryBindingV1, ref: string, oid: string, signal?: AbortSignal): Promise<"created" | "exact"> {
+  signal?.throwIfAborted?.();
+  await git(binding.repositoryRoot, ["check-ref-format", ref], { signal });
+  const existing = (await git(binding.repositoryRoot, ["show-ref", "--verify", "--hash", ref], { allowExit: [0, 1, 2, 128], signal })).trim();
   if (existing) {
-    if ((await git(binding.repositoryRoot, ["symbolic-ref", "-q", ref], { allowExit: [0, 1] })).trim()) throw new GitIntegrationBlockedError("PRIVATE_REF_SYMBOLIC", "Immutable private ref must be a direct ref", { refHash: canonicalHash(ref) });
+    if ((await git(binding.repositoryRoot, ["symbolic-ref", "-q", ref], { allowExit: [0, 1], signal })).trim()) throw new GitIntegrationBlockedError("PRIVATE_REF_SYMBOLIC", "Immutable private ref must be a direct ref", { refHash: canonicalHash(ref) });
     if (existing !== oid) throw new GitIntegrationBlockedError("PRIVATE_REF_CONFLICT", "Immutable private ref points to another OID", { refHash: canonicalHash(ref), existing, expected: oid });
     return "exact";
   }
-  try { await git(binding.repositoryRoot, ["update-ref", "--create-reflog", "-m", "pi-dag v1 immutable anchor", ref, oid, ZERO_OID[binding.objectFormat]]); }
+  signal?.throwIfAborted?.();
+  try { await git(binding.repositoryRoot, ["update-ref", "--create-reflog", "-m", "pi-dag v1 immutable anchor", ref, oid, ZERO_OID[binding.objectFormat]], { signal }); }
   catch (error) {
-    const raced = (await git(binding.repositoryRoot, ["show-ref", "--verify", "--hash", ref], { allowExit: [0, 1, 2, 128] })).trim();
+    signal?.throwIfAborted?.();
+    const raced = (await git(binding.repositoryRoot, ["show-ref", "--verify", "--hash", ref], { allowExit: [0, 1, 2, 128], signal })).trim();
     if (raced !== oid) throw error;
   }
-  if ((await git(binding.repositoryRoot, ["symbolic-ref", "-q", ref], { allowExit: [0, 1] })).trim() || (await git(binding.repositoryRoot, ["show-ref", "--verify", "--hash", ref])).trim() !== oid) throw new GitIntegrationBlockedError("PRIVATE_REF_PUBLICATION_AMBIGUOUS", "Immutable private ref publication did not produce one exact direct ref");
+  if ((await git(binding.repositoryRoot, ["symbolic-ref", "-q", ref], { allowExit: [0, 1], signal })).trim() || (await git(binding.repositoryRoot, ["show-ref", "--verify", "--hash", ref], { signal })).trim() !== oid) throw new GitIntegrationBlockedError("PRIVATE_REF_PUBLICATION_AMBIGUOUS", "Immutable private ref publication did not produce one exact direct ref");
   return "created";
 }
 
@@ -544,44 +554,45 @@ async function assertCleanWorkspace(binding: RepositoryBindingV1, workspace: str
   if (!observed.commonDirMatches || observed.head !== commit || observed.tree !== tree || !observed.detached || status.length || indexTree !== tree) throw new GitIntegrationBlockedError("VERIFICATION_WORKTREE_DIRTY", "Verification changed the exact composed worktree", { observed, indexTree, statusHash: canonicalHash(status) });
 }
 
-async function assertNoGitOperationInProgress(root: string): Promise<void> {
+async function assertNoGitOperationInProgress(root: string, signal?: AbortSignal): Promise<void> {
   for (const marker of ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD"]) {
-    const path = (await git(root, ["rev-parse", "--path-format=absolute", "--git-path", marker])).trim();
+    signal?.throwIfAborted?.();
+    const path = (await git(root, ["rev-parse", "--path-format=absolute", "--git-path", marker], { signal })).trim();
     if (await exists(path)) throw new GitIntegrationBlockedError("GIT_OPERATION_IN_PROGRESS", `Bound session worktree has active Git operation marker ${marker}`);
   }
-  const gitDir = (await git(root, ["rev-parse", "--path-format=absolute", "--git-dir"])).trim();
+  const gitDir = (await git(root, ["rev-parse", "--path-format=absolute", "--git-dir"], { signal })).trim();
   for (const directory of ["rebase-merge", "rebase-apply", "sequencer"]) if (await exists(join(gitDir, directory))) throw new GitIntegrationBlockedError("GIT_OPERATION_IN_PROGRESS", `Bound session worktree has active Git operation directory ${directory}`);
 }
 
-async function assertBoundSessionFastForwardSafe(binding: RepositoryBindingV1, targetRef: string, expectedOld: string): Promise<void> {
-  await assertNoGitOperationInProgress(binding.repositoryRoot);
-  const branch = (await git(binding.repositoryRoot, ["symbolic-ref", "-q", "HEAD"], { allowExit: [0, 1] })).trim();
-  const head = (await git(binding.repositoryRoot, ["rev-parse", "HEAD"])).trim();
+async function assertBoundSessionFastForwardSafe(binding: RepositoryBindingV1, targetRef: string, expectedOld: string, signal?: AbortSignal): Promise<void> {
+  await assertNoGitOperationInProgress(binding.repositoryRoot, signal);
+  const branch = (await git(binding.repositoryRoot, ["symbolic-ref", "-q", "HEAD"], { allowExit: [0, 1], signal })).trim();
+  const head = (await git(binding.repositoryRoot, ["rev-parse", "HEAD"], { signal })).trim();
   if (branch !== targetRef || head !== expectedOld) throw new GitIntegrationBlockedError("SESSION_BINDING_CHANGED", "Bound session branch or HEAD changed before landing", { branch, head });
-  const status = await git(binding.repositoryRoot, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]);
+  const status = await git(binding.repositoryRoot, ["status", "--porcelain=v2", "-z", "--untracked-files=all"], { signal });
   if (status.length) throw new GitIntegrationBlockedError("SESSION_WORKTREE_DIRTY", "Bound session worktree must be clean before automatic fast-forward", { statusHash: canonicalHash(status) });
-  const records = parseWorktreeList(await git(binding.repositoryRoot, ["worktree", "list", "--porcelain", "-z"]));
+  const records = parseWorktreeList(await git(binding.repositoryRoot, ["worktree", "list", "--porcelain", "-z"], { signal }));
   const targetRecords = records.filter((record) => record.branch === targetRef);
   if (targetRecords.length !== 1 || await realpath(targetRecords[0].worktree) !== binding.repositoryRoot) throw new GitIntegrationBlockedError("TARGET_MULTIPLE_CHECKOUT", "Target branch is checked out outside the exact bound session worktree", { checkoutCount: targetRecords.length });
 }
 
-async function ordinaryFastForward(binding: RepositoryBindingV1, newOid: string): Promise<void> {
-  await git(binding.repositoryRoot, ["merge", "--ff-only", "--no-edit", newOid]);
+async function ordinaryFastForward(binding: RepositoryBindingV1, newOid: string, signal?: AbortSignal): Promise<void> {
+  await git(binding.repositoryRoot, ["merge", "--ff-only", "--no-edit", newOid], { signal });
 }
 
-async function assertBoundSessionLandedExact(binding: RepositoryBindingV1, targetRef: string, commit: string, tree: string): Promise<void> {
-  const branch = (await git(binding.repositoryRoot, ["symbolic-ref", "-q", "HEAD"], { allowExit: [0, 1] })).trim();
-  const head = (await git(binding.repositoryRoot, ["rev-parse", "HEAD"])).trim();
-  const headTree = (await git(binding.repositoryRoot, ["rev-parse", "HEAD^{tree}"])).trim();
-  const indexTree = (await git(binding.repositoryRoot, ["write-tree"])).trim();
-  const status = await git(binding.repositoryRoot, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]);
+async function assertBoundSessionLandedExact(binding: RepositoryBindingV1, targetRef: string, commit: string, tree: string, signal?: AbortSignal): Promise<void> {
+  const branch = (await git(binding.repositoryRoot, ["symbolic-ref", "-q", "HEAD"], { allowExit: [0, 1], signal })).trim();
+  const head = (await git(binding.repositoryRoot, ["rev-parse", "HEAD"], { signal })).trim();
+  const headTree = (await git(binding.repositoryRoot, ["rev-parse", "HEAD^{tree}"], { signal })).trim();
+  const indexTree = (await git(binding.repositoryRoot, ["write-tree"], { signal })).trim();
+  const status = await git(binding.repositoryRoot, ["status", "--porcelain=v2", "-z", "--untracked-files=all"], { signal });
   if (branch !== targetRef || head !== commit || headTree !== tree || indexTree !== tree || status.length) throw new GitIntegrationBlockedError("LANDING_WORKTREE_MISMATCH", "Target ref moved but bound session worktree/index did not reconcile to the exact clean proposal", { branch, head, headTree, indexTree, statusHash: canonicalHash(status) });
 }
 
-async function observeTarget(binding: Pick<RepositoryBindingV1, "repositoryRoot">, ref: string): Promise<{ commit: string; tree: string | null }> {
-  const commit = (await git(binding.repositoryRoot, ["show-ref", "--verify", "--hash", ref], { allowExit: [0, 1, 2, 128] })).trim();
+async function observeTarget(binding: Pick<RepositoryBindingV1, "repositoryRoot">, ref: string, signal?: AbortSignal): Promise<{ commit: string; tree: string | null }> {
+  const commit = (await git(binding.repositoryRoot, ["show-ref", "--verify", "--hash", ref], { allowExit: [0, 1, 2, 128], signal })).trim();
   if (!commit) return { commit: "missing", tree: null };
-  const tree = (await git(binding.repositoryRoot, ["rev-parse", `${commit}^{tree}`])).trim();
+  const tree = (await git(binding.repositoryRoot, ["rev-parse", `${commit}^{tree}`], { signal })).trim();
   return { commit, tree };
 }
 
@@ -645,15 +656,18 @@ function assertRequest(value: GitIntegrationRequestV1): void {
 class IntegrationDirectoryLockV1 {
   readonly path: string; readonly retiredPath: string; readonly identityHash: string; readonly recoveredStaleIdentityHashes: string[]; readonly directoryIdentity: string; #released = false;
   private constructor(path: string, retiredPath: string, identityHash: string, recoveredStaleIdentityHashes: string[], directoryIdentity: string) { this.path = path; this.retiredPath = retiredPath; this.identityHash = identityHash; this.recoveredStaleIdentityHashes = recoveredStaleIdentityHashes; this.directoryIdentity = directoryIdentity; }
-  static async acquire(path: string, transactionId: string, acquiredAt: string): Promise<IntegrationDirectoryLockV1> {
+  static async acquire(path: string, transactionId: string, acquiredAt: string, signal?: AbortSignal): Promise<IntegrationDirectoryLockV1> {
+    signal?.throwIfAborted?.();
     await mkdir(dirname(path), { recursive: true });
     const recoveredStaleIdentityHashes: string[] = [];
     for (let attempt = 0; attempt < 3; attempt += 1) {
+      signal?.throwIfAborted?.();
       try {
         const processStartIdentity = await currentProcessStartIdentity();
         const metadata = { schemaVersion: 1, kind: "GitIntegrationLockV1", transactionId, pid: process.pid, processStartIdentity, acquiredAt, nonce: randomUUID() };
         const pending = `${path}.initializing-${process.pid}-${randomUUID()}`;
         await mkdir(pending); await durableWrite(join(pending, "metadata.json"), `${canonicalStringify(metadata)}\n`); await fsyncDirectory(pending);
+        signal?.throwIfAborted?.();
         try { await rename(pending, path); await fsyncDirectory(dirname(path)); }
         catch (publishError: any) { await rm(pending, { recursive: true, force: true }); if (!["EEXIST", "ENOTEMPTY"].includes(publishError?.code)) throw publishError; throw Object.assign(new Error("lock exists"), { code: "EEXIST" }); }
         const identityHash = canonicalHash(metadata); const publishedStat = await stat(path); const directoryIdentity = `${publishedStat.dev}:${publishedStat.ino}`;
@@ -663,9 +677,11 @@ class IntegrationDirectoryLockV1 {
         const observedStat = await stat(path).catch(() => null); const metadata = await readJson(join(path, "metadata.json")).catch(() => null) as any;
         if (!observedStat || !metadata || typeof metadata.pid !== "number" || typeof metadata.processStartIdentity !== "string") throw new GitIntegrationBlockedError("INTEGRATION_LOCK_AMBIGUOUS", "Integration lock metadata is missing or corrupt");
         const disposition = await processIdentityDisposition(metadata.pid, metadata.processStartIdentity);
+        signal?.throwIfAborted?.();
         if (disposition === "live" || disposition === "ambiguous") throw new GitIntegrationBlockedError("INTEGRATION_LOCKED", "Another exact live or ambiguous integration owner holds the repository lock", { disposition });
         const currentStat = await stat(path).catch(() => null); if (!currentStat || currentStat.dev !== observedStat.dev || currentStat.ino !== observedStat.ino) continue;
         const staleIdentityHash = canonicalHash(metadata); const stale = `${path}.stale-${digestHex({ metadata, nonce: randomUUID() })}`;
+        signal?.throwIfAborted?.();
         try { await rename(path, stale); await fsyncDirectory(dirname(path)); recoveredStaleIdentityHashes.push(staleIdentityHash); } catch (renameError: any) { if (renameError?.code !== "ENOENT") throw renameError; }
       }
     }
@@ -709,10 +725,11 @@ function parseWorktreeList(text: string): Array<{ worktree: string; head: string
   });
 }
 
-async function git(cwd: string, args: string[], options: { allowExit?: number[]; env?: NodeJS.ProcessEnv } = {}): Promise<string> {
+async function git(cwd: string, args: string[], options: { allowExit?: number[]; env?: NodeJS.ProcessEnv; signal?: AbortSignal } = {}): Promise<string> {
+  options.signal?.throwIfAborted?.();
   const allowExit = options.allowExit ?? [0];
   try {
-    const result = await execFileAsync("git", ["-c", "core.pager=cat", "-c", "rerere.enabled=false", "-c", "core.hooksPath=/dev/null", "-c", "core.fsync=all", "-c", "core.fsyncMethod=fsync", ...args], { cwd, env: options.env ?? gitEnvironment(), encoding: "utf8", maxBuffer: MAX_GIT_OUTPUT, windowsHide: true });
+    const result = await execFileAsync("git", ["-c", "core.pager=cat", "-c", "rerere.enabled=false", "-c", "core.hooksPath=/dev/null", "-c", "core.fsync=all", "-c", "core.fsyncMethod=fsync", ...args], { cwd, env: options.env ?? gitEnvironment(), encoding: "utf8", maxBuffer: MAX_GIT_OUTPUT, windowsHide: true, signal: options.signal });
     return result.stdout;
   } catch (error: any) {
     if (allowExit.includes(error?.code)) return String(error?.stdout ?? "");
@@ -726,8 +743,8 @@ function gitEnvironment(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return { ...inherited, LC_ALL: "C", LANG: "C", TZ: "UTC", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_TERMINAL_PROMPT: "0", GIT_NO_REPLACE_OBJECTS: "1", GIT_PAGER: "cat", GIT_EDITOR: "false", ...extra };
 }
 
-async function assertObject(root: string, oid: string, type: "commit" | "tree"): Promise<void> {
-  if (!OID_RE.test(oid) || (await git(root, ["cat-file", "-t", oid])).trim() !== type) throw new GitIntegrationBlockedError("GIT_OBJECT_IDENTITY", `Expected ${type} object ${oid}`);
+async function assertObject(root: string, oid: string, type: "commit" | "tree", signal?: AbortSignal): Promise<void> {
+  if (!OID_RE.test(oid) || (await git(root, ["cat-file", "-t", oid], { signal })).trim() !== type) throw new GitIntegrationBlockedError("GIT_OBJECT_IDENTITY", `Expected ${type} object ${oid}`);
 }
 
 async function publishImmutableJson(path: string, value: unknown): Promise<void> {

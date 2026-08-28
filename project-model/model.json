@@ -60,6 +60,37 @@
       "state": "open",
       "title": "A sent custom completion message is durably visible before or when sendMessage returns",
       "updatedAt": "2026-07-30T03:52:42.936Z"
+    },
+    {
+      "body": "Current lifecycle stages map to the accepted explicit tool loop: `dag_next_action` remains read-only and reports every admissible choice for one exact revision; `dag_start_work` reserves and launches owned-worker stages F1/F2/F3/F5/F6; `dag_run_checks` performs synchronous procedure stages F0/F4/F7 and honors interruption; `dag_integrate` performs F8 integration; `dag_record_completion` adopts one exact owned-worker completion; retry, pause, resume, cancel, and finalize remain explicit. Each mutation action token binds the exact source revision and must be followed by a refreshed `dag_next_action`; stale sibling tokens fail closed.",
+      "confidence": "high",
+      "createdAt": "2026-08-27T18:40:17.988Z",
+      "id": "ASM-tool-driven-dag-stage-to-operation-mapping-v1",
+      "impactIfWrong": "One additional semantic operation may be needed, but the accepted callback-driven architecture and removal of background pumping remain unchanged.",
+      "introducedBy": "agent",
+      "relationships": [
+        {
+          "kind": "derived_from",
+          "targetId": "DEC-tool-driven-dag-public-action-surface"
+        }
+      ],
+      "reviewWhen": "During final release verification of public tool schemas and orchestration guidance.",
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-lifecycle-authority"
+        ]
+      },
+      "sourceRefs": [
+        "DEC-dag-next-action-returns-independent-frontier",
+        "DEC-tool-driven-dag-public-action-surface",
+        "extensions/dag-workflow/dag-runtime/conductor.ts",
+        "extensions/dag-workflow/dag-runtime/lifecycle-runtime.ts"
+      ],
+      "state": "open",
+      "title": "Current F0–F8 stages can be expressed through the accepted semantic tool loop",
+      "updatedAt": "2026-08-27T23:42:10.593Z"
     }
   ],
   "commitments": [
@@ -2824,6 +2855,35 @@
     },
     {
       "acceptance": {
+        "acceptedAt": "2026-08-27T15:56:40.330Z",
+        "actor": "user",
+        "batchRef": "sha256:98c3a9825e0843c3b90bd4495bdb6932c2d49b7f40d52692f9e936a835fa4013",
+        "contentHash": "sha256:4d8c07c5af04f1f89ea7e00c061420fe9d4705ee95cb52a71a2dc0e4af62ed06",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1787846105485",
+        "mode": "accepted_existing"
+      },
+      "body": "Owned-worker completion delivery starts a follow-up turn containing the exact run and completion identities. The top-level agent calls `dag_record_completion`, which validates the durable worker binding and records the result before returning next-action guidance. Completion notification itself does not mutate canonical DAG state.",
+      "createdAt": "2026-08-27T15:56:40.330Z",
+      "id": "DEC-canonical-completion-recorded-by-agent-tool",
+      "introducedBy": "user",
+      "rationale": "The callback keeps work moving while canonical mutation remains visible and agent-driven.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "accepted",
+      "title": "Record canonical worker completion through an explicit agent tool call",
+      "updatedAt": "2026-08-27T15:56:40.330Z"
+    },
+    {
+      "acceptance": {
         "acceptedAt": "2026-07-31T13:13:21.380Z",
         "actor": "user",
         "batchRef": "sha256:c23ef7f127ed288ffbd595980e9d146a220e6b32a05120b2d9941f20df5638f4",
@@ -3575,6 +3635,35 @@
       "state": "accepted",
       "title": "Stage migration candidate, reuse the model loop, audit in Lavish, and cut over exactly",
       "updatedAt": "2026-08-19T02:25:11.574Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-27T15:56:40.329Z",
+        "actor": "user",
+        "batchRef": "sha256:98c3a9825e0843c3b90bd4495bdb6932c2d49b7f40d52692f9e936a835fa4013",
+        "contentHash": "sha256:f3ddceccba1da4eadc8ce7dacd38ba67f543e977e3e3f7218a0a6f94556d0a61",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1787846105485",
+        "mode": "accepted_existing"
+      },
+      "body": "`dag_next_action` returns all currently admissible independent semantic actions with explanations and any mutex or concurrency constraints. The top-level agent chooses which to perform and in what order.",
+      "createdAt": "2026-08-27T15:56:40.329Z",
+      "id": "DEC-dag-next-action-returns-independent-frontier",
+      "introducedBy": "user",
+      "rationale": "The agent remains the orchestrator without forcing artificial serialization.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "accepted",
+      "title": "Return the full independent semantic frontier",
+      "updatedAt": "2026-08-27T15:56:40.329Z"
     },
     {
       "acceptance": {
@@ -6731,18 +6820,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-13T02:39:07.209Z",
+        "acceptedAt": "2026-08-27T15:58:30.692Z",
         "actor": "user",
-        "batchRef": "sha256:f62e4a7f1a73bc9b33c3b15c60e849ac777c95faf4d77a05bdd694ffa3e7171b",
-        "contentHash": "sha256:a99b71f0edb5a28a31c4b6c5c88c3d61670912352390eb5ef6c6038555aa22bf",
-        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1786588718060",
+        "batchRef": "sha256:fd00db7681a7ea6884f962610b358dae9b8df5c47558b9f08075bb87173e2c34",
+        "contentHash": "sha256:01ff0d652e2276ceac910debd4b029645cb33f53f904e6ae59acdac788fa1721",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1787846105485",
         "mode": "direct_direction"
       },
-      "body": "Keep Lavish presentation separate from semantic authority, and use the Lavish whole-turn review adapter for material reviews in the planning and chunking focus. The adapter presents, resumes, and ends exact active reviews; semantic review receipts remain the only authority mechanism.",
+      "body": "Keep Lavish presentation separate from semantic authority, and use the Lavish whole-turn review adapter for material reviews in the planning and chunking focus. The adapter presents, resumes, ends, and nonblockingly collects already-submitted feedback for exact active reviews; semantic review receipts remain the only authority mechanism. Once an artifact has been presented, collecting feedback must not rerender, reopen, resume a long poll, or otherwise replace or clear the existing browser session. Re-presentation is reserved for a changed review or an explicit user request.",
       "createdAt": "2026-07-29T02:26:16.832Z",
       "id": "DEC-separate-lavish-presentation-adapter",
       "introducedBy": "user",
-      "rationale": "The planning frontier contains visual workflows, DAGs, comparisons, and structured decisions that are better reviewed as whole Lavish turns without making presentation itself authoritative.",
+      "rationale": "The planning frontier contains visual workflows, DAGs, comparisons, and structured decisions that are better reviewed as whole Lavish turns. A distinct nonblocking collection path prevents the agent from destroying queued feedback merely because its earlier foreground poll disconnected.",
       "relationships": [
         {
           "kind": "derived_from",
@@ -6759,12 +6848,13 @@
         ]
       },
       "sourceRefs": [
+        "Direct user direction to queue nonblocking feedback collection with tool-driven DAG cutover",
         "EV-pi-long-running-lavish-tool",
         "PROP-separate-lavish-presentation-adapter"
       ],
       "state": "accepted",
       "title": "Use the separate Lavish adapter for planning review turns",
-      "updatedAt": "2026-08-13T02:39:07.209Z"
+      "updatedAt": "2026-08-27T15:58:30.692Z"
     },
     {
       "body": "Produce and review a model-bound architecture/implementation plan first, then produce and review a separate model-bound DAG decomposition derived from the accepted plan. Both artifacts have explicit hashes, lifecycle, and staleness rules.",
@@ -7589,6 +7679,64 @@
       "state": "accepted",
       "title": "Use a three-strata scorecard and six-pair prospective dogfood",
       "updatedAt": "2026-08-04T14:40:10.494Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-27T15:56:40.332Z",
+        "actor": "user",
+        "batchRef": "sha256:98c3a9825e0843c3b90bd4495bdb6932c2d49b7f40d52692f9e936a835fa4013",
+        "contentHash": "sha256:a71c835412e926eb55b9b93a904db470f47df326d95a5a6cd3e60d024ac05ed6",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1787846105485",
+        "mode": "accepted_existing"
+      },
+      "body": "The tool-driven cutover preserves current canonical run snapshots, worker bindings, lifecycle evidence, and historical readers. It removes timer pumps and process-local conductor-generation requirements from normal operation. Tools derive operation-scoped consistency guards and perform safe same-session resume or proven-dead-owner recovery without requiring the agent to transport internal lock and hash fields.",
+      "createdAt": "2026-08-27T15:56:40.331Z",
+      "id": "DEC-tool-driven-dag-preserves-canonical-run-history",
+      "introducedBy": "user",
+      "rationale": "Existing evidence remains usable while routine operation becomes simple.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "accepted",
+      "title": "Preserve canonical run history while removing conductor ceremony",
+      "updatedAt": "2026-08-27T15:56:40.332Z"
+    },
+    {
+      "acceptance": {
+        "acceptedAt": "2026-08-27T15:56:40.329Z",
+        "actor": "user",
+        "batchRef": "sha256:98c3a9825e0843c3b90bd4495bdb6932c2d49b7f40d52692f9e936a835fa4013",
+        "contentHash": "sha256:a8c4b8f2ed9621b5ac9defb383cb3390bf7d685aca79fb07acbbabd56e672965",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1787846105485",
+        "mode": "accepted_existing"
+      },
+      "body": "Expose `dag_next_action` and named semantic mutation tools for starting work, recording completion, integration, retry, cancellation, and finalization. Tools derive internal revisions, epochs, hashes, locks, and idempotency identities rather than requiring routine agent transport of those fields.",
+      "createdAt": "2026-08-27T15:56:40.328Z",
+      "id": "DEC-tool-driven-dag-public-action-surface",
+      "introducedBy": "user",
+      "rationale": "Named operations preserve a visible, understandable orchestration history while code retains safety invariants.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "accepted",
+      "title": "Use explicit semantic tools for top-level DAG orchestration",
+      "updatedAt": "2026-08-27T15:56:40.329Z"
     },
     {
       "acceptance": {
@@ -8773,6 +8921,36 @@
       "state": "integrated",
       "title": "Result hash should remain internal to completion identity and integrity",
       "updatedAt": "2026-07-30T04:09:54.939Z"
+    },
+    {
+      "body": "Repository inspection shows the timer and pump in dag-runtime/integration.ts and DagConductorServiceV1.activate/#startPump only decide when to call advance(). The durable semantics—ownership fencing, reducer CAS, lifecycle reconciliation, scheduler reservations, dispatch binding, Git integration, validation, cancellation, retry, and reattach—already live behind callable service methods and stores. These can be exposed as bounded tools invoked by the top-level agent. The only asynchronous capability that remains necessary is detecting owned-worker terminal completion and initiating an automatic top-level follow-up; that belongs to the owned worker runtime and does not require canonical DAG mutation in a background conductor.",
+      "createdAt": "2026-08-27T14:48:35.967Z",
+      "evidence": {
+        "mechanism": "integration.ts starts a one-second timer that calls resumeBound(); resumeBound() calls activate(); activate/#startPump call advance(); advance performs durable lifecycle reconciliation and scheduling through reducer/store APIs.",
+        "paths": [
+          "extensions/dag-workflow/dag-runtime/conductor.ts",
+          "extensions/dag-workflow/dag-runtime/integration.ts",
+          "extensions/dag-workflow/dag-runtime/lifecycle-runtime.ts",
+          "extensions/dag-workflow/dag-runtime/integration-driver.ts"
+        ]
+      },
+      "id": "DISC-conductor-background-liveness-is-not-required-for-canonical-progress",
+      "implication": "The architecture can remove autonomous timer/session/agent_end conductor advancement while retaining a transactional DAG runtime library and explicit tools. Worker completion should wake the top-level agent, whose first orchestration action explicitly reconciles the run.",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "untriaged",
+      "title": "Canonical DAG progress does not intrinsically require a background conductor loop",
+      "updatedAt": "2026-08-27T14:48:35.967Z"
     },
     {
       "body": "Structured Markdown is already preserved by both chat and Lavish review renderers, while model delta is rendered separately. The next design frontier is deciding which semantic facts a Current understanding must make easy to verify and which headings may adapt to the focus.",
@@ -10487,6 +10665,39 @@
       "state": "integrated",
       "title": "Plumbing composition can remove mutable rebase and cherry-pick recovery state",
       "updatedAt": "2026-08-03T20:34:41.945Z"
+    },
+    {
+      "body": "At commit 220f206, `/dag run` instructed the top-level agent to call `dag_next_action`, start ready nodes, launch asynchronous DAG subagents, record returned completion evidence, merge only when tools reported merge readiness, and finalize when allowed. `dag_next_action` returned a small semantic action set: start_nodes, await_workers, needs_decision, merge_nodes, finalize, blocked, or finalized. Tools performed worktree and state operations, while the agent supplied judgment and sequencing. The bundled pi-subagents result watcher supplied asynchronous completion notification; the current owned worker manager likewise calls `pi.sendMessage(..., { deliverAs: \"followUp\", triggerTurn: true })`.",
+      "createdAt": "2026-08-27T14:59:14.634Z",
+      "evidence": {
+        "commit": "220f206",
+        "currentCompletionLines": "manager.mjs dispatchNext builds a completion message and sends it as a triggerTurn follow-up; canonical completions currently instruct the agent to call dag_run_status.",
+        "currentPaths": [
+          "extensions/dag-workflow/worker-runtime/manager.mjs"
+        ],
+        "paths": [
+          "extensions/dag-workflow/command-prompts/run.md",
+          "extensions/dag-workflow/index.ts",
+          "extensions/dag-workflow/dag-subagent.ts"
+        ]
+      },
+      "id": "DISC-pre-model-dag-succeeded-through-visible-next-action-loop",
+      "implication": "A modernized version can preserve stronger durable internals while restoring the old interaction model: one next-action query, one meaningful operation, and automatic callback-driven continuation.",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "untriaged",
+      "title": "The pre-project-model DAG used a visible next-action loop rather than autonomous lifecycle pumping",
+      "updatedAt": "2026-08-27T14:59:14.634Z"
     },
     {
       "body": "The production `dag_model_present_review` path previously called pinned `lavish-axi` directly with the artifact path and relied on its default browser opening, so a review could report open without appearing in the dedicated Lavish Chromium window. `LavishCliAdapter.open` now routes interactive opens and explicit reopens through configurable `lavish-open`, while `noOpen` mode and all poll/end operations continue through the pinned optional `lavish-axi` CLI. Regression coverage proves the helper receives the exact file plus `--reopen` and that no-open test/headless behavior bypasses the browser helper. The renderer also now constrains flex/grid identities to prevent the horizontal overflow observed during the same review.",
@@ -15103,20 +15314,32 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "# Accepted implementation direction\n\nCanonical DAG dispatch is agent-driven through a dedicated `dag_run_dispatch` tool. The agent receives exact ready packets, explicitly launches each selected packet, and may supply a recorded tactical prompt directive. Generic `subagent` remains DAG-agnostic.\n\n# Protected authority\n\nThe extension still owns reducer readiness/admission, reservation and launch intent, run revision/hash and owner fencing, concurrency, generations, worktree/config derivation, worker binding, ambiguity recovery, result validation, lifecycle reduction, and integration. The worker prompt combines an immutable canonical envelope, the agent-authored directive, and an immutable completion contract.\n\n# Turn behavior\n\n`/dag run` enters orchestration mode and returns actionable packets rather than claiming invisible background dispatch. The agent launches ready packets, continues only independent work, and settles when workers become dependencies. Completion follow-ups trigger the next orchestration turn. Background wakes may reconcile and notify but never launch new DAG workers.\n\n# Delivery\n\nImplementation and release are now explicitly requested. Existing automated-dispatch runs, including the stalled Operant run, require fail-closed compatibility handling rather than direct state edits.",
-      "generatedAt": "2026-08-24T15:23:28.428Z",
+      "body": "## Effective tool-driven DAG contract\n\nThe accepted explicit semantic tool surface replaces direct ready-packet dispatch as the normal orchestration contract. `dag_next_action` reports every admissible choice for one exact revision. The agent performs one named mutation, then refreshes; stale sibling action tokens fail closed rather than authorizing work against replacement state.\n\nPublic mutation tools start work, run checks, record completion, integrate, retry, pause, resume, cancel, and finalize. Owned-worker completion follow-ups wake the agent but do not mutate canonical DAG state. Timer pumps and process-local conductor-generation ceremony are absent from normal operation, and explicit interruption propagates through owned operations.",
+      "generatedAt": "2026-08-27T23:42:10.594Z",
       "sourceObjects": [
         {
-          "id": "DEC-agent-driven-canonical-dag-dispatch",
-          "semanticHash": "sha256:5ea1b48a29914a44c549c37e7f1f830843c784996bff6e449bfa345bece5a836"
+          "id": "DEC-tool-driven-dag-public-action-surface",
+          "semanticHash": "sha256:a8c4b8f2ed9621b5ac9defb383cb3390bf7d685aca79fb07acbbabd56e672965"
         },
         {
-          "id": "PROP-dedicated-dag-dispatch-tool-v1",
-          "semanticHash": "sha256:b68c2271c076359ba2baf0c3a9fad37dc85820bcae6df94acb92cff40677e0ef"
+          "id": "DEC-dag-next-action-returns-independent-frontier",
+          "semanticHash": "sha256:f3ddceccba1da4eadc8ce7dacd38ba67f543e977e3e3f7218a0a6f94556d0a61"
         },
         {
-          "id": "PROP-canonical-dispatch-protected-prompt-with-agent-directive-v1",
-          "semanticHash": "sha256:4403929a4baf982dbf69b4aac964c6f75ee5f8968ac97e75c423bce0857e1abc"
+          "id": "DEC-canonical-completion-recorded-by-agent-tool",
+          "semanticHash": "sha256:4d8c07c5af04f1f89ea7e00c061420fe9d4705ee95cb52a71a2dc0e4af62ed06"
+        },
+        {
+          "id": "DEC-tool-driven-dag-preserves-canonical-run-history",
+          "semanticHash": "sha256:a71c835412e926eb55b9b93a904db470f47df326d95a5a6cd3e60d024ac05ed6"
+        },
+        {
+          "id": "PROP-agent-driven-tool-only-dag-advancement-v1",
+          "semanticHash": "sha256:f30dd81f4331da6a2434147917a32f672c480c34b886a394ec09edbdc78937ce"
+        },
+        {
+          "id": "ASM-tool-driven-dag-stage-to-operation-mapping-v1",
+          "semanticHash": "sha256:81196a207b41f9049a500f24ecc8fa27d22d0b26cbd85eaac46780c5f3aad573"
         }
       ]
     },
@@ -15301,7 +15524,11 @@
                 "DEC-dag-widget-balanced-motion-timing-v1",
                 "DEC-dag-widget-nonblocking-incident-reproduction-v1",
                 "DEC-static-deduplicated-dag-widget-v1",
-                "DEC-agent-driven-canonical-dag-dispatch"
+                "DEC-agent-driven-canonical-dag-dispatch",
+                "DEC-tool-driven-dag-public-action-surface",
+                "DEC-dag-next-action-returns-independent-frontier",
+                "DEC-canonical-completion-recorded-by-agent-tool",
+                "DEC-tool-driven-dag-preserves-canonical-run-history"
               ],
               "title": "Accepted planning and execution direction"
             },
@@ -15475,9 +15702,9 @@
         }
       ]
     },
-    "revision": 252,
+    "revision": 258,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-26T15:40:49.513Z"
+    "updatedAt": "2026-08-27T23:42:10.594Z"
   },
   "proposals": [
     {
@@ -15504,6 +15731,37 @@
       "state": "candidate",
       "title": "Let the agent provide complete HTML",
       "updatedAt": "2026-07-28T18:37:09.005Z"
+    },
+    {
+      "body": "Keep the canonical reducer, snapshot store, lifecycle runtime, scheduler, and protected Git/worker operations, but remove the one-second conductor timer, active-context pump registry, wake generations, and autonomous reconciliation. Restore a visible next-action loop modeled on the pre-project-model DAG: the top-level agent asks for all semantic choices at one exact revision, invokes one action-specific protected tool, refreshes the frontier, and resumes from asynchronous subagent completion follow-ups. Do not impose an arbitrary advancement timeout. Tools return at natural orchestration boundaries, honor explicit interruption, and do not expose raw reducer mutations or routine internal fencing values.",
+      "createdAt": "2026-08-27T14:48:35.968Z",
+      "id": "PROP-agent-driven-tool-only-dag-advancement-v1",
+      "introducedBy": "agent",
+      "openQuestions": [
+        "Which smallest action vocabulary preserves the old loop while covering current review, validation, integration, retry, and recovery behavior?",
+        "Should one next-action response include all currently independent actions or only the highest-priority action?",
+        "How should an opaque completion identity map to exact canonical result recording without requiring manual guard fields?"
+      ],
+      "rationale": "Explicit tool invocation aligns lifecycle progression with visible top-level-agent orchestration and removes the timer/pump liveness class without weakening durable state-machine checks.",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "candidate",
+      "title": "Replace background conductor pumping with explicit bounded DAG advancement tools",
+      "tradeoffs": [
+        "A run makes no canonical progress while no agent turn is active, except that the worker runtime may deliver a completion follow-up.",
+        "The agent—not a daemon—must notice and act on the next-action guidance.",
+        "Protected tools still need internal CAS and operation serialization, but these should be invisible during normal orchestration."
+      ],
+      "updatedAt": "2026-08-27T23:42:10.593Z"
     },
     {
       "body": "Every worker launched by this extension runs asynchronously relative to the main agent. Completion, failure, cancellation, and relevant result summaries are delivered back to the main agent without requiring it to block on a worker tool call.",

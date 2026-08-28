@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { canonicalHash, composeGitProposalV1, DurableGitIntegrationRuntimeV1, ExactGitIntegrationV1, GitIntegrationBlockedError, preflightBoundRepositoryV1, readRepositoryBindingIdentityV1 } from "../extensions/dag-workflow/dag-runtime/index.ts";
+import { acquireGitIntegrationLockV1, canonicalHash, composeGitProposalV1, DurableGitIntegrationRuntimeV1, ensurePrivateGitRefV1, ExactGitIntegrationV1, GitIntegrationBlockedError, landOrReconcileBoundWorktreeV1, preflightBoundRepositoryV1, readRepositoryBindingIdentityV1 } from "../extensions/dag-workflow/dag-runtime/index.ts";
 
 const execFileAsync = promisify(execFile);
 const H = (char) => `sha256:${char.repeat(64)}`;
@@ -17,6 +17,15 @@ try {
   const operationPayload = { sourceBase: happy.request.sourceBase, candidate: happy.request.candidate, expectedPrefix: happy.request.expectedPrefix, compositionProfileHash: happy.request.compositionProfileHash, ownerEpoch: happy.request.ownerEpoch };
   const operationProposal = await composeGitProposalV1(happy.request, operationBinding, { effectId: "effect-operation-compose", requestHash: canonicalHash({ kind: "compose", payload: operationPayload }), ownerEpoch: happy.request.ownerEpoch });
   assert.equal(operationProposal.composed.tree, happy.candidate.tree, "operation-sized composition API binds exact explicit-base result");
+  const aborted = new AbortController(); aborted.abort();
+  const abortRef = "refs/pi-dag/v1/abort-probe";
+  await assert.rejects(() => preflightBoundRepositoryV1(happy.request, aborted.signal), (error) => error?.name === "AbortError");
+  await assert.rejects(() => acquireGitIntegrationLockV1(happy.request, operationBinding, { effectId: "abort-lock", requestHash: canonicalHash({ kind: "acquire_lock", payload: { transactionId: happy.request.transactionId, repositoryId: happy.request.repositoryId, commonDirIdentityHash: operationBinding.commonDirIdentityHash, ownerEpoch: happy.request.ownerEpoch } }), ownerEpoch: happy.request.ownerEpoch }, aborted.signal), (error) => error?.name === "AbortError");
+  await assert.rejects(() => ensurePrivateGitRefV1(operationBinding, abortRef, happy.base.commit, { effectId: "abort-ref", requestHash: canonicalHash({ kind: "anchor_ref", payload: { commonDirIdentityHash: operationBinding.commonDirIdentityHash, refHash: canonicalHash(abortRef), oid: happy.base.commit } }), ownerEpoch: happy.request.ownerEpoch }, aborted.signal), (error) => error?.name === "AbortError");
+  await assert.rejects(() => composeGitProposalV1(happy.request, operationBinding, { effectId: "abort-compose", requestHash: canonicalHash({ kind: "compose", payload: operationPayload }), ownerEpoch: happy.request.ownerEpoch }, aborted.signal), (error) => error?.name === "AbortError");
+  await assert.rejects(() => landOrReconcileBoundWorktreeV1(operationBinding, happy.request.targetRef, happy.request.expectedPrefix, operationProposal.composed, { effectId: "abort-land", requestHash: canonicalHash({ kind: "land", payload: { commonDirIdentityHash: operationBinding.commonDirIdentityHash, targetRef: happy.request.targetRef, expectedOld: happy.request.expectedPrefix, intended: operationProposal.composed } }), ownerEpoch: happy.request.ownerEpoch }, aborted.signal), (error) => error?.name === "AbortError");
+  await assert.rejects(() => gitRaw(happy.repo, ["show-ref", "--verify", "--hash", abortRef]), "aborted ref/effect boundary publishes no hidden ref");
+  assert.equal(await git(happy.repo, ["rev-parse", "HEAD"]), happy.base.commit, "aborted lock/compose/land boundaries leave the target unchanged");
   const recorder = runtime();
   const transaction = new ExactGitIntegrationV1(recorder);
   const receipt = await transaction.execute(happy.request);

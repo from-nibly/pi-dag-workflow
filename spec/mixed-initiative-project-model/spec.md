@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-mixed-initiative; contract: 1; input: sha256:ea0a16f46d8a8a06d36dd4caf9ca0844d78b11ca821f9cfbadb6a20317a16e93 -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-mixed-initiative; contract: 1; input: sha256:5bdde9a4801676d63885d3a1c984795986233a8ef7b2f55446019f3c3455478b -->
 
 # Mixed-initiative project model
 
@@ -362,9 +362,9 @@ Within the trusted local agent and harness threat model, feedback returned throu
 
 ### Use the separate Lavish adapter for planning review turns
 
-Keep Lavish presentation separate from semantic authority, and use the Lavish whole-turn review adapter for material reviews in the planning and chunking focus. The adapter presents, resumes, and ends exact active reviews; semantic review receipts remain the only authority mechanism.
+Keep Lavish presentation separate from semantic authority, and use the Lavish whole-turn review adapter for material reviews in the planning and chunking focus. The adapter presents, resumes, ends, and nonblockingly collects already-submitted feedback for exact active reviews; semantic review receipts remain the only authority mechanism. Once an artifact has been presented, collecting feedback must not rerender, reopen, resume a long poll, or otherwise replace or clear the existing browser session. Re-presentation is reserved for a changed review or an explicit user request.
 
-**Rationale.** The planning frontier contains visual workflows, DAGs, comparisons, and structured decisions that are better reviewed as whole Lavish turns without making presentation itself authoritative.
+**Rationale.** The planning frontier contains visual workflows, DAGs, comparisons, and structured decisions that are better reviewed as whole Lavish turns. A distinct nonblocking collection path prevents the agent from destroying queued feedback merely because its earlier foreground poll disconnected.
 
 <a id="obj-dec-pinned-optional-lavish-cli"></a>
 

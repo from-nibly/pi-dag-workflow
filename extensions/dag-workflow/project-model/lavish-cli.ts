@@ -66,6 +66,11 @@ export class LavishCliAdapter {
     return parsePollOutput(result.stdout, this.limits);
   }
 
+  /** Consume feedback that is already queued without opening the artifact or waiting for future input. */
+  async collect(file: string, input: { signal?: AbortSignal } = {}): Promise<LavishFeedback> {
+    return this.poll(file, { signal: input.signal, timeoutMs: 1 });
+  }
+
   async end(file: string, input: { signal?: AbortSignal } = {}) {
     const result = await this.run(["end", file], input.signal);
     return { ...parseSession(result.stdout), raw: result.stdout };

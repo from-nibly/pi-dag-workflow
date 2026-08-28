@@ -386,7 +386,7 @@ function applyInput(
       return null;
     }
     case "set_desired_run": {
-      if (payload.desired === "running" && state.desired.run !== "paused") return precondition("only a paused run may resume");
+      if (payload.desired === "running" && (state.desired.run !== "paused" || state.completion.state !== "open" || ["completed", "cancelled", "superseded"].includes(state.current.run) || Object.values(state.cancellations).some((candidate) => candidate.state !== "closed"))) return precondition("only a nonterminal, noncancelling paused run may resume");
       if (payload.desired === "paused" && (!["running", "paused"].includes(state.desired.run) || state.completion.state === "plan_complete" || ["completed", "cancelled", "superseded"].includes(state.current.run))) return precondition("terminal/cancelling run cannot pause");
       state.desired = { run: payload.desired, reason: payload.reason, requestedAt: input.occurredAt, requestedBy: payload.requestedBy };
       notices.push(notice(state, "desired_changed", state.runId, input.payloadHash));
@@ -465,10 +465,11 @@ function applyInput(
       return null;
     }
     case "mark_scheduler_reservation_dispatch": {
-      if (dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan" || state.current.run === "needs_replan") return precondition("needs_replan blocks new scheduler dispatch");
+      if (dagRunNeedsReplanV1(state) || state.desired.run !== "running" || !["active", "integration"].includes(state.current.run) || state.completion.state !== "open" || Object.values(state.cancellations).some((candidate) => candidate.state !== "closed")) return precondition("only an active, running, noncancelling run may dispatch scheduler work");
       const reservation = state.scheduler.reservations[payload.reservationId]; if (!reservation || reservation.state !== "reserved" || reservation.normalizedRequestHash !== payload.normalizedRequestHash) return precondition("only an exact durable reserved scheduler operation may enter dispatch intent"); reservation.state = "dispatch_intent"; effects.push({ effectId: reservation.reservationId, kind: `scheduler_${reservation.operationKind}`, requestHash: reservation.normalizedRequestHash }); notices.push(notice(state, "scheduler_dispatch_intended", reservation.reservationId, reservation.normalizedRequestHash)); return null;
     }
     case "record_scheduler_reservation_dispatch": {
+      if (state.desired.run !== "running" || !["active", "integration"].includes(state.current.run) || state.completion.state !== "open" || Object.values(state.cancellations).some((candidate) => candidate.state !== "closed")) return precondition("only an active, running, noncancelling run may activate scheduler work");
       const reservation = state.scheduler.reservations[payload.reservationId]; if (!reservation || reservation.state !== "dispatch_intent" || reservation.normalizedRequestHash !== payload.normalizedRequestHash) return precondition("scheduler dispatch observation must bind the exact persisted dispatch intent"); reservation.state = payload.disposition; if (payload.disposition === "launch_ambiguous") { const blockerId = `launch-ambiguous-${reservation.reservationId}`; state.blockers[blockerId] = { blockerId, kind: "launch_ambiguous", subject: { kind: "work_item", id: reservation.workItemId }, stage: reservation.stage, sourceId: reservation.reservationId, sourceHash: reservation.normalizedRequestHash, release: "immutable_fact", active: true, createdAt: input.occurredAt, releasedAt: null, releaseReceipt: null }; if (!state.workItems[reservation.workItemId].blockerIds.includes(blockerId)) state.workItems[reservation.workItemId].blockerIds.push(blockerId); } notices.push(notice(state, "scheduler_dispatch_observed", reservation.reservationId, payload.normalizedRequestHash)); return null;
     }
     case "release_scheduler_reservation": {
@@ -481,8 +482,9 @@ function applyInput(
     }
     case "authorize_retry": {
       const entry = state.retryLedger[payload.retryKey]; const item = state.workItems[payload.workItemId];
-      if (!entry || !item || entry.workItemId !== payload.workItemId || entry.stage !== payload.stage || entry.dimension !== payload.dimension || entry.fingerprint !== payload.fingerprint || item.candidateGeneration !== payload.candidateGeneration) return precondition("retry request does not bind an existing exact retry ledger slot");
-      if (entry.count !== payload.expectedCount || entry.count >= entry.ceiling || entry.stop !== "none") return precondition("retry count, ceiling, or stop disposition rejects authorization");
+      if (state.desired.run !== "running" || !["active", "integration"].includes(state.current.run) || state.completion.state !== "open" || Object.values(state.cancellations).some((candidate) => candidate.state !== "closed")) return precondition("terminal, paused, or cancelling runs cannot authorize retries");
+      if (!entry || !item || entry.workItemId !== payload.workItemId || entry.stage !== payload.stage || entry.dimension !== payload.dimension || entry.fingerprint !== payload.fingerprint || item.candidateGeneration !== payload.candidateGeneration || ["complete", "cancelled", "superseded"].includes(item.current)) return precondition("retry request does not bind an existing exact nonterminal retry ledger slot");
+      if (entry.count !== payload.expectedCount || entry.count >= entry.ceiling || entry.stop !== "none" || retryFailureCount(state, entry) <= entry.count) return precondition("retry count, observed failure authority, ceiling, or stop disposition rejects authorization");
       if (Object.values(state.effects).some((effect) => effect.subject.kind === "work_item" && effect.subject.id === item.workItemId && !["applied_exact", "compensated", "proven_absent"].includes(effect.reconciliation))) return precondition("retry requires every prior effect reconciled");
       entry.count += 1; entry.lastRetryCommandId = input.commandId;
       notices.push(notice(state, "retry_authorized", payload.workItemId, payload.retryKey));
@@ -932,6 +934,7 @@ function applyInput(
       return null;
     }
     case "request_cancellation": {
+      if (state.completion.state !== "open" || ["completed", "cancelled", "superseded"].includes(state.current.run) || state.desired.run === "cancelled") return precondition("terminal or already-cancelling runs cannot request cancellation");
       if (state.cancellations[payload.cancellationId]) return precondition("cancellation ID collides with an existing immutable cancellation slot");
       const targetIds = [...payload.workItemIds].sort();
       if (new Set(targetIds).size !== targetIds.length || targetIds.some((id: string) => !state.workItems[id] || ["complete", "cancelled", "superseded"].includes(state.workItems[id].current))) return precondition("cancellation work items must be exact, unique, and nonterminal");
@@ -1040,6 +1043,13 @@ function applyInput(
       return null;
     }
   }
+}
+
+function retryFailureCount(state: DagRunStateV1, entry: DagRunStateV1["retryLedger"][string]): number {
+  const stage = state.workItems[entry.workItemId]?.stages[entry.stage];
+  const failedAttempts = stage?.state === "blocked" ? stage.attemptIds.length : 0;
+  const integrationConflicts = Object.values(state.integrationAttempts).filter((attempt) => attempt.conflictClass !== "none" && Object.values(state.integrationTrains).some((train) => train.entries[attempt.entryId]?.workItemId === entry.workItemId)).length;
+  return Math.max(entry.failureSequence.length, failedAttempts, entry.dimension === "integration" ? integrationConflicts : 0);
 }
 
 function exactFindingResolutionEvidenceAtIngestion(state: DagRunStateV1, context: DagRunValidationContextV1, finding: any, findingFact: any, resolution: any): boolean {

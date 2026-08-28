@@ -94,7 +94,7 @@ interface ActiveFocus {
 
 interface IntegrationOptions {
   getActiveFocus(ctx: any): ActiveFocus | Promise<ActiveFocus>;
-  conductor: Pick<DagConductorServiceV1, "binding" | "status" | "inspect" | "activate" | "startPrepared" | "startIdentity"> & Partial<Pick<DagConductorServiceV1, "pendingStart">>;
+  conductor: Pick<DagConductorServiceV1, "binding" | "status" | "inspect" | "startPrepared" | "startIdentity"> & Partial<Pick<DagConductorServiceV1, "pendingStart">>;
 }
 
 interface ParsedCommandInput {
@@ -337,9 +337,8 @@ export function registerDagPlanningIntegrationV1(pi: ExtensionAPI, options: Inte
         const source = await options.conductor.startIdentity(ctx, binding.runId);
         if (source.sourcePlanningPlanId !== selected.planId || source.sourcePlanningPlanHash !== selected.planHash) throw new Error("Explicit plan selector does not match the exact current-session run source");
       }
-      const advanced = await options.conductor.retryActivation(ctx, binding.runId, new Date().toISOString());
       const live = await options.conductor.status(ctx, binding.runId);
-      ctx.ui.notify(runSummary(binding, advanced.state, live.projection), "info");
+      ctx.ui.notify(runSummary(binding, live.state, live.projection), "info");
       sendRunOrchestrationKickoff(binding.runId);
       return;
     }
@@ -380,15 +379,14 @@ export function registerDagPlanningIntegrationV1(pi: ExtensionAPI, options: Inte
       sourcePlanningPlanHash: selected.planHash,
     });
     bindPlan(pi, ctx, root, selected);
-    const advanced = await options.conductor.retryActivation(ctx, started.state.runId, occurredAt);
-    ctx.ui.notify(runSummary(started.binding, advanced.state, null), "info");
+    ctx.ui.notify(runSummary(started.binding, started.state, null), "info");
     sendRunOrchestrationKickoff(started.state.runId);
   }
 
   function sendRunOrchestrationKickoff(runId: string): void {
     pi.sendMessage({
       customType: "dag-run-orchestration-kickoff",
-      content: `Orchestrate canonical DAG ${runId}. Call dag_run_status now. Dispatch each exact readyPacket yourself with dag_run_dispatch, refreshing status after each launch. Never use generic subagent for canonical DAG work. Continue only independent orchestration work, then end the turn at the worker dependency barrier so completion follow-ups resume orchestration.`,
+      content: `Orchestrate canonical DAG ${runId}. Call dag_next_action now and choose one current semantic action. Use only dag_start_work, dag_run_checks, dag_record_completion, dag_integrate, dag_retry, dag_pause, dag_resume, dag_cancel, and dag_finalize; these tools derive all internal guards. Never use generic subagent for canonical DAG work. After every mutation, refresh dag_next_action because all prior choices were revision-bound. End the turn at an owned-worker dependency barrier. Completion callbacks wake you with exact pre-bind recovery or recording guidance; notifications never mutate canonical DAG state and have no arbitrary timeout.`,
       display: true,
     }, { triggerTurn: true, deliverAs: "followUp" });
   }
@@ -615,11 +613,7 @@ function decisionSummary(plan: DagPlanningPlanV1): string {
 
 function runSummary(binding: DagSessionRunBindingV1, state: any, projection: any): string {
   const nodeCount = Array.isArray(projection?.nodes) ? projection.nodes.length : Object.keys(state.workItems ?? {}).length;
-  const dispatchable = Object.values(state.stageAttempts ?? {}).filter((attempt: any) => attempt?.producerKind === "owned_worker" && attempt?.state === "dispatchable").length;
-  const action = dispatchable > 0
-    ? `${dispatchable} owned-worker packet(s) are actionable: dispatch one unchanged dag_run_status readyPacket, then refresh status before another.`
-    : "No owned-worker packet is currently actionable; inspect dag_run_status for reconciliation state or blockers.";
-  return `DAG run ${binding.runId} is ${state.current.run} at revision ${state.revision}; ${nodeCount} work items. ${action} Never use generic subagent for canonical DAG dispatch. Existing runs reconcile without restart or implicit unpause.`;
+  return `DAG run ${binding.runId} is ${state.current.run} at revision ${state.revision}; ${nodeCount} work items. Call dag_next_action for the full current semantic choices, invoke one, then refresh. Never use generic subagent for canonical DAG work; no lifecycle mutation occurs until the agent invokes a named DAG tool.`;
 }
 
 function assertSafeRepositoryPath(root: string, path: string): void {

@@ -16,8 +16,6 @@ const START_INTENT_ROOT = ".ai/dag-start-intents-v1";
 const CONDUCTOR_FAULT_ROOT = ".ai/dag-conductor-faults-v1";
 const HASH_RE = /^sha256:[0-9a-f]{64}$/;
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-const SERVICE_REGISTRY_KEY = Symbol.for("pi-dag-workflow.canonical-conductor-services-v1");
-const conductorServiceRegistry: Map<string, { serviceId: string; lockIdentity: string }> = (globalThis as any)[SERVICE_REGISTRY_KEY] ??= new Map();
 
 export interface DagConductorContextV1 {
   cwd: string;
@@ -100,6 +98,42 @@ export interface DagMutationGuardV1 {
   occurredAt: string;
 }
 
+export type DagSemanticOperationV1 = "start_work" | "run_checks" | "record_completion" | "integrate" | "retry" | "pause" | "resume" | "cancel" | "finalize";
+export interface DagSemanticActionV1 {
+  operation: DagSemanticOperationV1;
+  actionId: string;
+  runId: string;
+  revision: number;
+  snapshotHash: string;
+  ownerEpoch: number;
+  decisionHash: string;
+  workItemId: string | null;
+  stage: string | null;
+  candidateGeneration: number | null;
+  reservationId: string | null;
+  reservationSequence: number | null;
+  reservationState: string | null;
+  stageAttemptId: string | null;
+  completionId: string | null;
+  retryKey: string | null;
+  retryCount: number | null;
+  finalizationKind: "worker_result" | "cleanup" | "cancellation" | null;
+  explanation: string;
+  mutexGroupIds: string[];
+  concurrency: { activeLanes: number; maxActiveNodes: number; requiresRefreshAfterMutation: true };
+}
+export interface DagNextActionResultV1 {
+  schemaVersion: 1;
+  kind: "DagNextActionResultV1";
+  runId: string;
+  revision: number;
+  snapshotHash: string;
+  frontier: DagSemanticActionV1[];
+  controls: DagSemanticActionV1[];
+  waiting: boolean;
+  notice: string;
+}
+
 interface LoadedRunV1 {
   binding: DagSessionRunBindingV1;
   plan: CanonicalDagPlanV1;
@@ -117,34 +151,32 @@ export class DagConductorServiceV1 {
   readonly ownerResumeFailpoint?: (point: DagOwnerResumeFailpointV1) => Promise<void> | void;
   readonly pumpFailpoint?: (point: DagConductorPumpFailpointV1, detail?: { occurredAt: string; wakeGeneration: number }) => Promise<void> | void;
   readonly onPumpError?: (input: { runId: string; error: Error }) => Promise<void> | void;
-  #serviceId = randomUUID();
   #currentLock = new Map<string, DagRunStoreLockIdentityV1>();
-  #ownedServiceKeys = new Set<string>();
   #activeContexts = new Map<string, DagConductorContextV1>();
   #wakeGenerations = new Map<string, number>();
   #wakeTimes = new Map<string, string>();
   #pumps = new Map<string, Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }>>();
   #dispatches = new Map<string, { requestHash: string; promise: Promise<DagOwnedWorkerDispatchResultV1> }>();
   #faults = new Map<string, Error>();
+  #semanticActionClaims = new Set<string>();
   #detaching = false;
   #detachPromise: Promise<void> | null = null;
   #lastGood = new Map<string, { state: DagRunStateV1; decision: DagSchedulerDecisionV1; projection: DagExecutionProjectionV2; readyPackets: DagOwnedWorkerReadyPacketV1[]; cachedAt: string }>();
   constructor(options: { workerProjection?: (bindings: Array<{ workerStorageId: string; launchOwnerSessionId: string; workerId: string; attemptNumber: number; attemptNonce: string; configHash: string; resultHash: string | null }>) => Promise<DagWorkerProjectionInputV1 | null>; dispatchEffect?: (effect: { effectId: string; kind: string; requestHash: string }, state: DagRunStateV1) => Promise<void>; lifecycle?: DagLifecycleRuntimeOptionsV1; integrationFactory?: (input: { store: DagRunSnapshotStoreV1; context: DagRunValidationContextV1; lock: DagRunStoreLockIdentityV1 }) => DagIntegrationReconciliationAdapterV1; startFailpoint?: (point: DagPreparedStartFailpointV1) => Promise<void> | void; ownerResumeFailpoint?: (point: DagOwnerResumeFailpointV1) => Promise<void> | void; pumpFailpoint?: (point: DagConductorPumpFailpointV1, detail?: { occurredAt: string; wakeGeneration: number }) => Promise<void> | void; onPumpError?: (input: { runId: string; error: Error }) => Promise<void> | void } = {}) { this.workerProjection = options.workerProjection; this.dispatchEffect = options.dispatchEffect; this.lifecycle = options.lifecycle ?? {}; this.integrationFactory = options.integrationFactory; this.startFailpoint = options.startFailpoint; this.ownerResumeFailpoint = options.ownerResumeFailpoint; this.pumpFailpoint = options.pumpFailpoint; this.onPumpError = options.onPumpError; }
 
-  /** Drain this exact service generation before releasing its process-local ownership fence. */
+  /** Drain any in-flight legacy pump or owned dispatch before releasing local operation caches. */
   detach(): Promise<void> {
     if (this.#detachPromise) return this.#detachPromise;
     this.#detaching = true;
     this.#activeContexts.clear();
     this.#detachPromise = (async () => {
       await Promise.allSettled([...this.#pumps.values(), ...[...this.#dispatches.values()].map(({ promise }) => promise)]);
-      for (const key of this.#ownedServiceKeys) if (conductorServiceRegistry.get(key)?.serviceId === this.#serviceId) conductorServiceRegistry.delete(key);
-      this.#ownedServiceKeys.clear(); this.#wakeGenerations.clear(); this.#wakeTimes.clear(); this.#currentLock.clear(); this.#dispatches.clear(); this.#faults.clear();
+      this.#wakeGenerations.clear(); this.#wakeTimes.clear(); this.#currentLock.clear(); this.#dispatches.clear(); this.#faults.clear(); this.#semanticActionClaims.clear();
     })();
     return this.#detachPromise;
   }
 
-  /** Coalesce one service-owned advancement pump and fence stale same-process service generations first. */
+  /** Legacy explicit recovery API; normal orchestration uses named semantic operations instead. */
   async activate(ctx: DagConductorContextV1, runId: string, occurredAt = new Date().toISOString()): Promise<{ state: DagRunStateV1; decision: DagSchedulerDecisionV1 }> {
     if (this.#detaching) throw new Error("DAG conductor service is detaching and cannot accept another wake");
     const fault = this.#faults.get(runId); if (fault) throw fault;
@@ -243,9 +275,7 @@ export class DagConductorServiceV1 {
     const context = contextArtifact as DagRunValidationContextV1;
     const index = buildSchedulerPlanIndexV1(plan);
     const genesis = parseDagRunStateV1(await readFile(genesisPath, "utf8"), { ...context, plan, normalizedSchedulerIndexHash: index.indexHash });
-    const prepared = await this.startPrepared(ctx, { runId: input.runId, runNonce: input.runNonce, planHash: input.planHash, maxActiveNodes: input.maxActiveNodes, occurredAt: input.occurredAt, plan, genesis, context, seedFacts });
-    const advanced = await this.activate(ctx, prepared.state.runId, input.occurredAt);
-    return { binding: prepared.binding, state: advanced.state, decision: advanced.decision };
+    return this.startPrepared(ctx, { runId: input.runId, runNonce: input.runNonce, planHash: input.planHash, maxActiveNodes: input.maxActiveNodes, occurredAt: input.occurredAt, plan, genesis, context, seedFacts });
   }
 
   async startPrepared(ctx: DagConductorContextV1, input: DagPreparedRunStartInputV1): Promise<{ binding: DagSessionRunBindingV1; state: DagRunStateV1; decision: DagSchedulerDecisionV1 }> {
@@ -351,7 +381,7 @@ export class DagConductorServiceV1 {
       await replaceCanonicalJson(intentPath, intent, active); intent = active;
     }
     await this.startFailpoint?.("after_start_active");
-    this.#claimService(repositoryRoot, input.runId, await this.#currentOwnerLock({ binding, plan, context: runtimeContext, store, state }));
+    await this.#currentOwnerLock({ binding, plan, context: runtimeContext, store, state });
     await this.startFailpoint?.("before_response");
     return { binding, state, decision: scheduleDagRunV1(plan, state) };
   }
@@ -394,7 +424,8 @@ export class DagConductorServiceV1 {
     throw new Error("DAG execution projection did not stabilize after three exact joins");
   }
 
-  async dispatch(ctx: DagConductorContextV1, packet: DagOwnedWorkerReadyPacketV1, tacticalDirective: string | null | undefined, occurredAt = new Date().toISOString()): Promise<DagOwnedWorkerDispatchResultV1> {
+  async dispatch(ctx: DagConductorContextV1, packet: DagOwnedWorkerReadyPacketV1, tacticalDirective: string | null | undefined, occurredAt = new Date().toISOString(), signal?: AbortSignal): Promise<DagOwnedWorkerDispatchResultV1> {
+    throwIfAborted(signal);
     assertBoundedDagReadyPacketV1(packet);
     const normalizedDirective = tacticalDirective === undefined ? undefined : normalizeDagTacticalDirectiveV1(tacticalDirective);
     const dispatchKey = `${packet.runId}\u0000${packet.stageAttemptId}\u0000${packet.launchIntentId}`;
@@ -409,11 +440,214 @@ export class DagConductorServiceV1 {
       const loaded = await this.#loadBound(ctx, packet.runId);
       const lock = await this.#currentOwnerLock(loaded);
       const lifecycle = new DagLifecycleRuntimeV1(loaded.store, loaded.plan, loaded.context, lock, await realpath(ctx.cwd), this.lifecycle);
-      return lifecycle.dispatch(packet, normalizedDirective, occurredAt);
+      return lifecycle.dispatch(packet, normalizedDirective, occurredAt, signal);
     })().finally(() => { if (this.#dispatches.get(dispatchKey)?.promise === operation) this.#dispatches.delete(dispatchKey); });
     this.#dispatches.set(dispatchKey, { requestHash, promise: operation });
     return operation;
   }
+
+  /** Read the complete currently admissible semantic frontier without mutating run or worker state. */
+  async nextAction(ctx: DagConductorContextV1, runId: string, signal?: AbortSignal): Promise<DagNextActionResultV1> {
+    throwIfAborted(signal);
+    const status = await this.status(ctx, runId);
+    if (status.stale) throw new Error("Semantic frontier requires one fresh exact run projection");
+    const { state, decision } = status;
+    const loaded = await this.#loadBound(ctx, runId);
+    const lifecycle = new DagLifecycleRuntimeV1(loaded.store, loaded.plan, loaded.context, dagRunStoreLockIdentityFromOwner(state.owner), await realpath(ctx.cwd), this.lifecycle);
+    const terminal = new Map((await lifecycle.terminalCompletions(state, signal)).map((item) => [item.stageAttemptId, item]));
+    throwIfAborted(signal);
+    const actions: DagSemanticActionV1[] = [];
+    const controls: DagSemanticActionV1[] = [];
+    const action = (target: DagSemanticActionV1[], operation: DagSemanticOperationV1, input: { workItemId?: string | null; stage?: string | null; reservation?: DagRunStateV1["scheduler"]["reservations"][string] | null; stageAttemptId?: string | null; completionId?: string | null; retryKey?: string | null; retryCount?: number | null; finalizationKind?: DagSemanticActionV1["finalizationKind"]; explanation: string; mutexGroupIds?: string[] }) => {
+      const workItemId = input.workItemId ?? input.reservation?.workItemId ?? null;
+      const core = {
+        operation, runId, revision: state.revision, snapshotHash: state.snapshotHash, ownerEpoch: state.owner.ownerEpoch, decisionHash: decision.decisionHash,
+        workItemId, stage: input.stage ?? input.reservation?.stage ?? null, candidateGeneration: input.reservation?.candidateGeneration ?? (workItemId ? state.workItems[workItemId]?.candidateGeneration ?? null : null),
+        reservationId: input.reservation?.reservationId ?? null, reservationSequence: input.reservation?.reservationSequence ?? null, reservationState: input.reservation?.state ?? null,
+        stageAttemptId: input.stageAttemptId ?? null, completionId: input.completionId ?? null, retryKey: input.retryKey ?? null, retryCount: input.retryCount ?? null,
+        finalizationKind: input.finalizationKind ?? null,
+      };
+      target.push({ ...core, actionId: `action-${canonicalHash({ schemaVersion: 1, ...core }).slice(7)}`, explanation: input.explanation, mutexGroupIds: [...(input.mutexGroupIds ?? input.reservation?.mutexGroupIds ?? [])].sort(), concurrency: { activeLanes: decision.activeLaneWorkItemIds.length, maxActiveNodes: decision.maxActiveNodes, requiresRefreshAfterMutation: true } });
+    };
+
+    const cleanupAttempts = this.lifecycle.worker?.cleanupExact ? Object.values(state.stageAttempts).filter((attempt) => attempt.producerKind === "owned_worker" && Boolean(attempt.terminalAt) && Boolean(attempt.workerResult) && Boolean(state.workerBindings[attempt.stageAttemptId]) && !Object.values(state.effects).some((effect: any) => effect.kind === "cleanup_worktree" && effect.boundStageAttemptId === attempt.stageAttemptId && effect.state === "reconciled" && ["applied_exact", "proven_absent"].includes(effect.reconciliation))).sort((left, right) => left.stageAttemptId.localeCompare(right.stageAttemptId)) : [];
+    const cancellation = Object.values(state.cancellations).find((candidate) => candidate.state !== "closed");
+    const runTerminal = state.completion.state !== "open" || ["cancelled", "completed", "superseded"].includes(state.current.run);
+    const outstanding = Object.values(state.scheduler.reservations).filter((reservation) => !["released", "fenced", "launch_ambiguous"].includes(reservation.state)).sort((left, right) => left.reservationSequence - right.reservationSequence);
+
+    if (cancellation) {
+      for (const packet of await lifecycle.readyPackets(state)) {
+        const reservation = state.scheduler.reservations[packet.reservationId];
+        const attempt = state.stageAttempts[packet.stageAttemptId];
+        if (reservation && attempt && !state.workerBindings[attempt.stageAttemptId]) action(actions, "start_work", { reservation, stageAttemptId: attempt.stageAttemptId, explanation: `Exactly replay and bind the already-authorized ${reservation.stage} launch for ${reservation.workItemId} so cancellation can reconcile it.` });
+      }
+      action(actions, "finalize", { finalizationKind: "cancellation", explanation: `Finish exact cancellation ${cancellation.cancellationId} and reconcile its durable effects.` });
+    } else {
+      for (const attempt of cleanupAttempts) action(actions, "finalize", { workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, finalizationKind: "cleanup", explanation: `Reconcile exact owned-worktree cleanup for ${attempt.stageAttemptId}.` });
+      const mayContinueAdmittedWork = !runTerminal && state.desired.run === "running" && ["active", "integration"].includes(state.current.run);
+      if (mayContinueAdmittedWork) for (const reservation of outstanding) {
+        const item = state.workItems[reservation.workItemId];
+        const attemptId = item?.stages[reservation.stage]?.currentAttemptId ?? null;
+        const attempt = attemptId ? state.stageAttempts[attemptId] : null;
+        if (reservation.operationKind === "integration") action(actions, "integrate", { reservation, explanation: `Continue the already-admitted exact integration for ${reservation.workItemId}.` });
+        else if (!attempt || (attempt.producerKind === "owned_worker" && !state.workerBindings[attempt.stageAttemptId])) {
+          const operation = ["implementation", "evaluation", "codification", "review", "hardening"].includes(reservation.operationKind) ? "start_work" : "run_checks";
+          action(actions, operation, { reservation, stageAttemptId: attempt?.stageAttemptId ?? null, explanation: operation === "start_work" ? `Start or exactly recover already-admitted owned ${reservation.stage} work for ${reservation.workItemId}.` : `Continue already-admitted synchronous ${reservation.stage} checks for ${reservation.workItemId}.` });
+        } else if (attempt.producerKind === "owned_worker" && ["running", "settling"].includes(attempt.state)) {
+          const completion = terminal.get(attempt.stageAttemptId);
+          if (completion) action(actions, "record_completion", { reservation, stageAttemptId: attempt.stageAttemptId, completionId: completion.completionId, explanation: `Record and explicitly reconcile durable worker completion ${completion.completionId} for ${attempt.stageAttemptId}.` });
+        } else if (attempt.producerKind === "owned_worker" && attempt.state === "result_observed" && ["F1", "F3"].includes(attempt.stage) && state.workItems[attempt.workItemId].candidate?.producedByStageAttemptId !== attempt.stageAttemptId) action(actions, "finalize", { reservation, stageAttemptId: attempt.stageAttemptId, finalizationKind: "worker_result", explanation: `Finalize the already-admitted exact Git candidate output from ${attempt.stageAttemptId}.` });
+        else action(actions, "run_checks", { reservation, stageAttemptId: attempt?.stageAttemptId ?? null, explanation: `Run or close already-admitted synchronous ${reservation.stage} checks for ${reservation.workItemId}.` });
+      }
+      if (!runTerminal && state.desired.run === "paused") for (const reservation of outstanding) {
+        const item = state.workItems[reservation.workItemId];
+        const attemptId = item?.stages[reservation.stage]?.currentAttemptId ?? null;
+        const attempt = attemptId ? state.stageAttempts[attemptId] : null;
+        if (!attempt || attempt.producerKind !== "owned_worker" || !state.workerBindings[attempt.stageAttemptId]) continue;
+        if (["running", "settling"].includes(attempt.state)) {
+          const completion = terminal.get(attempt.stageAttemptId);
+          if (completion) action(actions, "record_completion", { reservation, stageAttemptId: attempt.stageAttemptId, completionId: completion.completionId, explanation: `Observe durable completion ${completion.completionId} for already-started paused work ${attempt.stageAttemptId}.` });
+        } else if (attempt.state === "result_observed" && ["F1", "F3"].includes(attempt.stage) && state.workItems[attempt.workItemId].candidate?.producedByStageAttemptId !== attempt.stageAttemptId) action(actions, "finalize", { reservation, stageAttemptId: attempt.stageAttemptId, finalizationKind: "worker_result", explanation: `Finalize already-observed paused work ${attempt.stageAttemptId} without starting another attempt.` });
+      }
+
+      if (!runTerminal && state.desired.run === "running" && ["active", "integration"].includes(state.current.run)) {
+        const outstandingKeys = new Set(outstanding.map(({ workItemId, stage }) => `${workItemId}\u0000${stage}`));
+        for (const proposal of decision.selected) {
+          if (outstandingKeys.has(`${proposal.workItemId}\u0000${proposal.stage}`)) continue;
+          const operation = proposal.operationKind === "integration" ? "integrate" : ["implementation", "evaluation", "codification", "review", "hardening"].includes(proposal.operationKind) ? "start_work" : "run_checks";
+          action(actions, operation, { workItemId: proposal.workItemId, stage: proposal.stage, explanation: operation === "integrate" ? `Admit exact integration for ${proposal.workItemId}.` : operation === "start_work" ? `Admit and start exact owned ${proposal.stage} work for ${proposal.workItemId}.` : `Admit and run synchronous ${proposal.stage} checks for ${proposal.workItemId}.`, mutexGroupIds: proposal.mutexGroupIds });
+        }
+        for (const retry of Object.values(state.retryLedger).sort((left, right) => left.retryKey.localeCompare(right.retryKey))) if (retryIsAdmissible(state, retry)) action(actions, "retry", { workItemId: retry.workItemId, stage: retry.stage, retryKey: retry.retryKey, retryCount: retry.count, explanation: `Authorize the next exact ${retry.dimension} retry (${retry.count + 1}/${retry.ceiling}).` });
+        action(controls, "pause", { explanation: "Pause only new canonical admission; already-admitted work remains observable and finalizable." });
+        action(controls, "cancel", { explanation: "Cancel the bound run and reconcile every exact effect." });
+      } else if (!runTerminal && state.desired.run === "paused") {
+        action(controls, "resume", { explanation: "Resume new admission for this exact paused canonical run." });
+        action(controls, "cancel", { explanation: "Cancel the bound paused run and reconcile every exact effect." });
+      }
+    }
+    actions.sort(compareSemanticActions); controls.sort(compareSemanticActions);
+    return { schemaVersion: 1, kind: "DagNextActionResultV1", runId, revision: state.revision, snapshotHash: state.snapshotHash, frontier: actions, controls, waiting: actions.length === 0 && !runTerminal && !cancellation, notice: `${decision.notice} Choices are revision-bound; invoke one mutation, then refresh dag_next_action before selecting another.` };
+  }
+
+  /** Resolve a callback to one canonical completion identity without changing DAG state. */
+  async completionNotice(ctx: DagConductorContextV1, event: { workerId: string; attemptNumber: number; completionId: string; terminalStatus: string }): Promise<{ runId: string; stageAttemptId: string; workItemId: string; stage: string; completionId: string; terminalStatus: string; requiresBinding: boolean } | null> {
+    const binding = await this.binding(ctx);
+    if (!binding) return null;
+    const loaded = await this.#loadBound(ctx, binding.runId);
+    const bindingMatches = Object.values(loaded.state.workerBindings).filter((candidate) => candidate.workerId === event.workerId && candidate.attemptNumber === event.attemptNumber);
+    const attemptMatches = Object.values(loaded.state.stageAttempts).filter((candidate) => {
+      const launch = candidate.launchIntentId ? loaded.state.launchIntents[candidate.launchIntentId] : null;
+      return candidate.producerKind === "owned_worker" && launch?.workerId === event.workerId && launch.expectedAttemptNumber === event.attemptNumber;
+    });
+    if (bindingMatches.length > 1 || attemptMatches.length !== 1 || (bindingMatches.length === 1 && bindingMatches[0].stageAttemptId !== attemptMatches[0].stageAttemptId)) throw new Error("Worker completion callback conflicts with canonical launch authority");
+    const attempt = attemptMatches[0];
+    if (attempt.workerResult) return null;
+    if (!event.completionId || !event.terminalStatus) throw new Error("Worker completion callback lacks exact terminal identities");
+    return { runId: loaded.state.runId, stageAttemptId: attempt.stageAttemptId, workItemId: attempt.workItemId, stage: attempt.stage, completionId: event.completionId, terminalStatus: event.terminalStatus, requiresBinding: bindingMatches.length === 0 };
+  }
+
+  async startWork(ctx: DagConductorContextV1, runId: string, actionId: string, workItemId: string, stage: string, tacticalDirective?: string | null, signal?: AbortSignal): Promise<{ state: DagRunStateV1; binding: DagOwnedWorkerDispatchResultV1["binding"]; next: DagNextActionResultV1 }> { return this.#withSemanticActionClaim(actionId, () => this.#startWork(ctx, runId, actionId, workItemId, stage, tacticalDirective, signal)); }
+  async #startWork(ctx: DagConductorContextV1, runId: string, actionId: string, workItemId: string, stage: string, tacticalDirective?: string | null, signal?: AbortSignal): Promise<{ state: DagRunStateV1; binding: DagOwnedWorkerDispatchResultV1["binding"]; next: DagNextActionResultV1 }> {
+    const selected = await this.#requireSemanticAction(ctx, runId, actionId, "start_work", { workItemId, stage }, signal);
+    const occurredAt = new Date().toISOString();
+    const reservation = await this.#ensureSemanticReservation(ctx, selected, occurredAt, signal);
+    for (let transition = 0; transition < 4; transition += 1) {
+      throwIfAborted(signal);
+      const { lifecycle, loaded } = await this.#semanticRuntime(ctx, runId, occurredAt, undefined, signal);
+      const packets = await lifecycle.readyPackets(loaded.state);
+      const packet = packets.find((candidate) => candidate.reservationId === reservation.reservationId);
+      if (packet) {
+        const dispatched = await this.dispatch(ctx, packet, tacticalDirective, occurredAt, signal);
+        return { state: dispatched.state, binding: dispatched.binding, next: await this.nextAction(ctx, runId) };
+      }
+      const current = loaded.state.scheduler.reservations[reservation.reservationId];
+      if (!current || ["released", "fenced", "launch_ambiguous"].includes(current.state)) throw new Error("Selected owned-work reservation is no longer startable");
+      const result = await lifecycle.reconcileSemanticOne(reservation.reservationId, occurredAt, signal);
+      if (!result.progressed) throw new Error(result.reason ?? "Selected owned work did not reach exact dispatch authority");
+    }
+    throw new Error("Selected owned work exceeded its closed canonical start transition set");
+  }
+
+  async runChecks(ctx: DagConductorContextV1, runId: string, actionId: string, workItemId: string, stage: string, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> { return this.#withSemanticActionClaim(actionId, () => this.#runChecks(ctx, runId, actionId, workItemId, stage, signal)); }
+  async #runChecks(ctx: DagConductorContextV1, runId: string, actionId: string, workItemId: string, stage: string, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> {
+    const selected = await this.#requireSemanticAction(ctx, runId, actionId, "run_checks", { workItemId, stage }, signal);
+    const occurredAt = new Date().toISOString();
+    const reservation = await this.#ensureSemanticReservation(ctx, selected, occurredAt, signal);
+    let state: DagRunStateV1 | null = null;
+    for (let transition = 0; transition < 32; transition += 1) {
+      throwIfAborted(signal);
+      const { lifecycle, loaded } = await this.#semanticRuntime(ctx, runId, occurredAt, undefined, signal); state = loaded.state;
+      const current = state.scheduler.reservations[reservation.reservationId];
+      if (!current || ["released", "fenced", "launch_ambiguous"].includes(current.state)) break;
+      const result = await lifecycle.reconcileSemanticOne(reservation.reservationId, occurredAt, signal); state = result.state;
+      if (!result.progressed) break;
+    }
+    if (!state) throw new Error("Synchronous checks did not read canonical state");
+    return { state, next: await this.nextAction(ctx, runId) };
+  }
+
+  async recordCompletion(ctx: DagConductorContextV1, runId: string, actionId: string, stageAttemptId: string, completionId: string, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> { return this.#withSemanticActionClaim(actionId, () => this.#recordCompletion(ctx, runId, actionId, stageAttemptId, completionId, signal)); }
+  async #recordCompletion(ctx: DagConductorContextV1, runId: string, actionId: string, stageAttemptId: string, completionId: string, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> {
+    const selected = await this.#requireSemanticAction(ctx, runId, actionId, "record_completion", { stageAttemptId, completionId }, signal);
+    const occurredAt = new Date().toISOString();
+    const { lifecycle } = await this.#semanticRuntime(ctx, runId, occurredAt, selected, signal);
+    const result = await lifecycle.recordCompletion(stageAttemptId, completionId, occurredAt, signal);
+    return { state: result.state, next: await this.nextAction(ctx, runId) };
+  }
+
+  async integrateSemantic(ctx: DagConductorContextV1, runId: string, actionId: string, workItemId: string, stage = "F8", signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> { return this.#withSemanticActionClaim(actionId, () => this.#integrateSemantic(ctx, runId, actionId, workItemId, stage, signal)); }
+  async #integrateSemantic(ctx: DagConductorContextV1, runId: string, actionId: string, workItemId: string, stage = "F8", signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> {
+    const selected = await this.#requireSemanticAction(ctx, runId, actionId, "integrate", { workItemId, stage }, signal);
+    const occurredAt = new Date().toISOString();
+    const reservation = await this.#ensureSemanticReservation(ctx, selected, occurredAt, signal);
+    let state: DagRunStateV1 | null = null;
+    for (let transition = 0; transition < 32; transition += 1) {
+      throwIfAborted(signal);
+      const { lifecycle, loaded } = await this.#semanticRuntime(ctx, runId, occurredAt, undefined, signal); state = loaded.state;
+      const current = state.scheduler.reservations[reservation.reservationId];
+      if (!current || ["released", "fenced", "launch_ambiguous"].includes(current.state)) break;
+      const result = await lifecycle.reconcileSemanticOne(reservation.reservationId, occurredAt, signal); state = result.state;
+      if (!result.progressed) break;
+    }
+    if (!state) throw new Error("Integration did not read canonical state");
+    return { state, next: await this.nextAction(ctx, runId) };
+  }
+
+  async finalizeSemantic(ctx: DagConductorContextV1, runId: string, actionId: string, stageAttemptId?: string | null, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> { return this.#withSemanticActionClaim(actionId, () => this.#finalizeSemantic(ctx, runId, actionId, stageAttemptId, signal)); }
+  async #finalizeSemantic(ctx: DagConductorContextV1, runId: string, actionId: string, stageAttemptId?: string | null, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> {
+    const selected = await this.#requireSemanticAction(ctx, runId, actionId, "finalize", { stageAttemptId: stageAttemptId ?? null }, signal);
+    const occurredAt = new Date().toISOString();
+    const { lifecycle, loaded } = await this.#semanticRuntime(ctx, runId, occurredAt, selected, signal);
+    let result = selected.finalizationKind === "worker_result" ? await lifecycle.finalizeWorkerResult(selected.stageAttemptId!, occurredAt, signal)
+      : selected.finalizationKind === "cleanup" ? await lifecycle.reconcileCleanupAttempt(selected.stageAttemptId!, occurredAt, signal)
+      : selected.finalizationKind === "cancellation" ? await lifecycle.reconcileCancellationOne(occurredAt, signal) : null;
+    if (!result) result = { state: loaded.state, progressed: false, waiting: true, reason: "No exact finalization is currently pending" };
+    return { state: result.state, next: await this.nextAction(ctx, runId) };
+  }
+
+  async retrySemantic(ctx: DagConductorContextV1, runId: string, actionId: string, retryKey: string, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> { return this.#withSemanticActionClaim(actionId, () => this.#retrySemantic(ctx, runId, actionId, retryKey, signal)); }
+  async #retrySemantic(ctx: DagConductorContextV1, runId: string, actionId: string, retryKey: string, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> {
+    const selected = await this.#requireSemanticAction(ctx, runId, actionId, "retry", { retryKey }, signal);
+    const occurredAt = new Date().toISOString();
+    const loaded = await this.#loadOperational(ctx, runId, occurredAt, signal); this.#assertActionState(loaded.state, selected); const entry = loaded.state.retryLedger[retryKey];
+    if (!entry || !retryIsAdmissible(loaded.state, entry)) throw new Error("Exact retry is no longer admissible");
+    const guard = semanticGuard(loaded.state, "retry", actionId, occurredAt);
+    const state = await this.retry(ctx, guard, { retryKey, expectedCount: entry.count, workItemId: entry.workItemId, stage: entry.stage, dimension: entry.dimension, fingerprint: entry.fingerprint, candidateGeneration: loaded.state.workItems[entry.workItemId].candidateGeneration }, signal);
+    return { state, next: await this.nextAction(ctx, runId) };
+  }
+
+  async controlSemantic(ctx: DagConductorContextV1, runId: string, actionId: string, operation: "pause" | "resume" | "cancel", reason: string, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> { return this.#withSemanticActionClaim(actionId, () => this.#controlSemantic(ctx, runId, actionId, operation, reason, signal)); }
+  async #controlSemantic(ctx: DagConductorContextV1, runId: string, actionId: string, operation: "pause" | "resume" | "cancel", reason: string, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> {
+    const selected = await this.#requireSemanticAction(ctx, runId, actionId, operation, {}, signal);
+    const occurredAt = new Date().toISOString(); const loaded = await this.#loadOperational(ctx, runId, occurredAt, signal); this.#assertActionState(loaded.state, selected); throwIfAborted(signal);
+    const guard = semanticGuard(loaded.state, operation, actionId, occurredAt);
+    const state = await this.control(ctx, guard, operation, reason, signal);
+    return { state, next: await this.nextAction(ctx, runId) };
+  }
+
+  async cancelSemantic(ctx: DagConductorContextV1, runId: string, actionId: string, reason: string, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> { return this.controlSemantic(ctx, runId, actionId, "cancel", reason, signal); }
+  async pauseSemantic(ctx: DagConductorContextV1, runId: string, actionId: string, reason: string, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> { return this.controlSemantic(ctx, runId, actionId, "pause", reason, signal); }
+  async resumeSemantic(ctx: DagConductorContextV1, runId: string, actionId: string, reason: string, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> { return this.controlSemantic(ctx, runId, actionId, "resume", reason, signal); }
 
   async inspect(ctx: DagConductorContextV1, runId: string, subjectId: string | null): Promise<unknown> {
     const { state, decision, projection } = await this.status(ctx, runId);
@@ -434,7 +668,8 @@ export class DagConductorServiceV1 {
     return { snapshots: page.map(({ revision, snapshotHash, updatedAt, current }) => ({ revision, snapshotHash, updatedAt, current: current.run })), nextBeforeRevision: page.length === Math.max(1, Math.min(100, limit)) ? page.at(-1)!.revision : null };
   }
 
-  async control(ctx: DagConductorContextV1, guard: DagMutationGuardV1, action: "pause" | "resume" | "cancel", reason: string): Promise<DagRunStateV1> {
+  async control(ctx: DagConductorContextV1, guard: DagMutationGuardV1, action: "pause" | "resume" | "cancel", reason: string, signal?: AbortSignal): Promise<DagRunStateV1> {
+    throwIfAborted(signal);
     const loaded = await this.#loadGuarded(ctx, guard); const lock = await this.#currentOwnerLock(loaded);
     let input: DagRunInputV1;
     if (action === "cancel") {
@@ -450,23 +685,26 @@ export class DagConductorServiceV1 {
       const payload = { desired: action === "pause" ? "paused" : "running", reason, requestedBy: "user" };
       input = reducerInput(loaded.state, "set_desired_run", "command", payload, guard.occurredAt, guard);
     }
-    const result = await loaded.store.mutate({ input, context: loaded.context, lock });
+    throwIfAborted(signal);
+    const result = await loaded.store.mutate({ input, context: loaded.context, lock, signal });
     if (!result.accepted) throw new Error(`DAG control rejected: ${result.code}: ${result.message}`);
     let state = result.state;
     if (action === "cancel" && this.dispatchEffect) for (const effectId of result.state.cancellations[`cancel-${guard.commandId}`].effectIds) {
+      throwIfAborted(signal);
       const effect = state.effects[effectId];
       const markPayload = { effectId, expectedDispatchCount: effect.dispatchCount };
-      const marked = await loaded.store.mutate({ input: reducerInput(state, "mark_effect_dispatching", "command", markPayload, guard.occurredAt, { commandId: `${guard.commandId}-dispatch-${effectId}`, idempotencyKey: `${guard.idempotencyKey}:dispatch:${effectId}` }), context: loaded.context, lock });
+      const marked = await loaded.store.mutate({ input: reducerInput(state, "mark_effect_dispatching", "command", markPayload, guard.occurredAt, { commandId: `${guard.commandId}-dispatch-${effectId}`, idempotencyKey: `${guard.idempotencyKey}:dispatch:${effectId}` }), context: loaded.context, lock, signal });
       if (!marked.accepted) throw new Error(`DAG cancellation dispatch rejected: ${marked.code}: ${marked.message}`);
       state = marked.state; await this.dispatchEffect({ effectId, kind: effect.kind, requestHash: effect.requestHash }, state);
     }
     return state;
   }
 
-  async retry(ctx: DagConductorContextV1, guard: DagMutationGuardV1, payload: { retryKey: string; expectedCount: number; workItemId: string; stage: string; dimension: string; fingerprint: string; candidateGeneration: number }): Promise<DagRunStateV1> {
+  async retry(ctx: DagConductorContextV1, guard: DagMutationGuardV1, payload: { retryKey: string; expectedCount: number; workItemId: string; stage: string; dimension: string; fingerprint: string; candidateGeneration: number }, signal?: AbortSignal): Promise<DagRunStateV1> {
+    throwIfAborted(signal);
     const loaded = await this.#loadGuarded(ctx, guard); const lock = await this.#currentOwnerLock(loaded);
     const input = reducerInput(loaded.state, "authorize_retry", "command", payload, guard.occurredAt, guard);
-    const result = await loaded.store.mutate({ input, context: loaded.context, lock });
+    const result = await loaded.store.mutate({ input, context: loaded.context, lock, signal });
     if (!result.accepted) throw new Error(`DAG retry rejected: ${result.code}: ${result.message}`);
     return result.state;
   }
@@ -482,7 +720,7 @@ export class DagConductorServiceV1 {
       const previousPath = loaded.state.previousSnapshotHash ? join(loaded.store.snapshotsDirectory, `${loaded.state.previousSnapshotHash.slice("sha256:".length)}.json`) : null;
       const previous = previousPath ? parseStrictJson(await readFile(previousPath, "utf8")) as DagRunStateV1 : null;
       if (ownership?.kind === "ownership" && ownership.ownerEpoch === loaded.state.owner.ownerEpoch && ownership.priorSessionId !== null && previous?.revision === guard.expectedRevision && previous.snapshotHash === guard.expectedSnapshotHash && previous.owner.ownerEpoch === guard.ownerEpoch) {
-        const lock = dagRunStoreLockIdentityFromOwner(loaded.state.owner); this.#currentLock.set(guard.runId, lock); this.#claimService(repositoryRoot, guard.runId, lock); return loaded.state;
+        const lock = dagRunStoreLockIdentityFromOwner(loaded.state.owner); this.#currentLock.set(guard.runId, lock); return loaded.state;
       }
     }
     if (loaded.state.runNonce !== guard.runNonce || loaded.state.revision !== guard.expectedRevision || loaded.state.snapshotHash !== guard.expectedSnapshotHash || loaded.state.owner.ownerEpoch !== guard.ownerEpoch) throw new Error("DAG reattach guard is stale");
@@ -512,7 +750,6 @@ export class DagConductorServiceV1 {
     if (!recovery.result.accepted) throw new Error(`DAG reattach rejected: ${recovery.result.code}: ${recovery.result.message}`);
     await this.ownerResumeFailpoint?.("after_owner_transfer");
     this.#currentLock.set(guard.runId, newLock);
-    this.#claimService(repositoryRoot, guard.runId, newLock);
     const binding = await this.#createBinding(ctx, repositoryRoot, loaded.plan, recovery.result.state, guard.occurredAt, { kind: "explicit_reattach", priorBindingHash: priorBinding.bindingHash, priorSessionId: priorBinding.sessionId, proofHash: ownership.hash }, successorExistingBinding);
     await this.ownerResumeFailpoint?.("after_owner_binding");
     await this.#refreshStartIntentBinding(repositoryRoot, priorBinding.sessionId, sessionId, guard.runId, binding.bindingHash);
@@ -591,6 +828,81 @@ export class DagConductorServiceV1 {
     return { binding: placeholder, plan, context: effectiveContext, store, state };
   }
 
+  async #loadOperational(ctx: DagConductorContextV1, runId: string, occurredAt: string, signal?: AbortSignal): Promise<LoadedRunV1> {
+    throwIfAborted(signal);
+    let loaded = await this.#loadBound(ctx, runId, true);
+    try { await this.#currentOwnerLock(loaded); return loaded; }
+    catch (ownerError) {
+      if (!loaded.state.owner.sessionId || !loaded.state.owner.lockIdentity) throw ownerError;
+      const guard = semanticGuard(loaded.state, "recover", loaded.binding.bindingHash, occurredAt);
+      throwIfAborted(signal);
+      await this.reattach(ctx, guard);
+      loaded = await this.#loadBound(ctx, runId, true);
+      await this.#currentOwnerLock(loaded);
+      return loaded;
+    }
+  }
+
+  async #withSemanticActionClaim<T>(actionId: string, operation: () => Promise<T>): Promise<T> {
+    if (this.#semanticActionClaims.has(actionId)) throw new Error("Semantic action is already executing concurrently");
+    this.#semanticActionClaims.add(actionId);
+    try { return await operation(); }
+    finally { this.#semanticActionClaims.delete(actionId); }
+  }
+
+  async #requireSemanticAction(ctx: DagConductorContextV1, runId: string, actionId: string, operation: DagSemanticOperationV1, selector: Partial<Pick<DagSemanticActionV1, "workItemId" | "stage" | "stageAttemptId" | "completionId" | "retryKey">>, signal?: AbortSignal): Promise<DagSemanticActionV1> {
+    if (!actionId) throw new Error("Semantic mutation requires the exact actionId returned by dag_next_action");
+    const frontier = await this.nextAction(ctx, runId, signal);
+    const selected = [...frontier.frontier, ...frontier.controls].find((candidate) => candidate.actionId === actionId);
+    if (!selected) throw new Error("Semantic action is stale, consumed, or from a different run snapshot");
+    if (selected.operation !== operation) throw new Error(`Semantic action ${actionId} requires ${selected.operation}, not ${operation}`);
+    for (const [key, value] of Object.entries(selector)) if ((selected as any)[key] !== value) throw new Error(`Semantic action ${actionId} does not bind the requested ${key}`);
+    return selected;
+  }
+
+  #assertActionState(state: DagRunStateV1, action: DagSemanticActionV1): void {
+    if (state.runId !== action.runId || state.revision !== action.revision || state.snapshotHash !== action.snapshotHash || state.owner.ownerEpoch !== action.ownerEpoch) throw new Error("Semantic action became stale before its exact mutation boundary");
+    if (action.workItemId && !action.reservationId && state.workItems[action.workItemId]?.candidateGeneration !== action.candidateGeneration) throw new Error("Semantic action candidate generation is stale");
+    if (action.reservationId) {
+      const reservation = state.scheduler.reservations[action.reservationId];
+      if (!reservation || reservation.workItemId !== action.workItemId || reservation.stage !== action.stage || reservation.reservationSequence !== action.reservationSequence || reservation.state !== action.reservationState || reservation.candidateGeneration !== action.candidateGeneration) throw new Error("Semantic action reservation identity is stale or replaced");
+    }
+  }
+
+  async #semanticRuntime(ctx: DagConductorContextV1, runId: string, occurredAt: string, selected?: DagSemanticActionV1, signal?: AbortSignal): Promise<{ loaded: LoadedRunV1; lifecycle: DagLifecycleRuntimeV1 }> {
+    const loaded = await this.#loadOperational(ctx, runId, occurredAt, signal);
+    if (selected) this.#assertActionState(loaded.state, selected);
+    const lock = await this.#currentOwnerLock(loaded);
+    const lifecycleOptions = this.integrationFactory && !this.lifecycle.integration ? { ...this.lifecycle, integration: this.integrationFactory({ store: loaded.store, context: loaded.context, lock }) } : this.lifecycle;
+    return { loaded, lifecycle: new DagLifecycleRuntimeV1(loaded.store, loaded.plan, loaded.context, lock, await realpath(ctx.cwd), lifecycleOptions) };
+  }
+
+  async #ensureSemanticReservation(ctx: DagConductorContextV1, selected: DagSemanticActionV1, occurredAt: string, signal?: AbortSignal): Promise<DagRunStateV1["scheduler"]["reservations"][string]> {
+    throwIfAborted(signal);
+    let loaded = await this.#loadOperational(ctx, selected.runId, occurredAt, signal);
+    this.#assertActionState(loaded.state, selected);
+    let reservation = selected.reservationId ? loaded.state.scheduler.reservations[selected.reservationId] : undefined;
+    if (!reservation) {
+      const decision = scheduleDagRunV1(loaded.plan, loaded.state);
+      if (decision.decisionHash !== selected.decisionHash) throw new Error("Semantic action scheduler decision is stale");
+      const proposal = decision.selected.find((candidate) => candidate.workItemId === selected.workItemId && candidate.stage === selected.stage && candidate.itemGeneration === selected.candidateGeneration);
+      if (!proposal) throw new Error(`No exact selected canonical ${selected.stage} action exists for ${selected.workItemId}`);
+      const expected = proposal.operationKind === "integration" ? "integrate" : ["implementation", "evaluation", "codification", "review", "hardening"].includes(proposal.operationKind) ? "start_work" : "run_checks";
+      if (expected !== selected.operation) throw new Error(`Selected action requires dag_${expected}, not dag_${selected.operation}`);
+      const payload = { decisionHash: decision.decisionHash, decisionSequence: decision.decisionSequence, policyHash: decision.policyHash, normalizedIndexHash: decision.normalizedIndexHash, inputSnapshotHash: loaded.state.snapshotHash, reservations: decision.selected, bypassSlotIds: decision.bypassIncrements };
+      const lock = await this.#currentOwnerLock(loaded);
+      throwIfAborted(signal);
+      const result = await loaded.store.mutate({ input: reducerInput(loaded.state, "reserve_scheduler_batch", "command", payload, occurredAt, { commandId: `semantic-reserve-${decision.decisionSequence}-${selected.actionId.slice(7, 19)}`, idempotencyKey: `semantic-reserve:${loaded.state.runNonce}:${decision.decisionSequence}:${selected.actionId}` }), context: loaded.context, lock, signal });
+      if (!result.accepted) throw new Error(`Semantic scheduler reservation rejected: ${result.code}: ${result.message}`);
+      loaded = await this.#loadBound(ctx, selected.runId, true);
+      reservation = loaded.state.scheduler.reservations[proposal.reservationId];
+    }
+    if (!reservation || reservation.workItemId !== selected.workItemId || reservation.stage !== selected.stage || reservation.candidateGeneration !== selected.candidateGeneration) throw new Error("Semantic action did not resolve its exact durable reservation");
+    const expected = reservation.operationKind === "integration" ? "integrate" : ["implementation", "evaluation", "codification", "review", "hardening"].includes(reservation.operationKind) ? "start_work" : "run_checks";
+    if (selected.operation !== expected && !(selected.operation === "run_checks" && Boolean(loaded.state.workItems[selected.workItemId!]?.stages[selected.stage!]?.currentAttemptId))) throw new Error(`Durable reservation requires dag_${expected}, not dag_${selected.operation}`);
+    return reservation;
+  }
+
   async #loadGuarded(ctx: DagConductorContextV1, guard: DagMutationGuardV1): Promise<LoadedRunV1> {
     const loaded = await this.#loadBound(ctx, guard.runId);
     if (loaded.state.runNonce !== guard.runNonce || loaded.state.revision !== guard.expectedRevision || loaded.state.snapshotHash !== guard.expectedSnapshotHash || loaded.state.owner.ownerEpoch !== guard.ownerEpoch) throw new Error("DAG mutation guard is stale");
@@ -626,74 +938,23 @@ export class DagConductorServiceV1 {
     return { binding, plan, context: effectiveContext, store, state };
   }
 
-  #serviceKey(repositoryRoot: string, runId: string): string { return canonicalHash({ repositoryRoot, runId }); }
-
-  #claimService(repositoryRoot: string, runId: string, lock: DagRunStoreLockIdentityV1): void {
-    const key = this.#serviceKey(repositoryRoot, runId);
-    const current = conductorServiceRegistry.get(key);
-    if (current && current.serviceId !== this.#serviceId && current.lockIdentity === lock.lockIdentity) throw new Error("Another conductor service generation is still operational for this exact run");
-    conductorServiceRegistry.set(key, { serviceId: this.#serviceId, lockIdentity: lock.lockIdentity });
-    this.#ownedServiceKeys.add(key);
-  }
-
   async #currentOwnerLock(loaded: LoadedRunV1): Promise<DagRunStoreLockIdentityV1> {
-    const current = this.#currentLock.get(loaded.state.runId);
     const start = await currentProcessStartIdentity();
-    if (!current || current.lockIdentity !== loaded.state.owner.lockIdentity || current.ownerTokenHash !== loaded.state.owner.ownerTokenHash || current.sessionId !== loaded.state.owner.sessionId || current.pid !== process.pid || current.processStartIdentity !== start) throw new Error("Current conductor service does not own the exact DAG epoch; activate or reattach the run");
-    return current;
+    const owner = loaded.state.owner;
+    if (owner.sessionId !== loaded.binding.sessionId || owner.pid !== process.pid || owner.processStartIdentity !== start || !owner.lockIdentity || !owner.ownerTokenHash) throw new Error("Current conductor service does not own the exact DAG epoch; proven-dead recovery is required");
+    const current = this.#currentLock.get(loaded.state.runId);
+    if (current && current.lockIdentity === owner.lockIdentity && current.ownerTokenHash === owner.ownerTokenHash && current.sessionId === owner.sessionId && current.pid === process.pid && current.processStartIdentity === start) return current;
+    const derived = dagRunStoreLockIdentityFromOwner(owner);
+    this.#currentLock.set(loaded.state.runId, derived);
+    return derived;
   }
 
   async #ensureOperationalOwner(ctx: DagConductorContextV1, runId: string, occurredAt: string): Promise<void> {
-    let loaded = await this.#loadBound(ctx, runId, true);
+    const loaded = await this.#loadBound(ctx, runId, true);
     const repositoryRoot = await realpath(ctx.cwd);
     const sessionId = String(ctx.sessionManager.getSessionId());
     await this.#refreshStartIntentBinding(repositoryRoot, loaded.binding.lineage.priorSessionId ?? sessionId, sessionId, runId, loaded.binding.bindingHash);
-    const serviceKey = this.#serviceKey(repositoryRoot, runId);
-    const registered = conductorServiceRegistry.get(serviceKey);
-    const cached = this.#currentLock.get(runId);
-    if (cached && cached.lockIdentity === loaded.state.owner.lockIdentity && cached.ownerTokenHash === loaded.state.owner.ownerTokenHash) {
-      if (registered && registered.serviceId !== this.#serviceId && registered.lockIdentity === cached.lockIdentity) throw new Error("Another conductor service generation is still operational for this exact run");
-      this.#claimService(repositoryRoot, runId, cached);
-      await this.#currentOwnerLock(loaded);
-      return;
-    }
-    if (registered && registered.serviceId !== this.#serviceId && registered.lockIdentity === loaded.state.owner.lockIdentity) throw new Error("Another conductor service generation is still operational for this exact run");
-    const processStartIdentity = await currentProcessStartIdentity();
-    if (loaded.state.owner.sessionId !== sessionId || loaded.state.owner.pid !== process.pid || loaded.state.owner.processStartIdentity !== processStartIdentity) throw new Error("DAG owner belongs to another live process or session; use exact proven-dead reattachment");
-
-    const prior = loaded.state.owner;
-    const priorLock = dagRunStoreLockIdentityFromOwner(prior);
-    const newLock = await processLockIdentity(sessionId, canonicalHash({ purpose: "dag-run-service-resume", sessionId, runId, ownerEpoch: prior.ownerEpoch + 1, nonce: randomUUID() }), canonicalHash({ purpose: "dag-run-owner-token", sessionId, runId, ownerEpoch: prior.ownerEpoch + 1, nonce: randomUUID() }), occurredAt);
-    const lineageHash = canonicalHash({
-      kind: "direct_owner_transfer", runId: loaded.state.runId, runNonce: loaded.state.runNonce,
-      priorSessionId: prior.sessionId, priorOwnerTokenHash: prior.ownerTokenHash, priorPid: prior.pid,
-      priorProcessStartIdentity: prior.processStartIdentity, priorLockIdentity: prior.lockIdentity,
-      successorSessionId: sessionId, successorPid: newLock.pid, successorProcessStartIdentity: newLock.processStartIdentity,
-      successorLockIdentity: newLock.lockIdentity,
-    });
-    const priorOwnership = prior.ownershipReceipt ? await loaded.store.readImmutableFact(prior.ownershipReceipt) as any : null;
-    const ownershipCore = {
-      kind: "ownership" as const, runId: loaded.state.runId, runNonce: loaded.state.runNonce,
-      priorSessionId: prior.sessionId, priorOwnerTokenHash: prior.ownerTokenHash, priorPid: prior.pid,
-      priorProcessStartIdentity: prior.processStartIdentity, priorLockIdentity: prior.lockIdentity, priorAttachedAt: prior.attachedAt,
-      disposition: "same_manager" as const, priorObservationHash: null, priorOwnershipReceiptHash: prior.ownershipReceipt,
-      ownerEpoch: prior.ownerEpoch + 1, successorSessionId: sessionId, successorPid: newLock.pid,
-      successorProcessStartIdentity: newLock.processStartIdentity, successorLockIdentity: newLock.lockIdentity, lineageHash,
-    };
-    const ownershipWithChain = { ...ownershipCore, chainHash: ownershipChainHashV1(ownershipCore, priorOwnership?.kind === "ownership" ? priorOwnership.chainHash : null) };
-    const ownership = { ...ownershipWithChain, hash: canonicalHash(ownershipWithChain) };
-    await loaded.store.putImmutableFact(ownership);
-    const context = { ...loaded.context, facts: { ...loaded.context.facts, [ownership.hash]: ownership } };
-    const payload = { ownerTokenHash: newLock.ownerTokenHash, sessionId, pid: newLock.pid, processStartIdentity: newLock.processStartIdentity, lockIdentity: newLock.lockIdentity, ownershipReceipt: ownership.hash, priorOwnerDisposition: "same_manager" };
-    const transferred = await loaded.store.mutate({ input: reducerInput(loaded.state, "transfer_owner", "command", payload, occurredAt, { commandId: `service-resume-${prior.ownerEpoch + 1}-${ownership.hash.slice(7, 19)}`, idempotencyKey: `service-resume:${loaded.state.runNonce}:${prior.ownerEpoch + 1}` }), context, lock: priorLock });
-    if (!transferred.accepted) throw new Error(`DAG same-manager service recovery rejected: ${transferred.code}: ${transferred.message}`);
-    await this.ownerResumeFailpoint?.("after_owner_transfer");
-    this.#currentLock.set(runId, newLock);
-    this.#claimService(repositoryRoot, runId, newLock);
-    const binding = await this.#createBinding(ctx, repositoryRoot, loaded.plan, transferred.state, occurredAt, { kind: "same_manager_resume", priorBindingHash: loaded.binding.bindingHash, priorSessionId: sessionId, proofHash: ownership.hash }, loaded.binding);
-    await this.ownerResumeFailpoint?.("after_owner_binding");
-    await this.#refreshStartIntentBinding(repositoryRoot, sessionId, sessionId, runId, binding.bindingHash);
-    await this.ownerResumeFailpoint?.("after_owner_start_identity");
+    await this.#currentOwnerLock(loaded);
   }
 
   async #refreshStartIntentBinding(repositoryRoot: string, sourceSessionId: string, targetSessionId: string, runId: string, bindingHash: string): Promise<void> {
@@ -735,6 +996,35 @@ export class DagConductorServiceV1 {
       return value;
     } catch (error: any) { if (error?.code === "ENOENT") return null; throw error; }
   }
+}
+
+function compareSemanticActions(left: DagSemanticActionV1, right: DagSemanticActionV1): number { return left.operation.localeCompare(right.operation) || (left.workItemId ?? "").localeCompare(right.workItemId ?? "") || (left.stage ?? "").localeCompare(right.stage ?? "") || left.actionId.localeCompare(right.actionId); }
+
+function retryIsAdmissible(state: DagRunStateV1, retry: DagRunStateV1["retryLedger"][string]): boolean {
+  const item = state.workItems[retry.workItemId];
+  return state.desired.run === "running" && ["active", "integration"].includes(state.current.run) && state.completion.state === "open"
+    && !Object.values(state.cancellations).some((candidate) => candidate.state !== "closed")
+    && Boolean(item) && !["complete", "cancelled", "superseded"].includes(item.current)
+    && retry.stop === "none" && retry.count < retry.ceiling && semanticRetryFailureCount(state, retry) > retry.count
+    && !Object.values(state.effects).some((effect) => effect.subject.kind === "work_item" && effect.subject.id === retry.workItemId && !["applied_exact", "compensated", "proven_absent"].includes(effect.reconciliation));
+}
+
+function semanticRetryFailureCount(state: DagRunStateV1, retry: DagRunStateV1["retryLedger"][string]): number {
+  const stage = state.workItems[retry.workItemId]?.stages[retry.stage];
+  const failedAttempts = stage?.state === "blocked" ? stage.attemptIds.length : 0;
+  const integrationConflicts = Object.values(state.integrationAttempts).filter((attempt) => attempt.conflictClass !== "none" && Object.values(state.integrationTrains).some((train) => train.entries[attempt.entryId]?.workItemId === retry.workItemId)).length;
+  return Math.max(retry.failureSequence.length, failedAttempts, retry.dimension === "integration" ? integrationConflicts : 0);
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  if (typeof signal.throwIfAborted === "function") signal.throwIfAborted();
+  throw signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted", "AbortError");
+}
+
+function semanticGuard(state: DagRunStateV1, operation: string, subject: string, occurredAt: string): DagMutationGuardV1 {
+  const identity = canonicalHash({ runId: state.runId, runNonce: state.runNonce, operation, subject, revision: state.revision, snapshotHash: state.snapshotHash, ownerEpoch: state.owner.ownerEpoch });
+  return { runId: state.runId, runNonce: state.runNonce, expectedRevision: state.revision, expectedSnapshotHash: state.snapshotHash, ownerEpoch: state.owner.ownerEpoch, commandId: `semantic-${operation}-${identity.slice(7, 31)}`, idempotencyKey: `semantic:${operation}:${identity}`, occurredAt };
 }
 
 function reducerInput(state: DagRunStateV1, type: any, kind: "command" | "observation", payload: any, occurredAt: string, overrides: Partial<DagMutationGuardV1>): DagRunInputV1 {
