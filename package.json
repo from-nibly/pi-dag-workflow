@@ -1,6 +1,6 @@
 {
   "name": "pi-dag-workflow",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "type": "module",
   "description": "Pi extension for authoritative project modeling, inspectable DAG planning, and durable execution.",
   "keywords": ["pi-package", "pi-extension", "dag-workflow"],
