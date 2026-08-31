@@ -337,6 +337,12 @@ test("semantic frontier binds pause, resume, interruption, and concurrent select
     const aborted = new AbortController(); aborted.abort(new Error("focused interruption")); const beforeAbort = (await conductor.status(fx.ctx, binding.runId)).state;
     await assert.rejects(() => conductor.runChecks(fx.ctx, binding.runId, current.actionId, "commands", "F0", aborted.signal), /focused interruption/);
     assert.equal((await conductor.status(fx.ctx, binding.runId)).state.snapshotHash, beforeAbort.snapshotHash, "pre-boundary abort performs no hidden canonical mutation");
+    const unmapped = new DagConductorServiceV1({ lifecycle: { worker: waitingWorkerAdapter([]) } });
+    const blocked = (await unmapped.nextAction(fx.ctx, binding.runId)).frontier.find((candidate) => candidate.operation === "run_checks" && candidate.stage === "F0");
+    const admitted = await unmapped.runChecks(fx.ctx, binding.runId, blocked.actionId, "commands", "F0");
+    const stillBlocked = admitted.next.frontier.find((candidate) => candidate.operation === "run_checks" && candidate.stage === "F0");
+    await assert.rejects(() => unmapped.runChecks(fx.ctx, binding.runId, stillBlocked.actionId, "commands", "F0"), /immutable catalog command mapping is absent/, "no-progress checks expose their exact wait reason instead of reporting false success");
+    await unmapped.detach();
     let release; const gate = new Promise((resolveGate) => { release = resolveGate; });
     const blocking = new DagConductorServiceV1({ lifecycle: { procedure: { adapterKind: "immutable-catalog-command-v1", allowsProcedure: () => true, async executeExact(input) { await gate; return createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }).executeExact(input); } }, worker: waitingWorkerAdapter([]) } });
     const selected = (await blocking.nextAction(fx.ctx, binding.runId)).frontier.find((candidate) => candidate.operation === "run_checks" && candidate.stage === "F0");
@@ -372,10 +378,10 @@ test("semantic check recovery is explicit and does not rotate same-process owner
     assert.equal(launches.length, 0, "check recovery never launches owned work");
 
     await first.detach();
-    const resumed = new DagConductorServiceV1({ lifecycle: { procedure: createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }), worker: waitingWorkerAdapter(launches) } });
+    const resumed = new DagConductorServiceV1({ lifecycle: { worker: waitingWorkerAdapter(launches) } });
     const recoveryAction = (await resumed.nextAction(fx.ctx, binding.runId)).frontier.find((candidate) => candidate.operation === "run_checks" && candidate.workItemId === "commands" && candidate.stage === "F0");
     const recovered = await resumed.runChecks(fx.ctx, binding.runId, recoveryAction.actionId, "commands", "F0");
-    assert.equal(recovered.state.workItems.commands.stages.F0.state, "passed");
+    assert.equal(recovered.state.workItems.commands.stages.F0.state, "passed", "durably reconciled procedure output closes without the current execution adapter");
     assert.equal(recovered.state.owner.ownerEpoch, interruptedState.owner.ownerEpoch, "same-process semantic tools derive the durable lock without service-generation transfer");
     const start = recovered.next.frontier.find((candidate) => candidate.operation === "start_work" && candidate.workItemId === "commands" && candidate.stage === "F1");
     assert(start, "recovery returns the next exact semantic frontier");

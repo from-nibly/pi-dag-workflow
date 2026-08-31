@@ -731,6 +731,12 @@ export class DagLifecycleRuntimeV1 {
 
   private async reconcileEvidence(state: DagRunStateV1, attempt: AttemptV1, occurredAt: string, signal?: AbortSignal): Promise<DagLifecycleReconcileResultV1> {
     throwIfAborted(signal);
+    const matching = Object.values(state.effects).filter((effect: any) => effect.kind === "run_procedure" && effect.boundStageAttemptId === attempt.stageAttemptId);
+    if (matching.length > 1) throw new Error("Lifecycle attempt has conflicting procedure effect authority");
+    const recoveredEffect: any = matching[0];
+    if (recoveredEffect?.state === "reconciled" && recoveredEffect.reconciliation === "applied_exact" && recoveredEffect.executionObservationHash && recoveredEffect.observationHash) {
+      return this.closeReconciledProcedureEffect(state, attempt, recoveredEffect, occurredAt);
+    }
     if (!this.options.procedure) return { state, progressed: false, waiting: true, reason: "immutable catalog command mapping is absent; lifecycle procedure execution is blocked" };
     const adapter = this.options.procedure;
     const allowlist = [...(adapter.allowlistedProcedureHashes ?? [])].sort();
@@ -744,8 +750,7 @@ export class DagLifecycleRuntimeV1 {
 
     let executionRequest = lifecycleProcedureEffectRequestV1(state, this.context, attempt, procedure);
     const effectId = opaqueId("procedure", { runNonce: state.runNonce, stageAttemptId: attempt.stageAttemptId, procedureHash: procedure.hash });
-    const matching = Object.values(state.effects).filter((effect: any) => effect.kind === "run_procedure" && effect.boundStageAttemptId === attempt.stageAttemptId);
-    if (matching.length > 1 || (matching.length === 1 && matching[0].effectId !== effectId)) throw new Error("Lifecycle attempt has conflicting procedure effect authority");
+    if (matching.length === 1 && matching[0].effectId !== effectId) throw new Error("Lifecycle attempt has conflicting procedure effect authority");
     let effect: any = matching[0];
     if (effect) executionRequest = { ...executionRequest, ownerEpoch: effect.boundOwnerEpoch, authorizationSetHash: effect.boundAuthorizationSetHash, freshnessReceiptHash: effect.boundFreshnessReceiptHash };
     const requestHash = canonicalHash(executionRequest);
@@ -808,8 +813,26 @@ export class DagLifecycleRuntimeV1 {
     }
     if (effect.state !== "reconciled" || effect.reconciliation !== "applied_exact" || !effect.executionObservationHash || !effect.observationHash) return { state, progressed: false, waiting: true, reason: `procedure effect ${effectId} is terminally ${effect.state}/${effect.reconciliation}` };
 
+    return this.closeReconciledProcedureEffect(state, attempt, effect, occurredAt);
+  }
+
+  private async closeReconciledProcedureEffect(state: DagRunStateV1, attempt: AttemptV1, effect: any, occurredAt: string): Promise<DagLifecycleReconcileResultV1> {
+    const request = effect.executionRequest;
+    const candidateGeneration = attempt.reservedOutputGeneration ?? attempt.inputGeneration;
+    if (effect.kind !== "run_procedure" || effect.boundStageAttemptId !== attempt.stageAttemptId || effect.requestHash !== canonicalHash(request)
+      || request?.requestKind !== "lifecycle_procedure_v1" || request.planHash !== state.identity.planHash || request.runId !== state.runId || request.runNonce !== state.runNonce
+      || request.workItemId !== attempt.workItemId || request.stage !== attempt.stage || request.stageAttemptId !== attempt.stageAttemptId
+      || request.attemptInputHash !== attempt.attemptInput.hash || request.producerKind !== attempt.producerKind || request.authorizationSetHash !== attempt.authorizationSetHash
+      || request.candidateGeneration !== candidateGeneration || effect.boundAuthorizationSetHash !== attempt.authorizationSetHash || effect.boundCandidateGeneration !== candidateGeneration) {
+      throw new Error("Reconciled lifecycle procedure effect does not bind the exact stage attempt authority");
+    }
     const execution = await this.store.readImmutableFact(effect.executionObservationHash) as any;
     const reconciliation = await this.store.readImmutableFact(effect.observationHash) as any;
+    if (execution?.kind !== "effect_execution_observation" || execution.hash !== effect.executionObservationHash || execution.effectId !== effect.effectId || execution.requestHash !== effect.requestHash
+      || reconciliation?.kind !== "effect_reconciliation" || reconciliation.hash !== effect.observationHash || reconciliation.effectId !== effect.effectId
+      || reconciliation.requestHash !== effect.requestHash || reconciliation.executionObservationHash !== execution.hash || reconciliation.reconciliation !== "applied_exact") {
+      throw new Error("Reconciled lifecycle procedure effect lacks exact immutable execution closure");
+    }
     const output = closeProcedureOutput(execution.result as DagProcedureExecutionResultV1, reconciliation.hash, reconciliation.closedAt);
     const aggregate = await this.publishRef("check_aggregate", `aggregate-${attempt.stageAttemptId}`, output.checkAggregate);
     const evidence = await this.publishRef("stage_evidence", `evidence-${attempt.stageAttemptId}`, output.evidence);
@@ -817,7 +840,7 @@ export class DagLifecycleRuntimeV1 {
     const checkDispositions = await Promise.all((output.checkDispositions ?? []).map((fact: any) => this.publishRef("check_disposition", String(fact.checkId), fact)));
     const checkExecutions = await Promise.all((output.checkExecutions ?? []).map((fact: any) => this.publishRef("check_execution", String(fact.executionId), fact)));
     const checkAuthorities = await Promise.all((output.checkAuthorities ?? []).map((fact: any) => this.publishRef(String(fact.kind), String(fact.checkId), fact)));
-    const effectReconciliations = [artifactRef("effect_reconciliation", effectId, reconciliation.hash, Buffer.byteLength(canonicalStringify(reconciliation)))];
+    const effectReconciliations = [artifactRef("effect_reconciliation", effect.effectId, reconciliation.hash, Buffer.byteLength(canonicalStringify(reconciliation)))];
     const payload: any = { stageAttemptId: attempt.stageAttemptId, evidence, checkAggregate: aggregate, oracleAssertions, checkDispositions, checkExecutions, checkAuthorities, effectReconciliations };
     if (output.environmentObservation) payload.environmentObservation = await this.publishRef("environment_observation", attempt.stageAttemptId, output.environmentObservation);
     if (output.workspaceMaterialization) payload.workspaceMaterialization = await this.publishRef("workspace_materialization", attempt.stageAttemptId, output.workspaceMaterialization);

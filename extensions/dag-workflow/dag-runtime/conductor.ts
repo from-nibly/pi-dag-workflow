@@ -574,15 +574,20 @@ export class DagConductorServiceV1 {
     const occurredAt = new Date().toISOString();
     const reservation = await this.#ensureSemanticReservation(ctx, selected, occurredAt, signal);
     let state: DagRunStateV1 | null = null;
+    let waitingReason: string | null = null;
+    let madeLifecycleProgress = false;
     for (let transition = 0; transition < 32; transition += 1) {
       throwIfAborted(signal);
       const { lifecycle, loaded } = await this.#semanticRuntime(ctx, runId, occurredAt, undefined, signal); state = loaded.state;
       const current = state.scheduler.reservations[reservation.reservationId];
       if (!current || ["released", "fenced", "launch_ambiguous"].includes(current.state)) break;
       const result = await lifecycle.reconcileSemanticOne(reservation.reservationId, occurredAt, signal); state = result.state;
-      if (!result.progressed) break;
+      if (!result.progressed) { waitingReason = result.reason; break; }
+      madeLifecycleProgress = true;
     }
     if (!state) throw new Error("Synchronous checks did not read canonical state");
+    const stillActionable = state.scheduler.reservations[reservation.reservationId] && !["released", "fenced", "launch_ambiguous"].includes(state.scheduler.reservations[reservation.reservationId].state);
+    if (stillActionable && !madeLifecycleProgress) throw new Error(waitingReason ?? "Synchronous checks made no canonical progress");
     return { state, next: await this.nextAction(ctx, runId) };
   }
 
