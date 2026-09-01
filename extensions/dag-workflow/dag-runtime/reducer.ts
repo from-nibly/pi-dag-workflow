@@ -1195,8 +1195,10 @@ function sealStageAttempt(state: DagRunStateV1, input: DagRunInputV1, payload: a
   }
   const supportDispositions = [...payload.oracleAssertions, ...payload.checkDispositions, ...checkExecutionRefs].map(({ hash }: any) => (context.facts[hash] as any)?.disposition);
   const workerTerminalStatus = attempt.producerKind === "owned_worker" ? resultFact?.terminalStatus ?? null : null;
-  const derivedDisposition = deriveStageAggregateDispositionV1(workerTerminalStatus, aggregate.checks.map(({ disposition }: any) => disposition), aggregate.assertions.map(({ evidenceHash }: any) => (context.facts[evidenceHash] as any)?.disposition));
-  if (aggregate.disposition !== derivedDisposition) return precondition("aggregate disposition contradicts the sole canonical precedence BUDGET_EXHAUSTED > BLOCKED > FAIL > PASS over exact worker/check/assertion terminals");
+  const environment = typeof evidence.environmentObservationHash === "string" ? context.facts[evidence.environmentObservationHash] as any : null;
+  const environmentDisposition = environment?.kind === "environment_observation" ? environment.cleanliness === "clean" ? "PASS" : "FAIL" : null;
+  const derivedDisposition = deriveStageAggregateDispositionV1(workerTerminalStatus, aggregate.checks.map(({ disposition }: any) => disposition), aggregate.assertions.map(({ evidenceHash }: any) => (context.facts[evidenceHash] as any)?.disposition), environmentDisposition);
+  if (aggregate.disposition !== derivedDisposition) return precondition("aggregate disposition contradicts the sole canonical precedence BUDGET_EXHAUSTED > BLOCKED > FAIL > PASS over exact worker/check/assertion/environment terminals");
   if (resultFact?.terminalStatus === "cancelled") {
     const binding = state.workerBindings[attempt.stageAttemptId];
     const activeCancellation = Object.values(state.cancellations).some((cancellation) => cancellation.state !== "closed" && Object.prototype.hasOwnProperty.call(cancellation.fencedGenerations, attempt.workItemId));

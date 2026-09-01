@@ -2909,8 +2909,8 @@ function exactStageClosureHashes(state: DagRunStateV1, context: DagRunValidation
 }
 
 /** Canonical aggregate precedence: BUDGET_EXHAUSTED > BLOCKED > FAIL > PASS. */
-export function deriveStageAggregateDispositionV1(workerTerminalStatus: string | null, checkDispositions: readonly string[], assertionDispositions: readonly string[]): "PASS" | "FAIL" | "BLOCKED" | "BUDGET_EXHAUSTED" {
-  const components = [...checkDispositions, ...assertionDispositions].filter((value) => !["WAIVED", "NOT_APPLICABLE"].includes(value));
+export function deriveStageAggregateDispositionV1(workerTerminalStatus: string | null, checkDispositions: readonly string[], assertionDispositions: readonly string[], environmentDisposition: "PASS" | "FAIL" | null = null): "PASS" | "FAIL" | "BLOCKED" | "BUDGET_EXHAUSTED" {
+  const components = [...checkDispositions, ...assertionDispositions, ...(environmentDisposition ? [environmentDisposition] : [])].filter((value) => !["WAIVED", "NOT_APPLICABLE"].includes(value));
   if (workerTerminalStatus === "needs_attention" || workerTerminalStatus === "failed") components.push("FAIL");
   else if (workerTerminalStatus === "lost" || workerTerminalStatus === "cancelled") components.push("BLOCKED");
   else if (workerTerminalStatus !== null && workerTerminalStatus !== "succeeded") components.push("BLOCKED");
@@ -2942,7 +2942,9 @@ function validateNonPassStage(state: DagRunStateV1, context: DagRunValidationCon
   if (!attempt || !aggregate) return;
   validateStageEnvironmentAuthority(state, context, item, stage, attempt, evidence, path, issues);
   const resultFact = attempt.workerResult ? context.facts[attempt.workerResult.hash] as any : undefined;
-  const derivedDisposition = deriveStageAggregateDispositionV1(attempt.producerKind === "owned_worker" ? resultFact?.terminalStatus ?? null : null, aggregate.checks.map(({ disposition }: any) => disposition), aggregate.assertions.map(({ evidenceHash }: any) => (context.facts[evidenceHash] as any)?.disposition));
+  const environment = typeof evidence.environmentObservationHash === "string" ? context.facts[evidence.environmentObservationHash] as any : null;
+  const environmentDisposition = environment?.kind === "environment_observation" ? environment.cleanliness === "clean" ? "PASS" : "FAIL" : null;
+  const derivedDisposition = deriveStageAggregateDispositionV1(attempt.producerKind === "owned_worker" ? resultFact?.terminalStatus ?? null : null, aggregate.checks.map(({ disposition }: any) => disposition), aggregate.assertions.map(({ evidenceHash }: any) => (context.facts[evidenceHash] as any)?.disposition), environmentDisposition);
   pushIssue(issues, `${path}/currentEvidence`, aggregate.disposition === derivedDisposition, "aggregate disposition must equal the sole canonical worker/check/assertion precedence derivation");
   const closure = exactStageClosureHashes(state, context, item, attempt);
   pushIssue(issues, `${path}/currentEvidence`, closure.effectsExact && sameStrings([...evidence.findingHashes], closure.findings) && sameStrings([...evidence.effectReconciliationHashes], closure.effects), "non-PASS stage evidence closure must exactly equal canonical terminal current finding/effect facts");
@@ -3049,7 +3051,7 @@ function validatePassedStage(state: DagRunStateV1, context: DagRunValidationCont
   pushIssue(issues, `${path}/currentEvidence`, fixedStageProducers(stage).includes(fact.producerKind) && attempt.producerKind === fact.producerKind, "fact and attempt must use the fixed stage producer kind");
   const aggregateResult = aggregate as any;
   const aggregateWorkerResult = fact.producerResultHash ? context.facts[fact.producerResultHash] as any : undefined;
-  pushIssue(issues, `${path}/currentEvidence`, deriveStageAggregateDispositionV1(fact.producerKind === "owned_worker" ? aggregateWorkerResult?.terminalStatus ?? null : null, aggregateResult?.checks?.map(({ disposition }: any) => disposition) ?? [], aggregateResult?.assertions?.map(({ evidenceHash }: any) => (context.facts[evidenceHash] as any)?.disposition) ?? []) === "PASS", "PASS must be the sole canonical worker/check/assertion precedence derivation");
+  pushIssue(issues, `${path}/currentEvidence`, deriveStageAggregateDispositionV1(fact.producerKind === "owned_worker" ? aggregateWorkerResult?.terminalStatus ?? null : null, aggregateResult?.checks?.map(({ disposition }: any) => disposition) ?? [], aggregateResult?.assertions?.map(({ evidenceHash }: any) => (context.facts[evidenceHash] as any)?.disposition) ?? [], typeof fact.environmentObservationHash === "string" && (context.facts[fact.environmentObservationHash] as any)?.kind === "environment_observation" ? (context.facts[fact.environmentObservationHash] as any).cleanliness === "clean" ? "PASS" : "FAIL" : null) === "PASS", "PASS must be the sole canonical worker/check/assertion precedence derivation");
   if (fact.producerKind === "owned_worker") {
     const binding = state.workerBindings[attempt.stageAttemptId];
     const resultFact = fact.producerResultHash ? context.facts[fact.producerResultHash] : undefined;

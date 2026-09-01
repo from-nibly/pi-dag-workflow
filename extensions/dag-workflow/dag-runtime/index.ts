@@ -31,6 +31,7 @@ export {
   QuarantineProjectionV1Schema,
   assertDagRunStateV1,
   dagRunSnapshotHash,
+  deriveStageAggregateDispositionV1,
   integrationValidationEffectRequestV1,
   lifecycleProcedureEffectRequestV1,
   ownershipChainHashV1,

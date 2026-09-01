@@ -24,6 +24,7 @@ import {
   createDagRunStoreDeadOwnerProofV1,
   dagRunStoreLockIdentityFromOwner,
   dagRunIdentityHashV1,
+  deriveStageAggregateDispositionV1,
   integrationValidationEffectRequestV1,
   buildSchedulerPlanIndexV1,
   parseCanonicalDagPlanV1,
@@ -51,6 +52,8 @@ const O = (char) => char.repeat(40);
 const retryFrontierProbe = { workItems: { item: { stages: { F2: { currentAttemptId: "attempt-old" } } } }, stageAttempts: { "attempt-old": { leaseIds: ["lease-old"] } } };
 assert.equal(attemptForReservationV1(retryFrontierProbe, { workItemId: "item", stage: "F2", leaseIds: ["lease-retry"] }), null, "a retry reservation does not reuse the sealed attempt from a prior lease");
 assert.equal(attemptForReservationV1(retryFrontierProbe, { workItemId: "item", stage: "F2", leaseIds: ["lease-old"] }).leaseIds[0], "lease-old", "an outstanding reservation still resolves its exact current attempt");
+assert.equal(deriveStageAggregateDispositionV1(null, [], [], "FAIL"), "FAIL", "a dirty or unknown exact environment is a canonical aggregate failure even without stage-specific checks");
+assert.equal(deriveStageAggregateDispositionV1(null, [], [], "PASS"), "PASS", "a clean exact environment preserves PASS when no stronger terminal exists");
 const NOW = "2026-08-04T15:00:00.000Z";
 const procStat = await readFile(`/proc/${process.pid}/stat`, "utf8");
 const PROCESS_START_IDENTITY = `linux-proc:${procStat.slice(procStat.lastIndexOf(")") + 2).trim().split(/\s+/)[19]}`;
