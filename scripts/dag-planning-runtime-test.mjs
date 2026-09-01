@@ -443,6 +443,7 @@ test("built-in lifecycle adapter emits exact F0, F2, and F8 fact bundles with pr
     assert.equal(f2.oracleAssertions.length, 1);
     assert.equal(f2.oracleAssertions[0].observationHash, workerResult.hash);
     assert(f2.workspaceMaterialization && f2.environmentObservation);
+    assert(!Object.hasOwn(f2.environmentObservation, "authorizationSetHash"), "environment observations match their strict non-authority schema");
     for (const fact of [f2.checkAggregate, f2.evidence, ...f2.oracleAssertions, ...f2.checkExecutions, f2.workspaceMaterialization, f2.environmentObservation]) assertSelfHashed(fact);
 
     const needsAttentionCore = { ...workerResultCore, terminalStatus: "needs_attention" };

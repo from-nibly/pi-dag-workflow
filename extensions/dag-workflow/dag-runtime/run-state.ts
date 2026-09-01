@@ -243,6 +243,7 @@ export interface EnvironmentObservationFactBindingV1 {
   planHash: string;
   runId: string;
   runNonce: string;
+  authorizationSetHash?: string;
   workItemId: string;
   stage: typeof PLAN_STAGE_IDS[number];
   stageAttemptId: string;
@@ -869,7 +870,7 @@ const WorkspaceMaterializationFactBindingV1Schema = StrictObject({
 });
 const EnvironmentObservationFactBindingV1Schema = StrictObject({
   kind: Type.Literal("environment_observation"), hash: HashSchema, planHash: HashSchema, runId: IdSchema,
-  runNonce: Type.String({ minLength: 16, maxLength: 256 }), workItemId: IdSchema, stage: PlanStageIdSchema,
+  runNonce: Type.String({ minLength: 16, maxLength: 256 }), authorizationSetHash: Type.Optional(HashSchema), workItemId: IdSchema, stage: PlanStageIdSchema,
   stageAttemptId: IdSchema, attemptInputHash: HashSchema, repositoryId: IdSchema,
   candidateGeneration: PositiveIntegerSchema, candidateHash: HashSchema, candidateTree: GitTreeRefV1Schema,
   environmentProfileHash: HashSchema, workspaceMaterializationHash: HashSchema,

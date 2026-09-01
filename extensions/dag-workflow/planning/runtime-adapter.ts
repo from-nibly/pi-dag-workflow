@@ -443,7 +443,8 @@ async function executeLifecycleProcedure(
       : await repositoryIdentities(repositoryRoot, signal);
     if (!identities.commonDirIdentityHash || !identities.worktreeIdentityHash) disposition = "FAIL";
     workspaceMaterialization = withHash({ kind: "workspace_materialization", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stageAttemptId: attempt.stageAttemptId, repositoryId: repository.repositoryId, candidateGeneration, candidateHash: candidateHash!, candidateTree, ...identities, materializedAt: state.updatedAt });
-    environmentObservation = withHash({ kind: "environment_observation", ...common, repositoryId: repository.repositoryId, candidateGeneration, candidateHash: candidateHash!, candidateTree, environmentProfileHash: procedure.environmentProfileHash, workspaceMaterializationHash: workspaceMaterialization.hash, ...identities, cleanliness: disposition === "PASS" ? "clean" : "unknown", observedAt: state.updatedAt });
+    const { authorizationSetHash: _authorizationSetHash, ...environmentCommon } = common;
+    environmentObservation = withHash({ kind: "environment_observation", ...environmentCommon, repositoryId: repository.repositoryId, candidateGeneration, candidateHash: candidateHash!, candidateTree, environmentProfileHash: procedure.environmentProfileHash, workspaceMaterializationHash: workspaceMaterialization.hash, ...identities, cleanliness: disposition === "PASS" ? "clean" : "unknown", observedAt: state.updatedAt });
   }
   const oracleAssertions = attempt.stage === "F2" ? planItem.oracleIds.flatMap((oracleId) => {
     const oracle = plan.acceptanceOracles.find((candidate) => candidate.oracleId === oracleId)!;
