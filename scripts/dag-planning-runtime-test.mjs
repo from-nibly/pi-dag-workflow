@@ -405,8 +405,14 @@ test("built-in lifecycle adapter emits exact F0, F2, and F8 fact bundles with pr
     const prepared = await prepareDagRunV1(prepareInput(fx));
     const adapter = createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root });
     const procedureFor = (stage) => Object.values(prepared.context.catalog.procedures).find((procedure) => procedure.stages[0] === stage);
+    const historicalF0 = structuredClone(procedureFor("F0"));
+    historicalF0.executable.argv[0] = "/nix/store/historical-node/bin/node";
+    historicalF0.executable.executableArtifactHash = `sha256:${"1".repeat(64)}`;
+    const { hash: _historicalHash, ...historicalF0Core } = historicalF0;
+    historicalF0.hash = canonicalHash(historicalF0Core);
+    assert.equal(adapter.allowsProcedure(historicalF0), true, "built-in compatibility recognizes an exact prior Node artifact mapping");
     const f0Attempt = attempt("F0");
-    const f0 = await adapter.executeExact({ plan: prepared.canonicalPlan, state: prepared.genesis, attempt: f0Attempt, procedure: procedureFor("F0"), effectId: "effect-f0", requestHash: canonicalHash({ effect: "F0" }), executionRequest: {} });
+    const f0 = await adapter.executeExact({ plan: prepared.canonicalPlan, state: prepared.genesis, attempt: f0Attempt, procedure: historicalF0, effectId: "effect-f0", requestHash: canonicalHash({ effect: "F0" }), executionRequest: {} });
     assert.equal(f0.checkAggregate.disposition, "PASS");
     assert.equal(f0.evidence.candidateHash, null);
     assertSelfHashed(f0.checkAggregate); assertSelfHashed(f0.evidence);

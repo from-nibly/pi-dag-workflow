@@ -480,17 +480,26 @@ function isBuiltInProcedure(procedure: ProcedureCatalogBindingV1): boolean {
   const stage = procedure.stages.length === 1 ? procedure.stages[0] : null;
   if (!stage) return false;
   const readOnly = !WRITING_STAGES.has(stage);
+  const environment = { LC_ALL: "C", LANG: "C" };
+  const environmentProfileHash = canonicalHash({ profileId: "thin-plan-lifecycle-env-v1", environment });
   return procedure.hash === canonicalHash(withoutHash(procedure))
     && procedure.procedureId === `thin-plan-${stage.toLowerCase()}-v1`
     && procedure.purpose === "lifecycle"
     && procedure.producerKinds.length === 1
     && procedure.producerKinds[0] === PRODUCER_BY_STAGE[stage]
     && procedure.readOnly === readOnly
+    && procedure.environmentProfileHash === environmentProfileHash
     && procedure.executable.argv.length === 4
-    && procedure.executable.argv[0] === process.execPath
+    && procedure.executable.argv[0].startsWith("/")
+    && /^sha256:[0-9a-f]{64}$/.test(procedure.executable.executableArtifactHash)
     && procedure.executable.argv[1] === HELPER_PATH
     && procedure.executable.argv[2] === "--lifecycle"
     && procedure.executable.argv[3] === stage
+    && procedure.executable.cwdMode === "repository_root"
+    && procedure.executable.environmentProfileId === "thin-plan-lifecycle-env-v1"
+    && procedure.executable.environmentProfileHash === environmentProfileHash
+    && procedure.executable.environmentHash === canonicalHash(environment)
+    && procedure.executable.timeoutMs === 30_000
     && procedure.executable.readOnly === readOnly
     && procedure.executable.noEdit === readOnly;
 }
