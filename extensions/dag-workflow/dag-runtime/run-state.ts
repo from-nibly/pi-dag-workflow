@@ -2872,11 +2872,10 @@ function validateStageEnvironmentAuthority(state: DagRunStateV1, context: DagRun
     const environment = typeof evidence.environmentObservationHash === "string" ? context.facts[evidence.environmentObservationHash] as any : undefined;
     pushIssue(issues, `${path}/currentEvidence`, evidence.readOnly && environment?.kind === "environment_observation" && environment.cleanliness === "clean", "F7 requires read-only fresh clean exact-tree environment authority");
   }
-  if (["failed", "blocked", "budget_exhausted"].includes(item.stages[stage].state)) {
-    const observation = typeof evidence.environmentObservationHash === "string" ? context.facts[evidence.environmentObservationHash] as any : undefined;
-    const workspace = state.repositories[item.writeRepositoryId]?.workspace;
-    pushIssue(issues, `${path}/currentEvidence`, observation?.kind === "environment_observation" && workspace?.gitCommonDirIdentityHash === observation.commonDirIdentityHash && workspace?.gitWorktreeIdentityHash === observation.worktreeIdentityHash && workspace?.expectedHead !== null && canonicalHash(workspace.expectedHead) === canonicalHash(observation.candidateTree) && workspace?.observationReceipt === observation.workspaceMaterializationHash, `${stage} terminal non-PASS projection must retain its exact latest materialization identity`);
-  }
+  // Non-PASS authority remains bound to the immutable attempt materialization validated above.
+  // The repository workspace projection may legitimately advance for another concurrent work item
+  // or retry in the same repository and is not historical stage authority.
+
 }
 
 function exactStageClosureHashes(state: DagRunStateV1, context: DagRunValidationContextV1, item: any, attempt: any): { findings: string[]; effects: string[]; effectsExact: boolean } {

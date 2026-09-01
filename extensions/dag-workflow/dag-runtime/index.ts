@@ -103,6 +103,7 @@ export {
 } from "./scheduler.ts";
 export {
   DagConductorServiceV1,
+  attemptForReservationV1,
   type DagConductorContextV1,
   type DagMutationGuardV1,
   type DagNextActionResultV1,

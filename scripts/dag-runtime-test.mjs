@@ -13,6 +13,7 @@ import {
   RUN_EVALUATION_CLOCK_POLICY_HASH_V1,
   RUN_EVALUATION_PROFILE_HASH_V1,
   DagConductorServiceV1,
+  attemptForReservationV1,
   DagLifecycleRuntimeV1,
   DagRunSnapshotStoreV1,
   DagRunStoreCorruptError,
@@ -46,6 +47,10 @@ import { privateCandidateRefV1, sealPrivateCandidateRefV1 } from "../extensions/
 const execFileAsync = promisify(execFile);
 const H = (char) => `sha256:${char.repeat(64)}`;
 const O = (char) => char.repeat(40);
+
+const retryFrontierProbe = { workItems: { item: { stages: { F2: { currentAttemptId: "attempt-old" } } } }, stageAttempts: { "attempt-old": { leaseIds: ["lease-old"] } } };
+assert.equal(attemptForReservationV1(retryFrontierProbe, { workItemId: "item", stage: "F2", leaseIds: ["lease-retry"] }), null, "a retry reservation does not reuse the sealed attempt from a prior lease");
+assert.equal(attemptForReservationV1(retryFrontierProbe, { workItemId: "item", stage: "F2", leaseIds: ["lease-old"] }).leaseIds[0], "lease-old", "an outstanding reservation still resolves its exact current attempt");
 const NOW = "2026-08-04T15:00:00.000Z";
 const procStat = await readFile(`/proc/${process.pid}/stat`, "utf8");
 const PROCESS_START_IDENTITY = `linux-proc:${procStat.slice(procStat.lastIndexOf(")") + 2).trim().split(/\s+/)[19]}`;

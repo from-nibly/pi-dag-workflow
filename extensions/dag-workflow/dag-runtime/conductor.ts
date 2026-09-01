@@ -486,9 +486,7 @@ export class DagConductorServiceV1 {
       for (const attempt of cleanupAttempts) action(actions, "finalize", { workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, finalizationKind: "cleanup", explanation: `Reconcile exact owned-worktree cleanup for ${attempt.stageAttemptId}.` });
       const mayContinueAdmittedWork = !runTerminal && state.desired.run === "running" && ["active", "integration"].includes(state.current.run);
       if (mayContinueAdmittedWork) for (const reservation of outstanding) {
-        const item = state.workItems[reservation.workItemId];
-        const attemptId = item?.stages[reservation.stage]?.currentAttemptId ?? null;
-        const attempt = attemptId ? state.stageAttempts[attemptId] : null;
+        const attempt = attemptForReservationV1(state, reservation);
         if (reservation.operationKind === "integration") action(actions, "integrate", { reservation, explanation: `Continue the already-admitted exact integration for ${reservation.workItemId}.` });
         else if (!attempt || (attempt.producerKind === "owned_worker" && !state.workerBindings[attempt.stageAttemptId])) {
           const operation = ["implementation", "evaluation", "codification", "review", "hardening"].includes(reservation.operationKind) ? "start_work" : "run_checks";
@@ -500,9 +498,7 @@ export class DagConductorServiceV1 {
         else action(actions, "run_checks", { reservation, stageAttemptId: attempt?.stageAttemptId ?? null, explanation: `Run or close already-admitted synchronous ${reservation.stage} checks for ${reservation.workItemId}.` });
       }
       if (!runTerminal && state.desired.run === "paused") for (const reservation of outstanding) {
-        const item = state.workItems[reservation.workItemId];
-        const attemptId = item?.stages[reservation.stage]?.currentAttemptId ?? null;
-        const attempt = attemptId ? state.stageAttempts[attemptId] : null;
+        const attempt = attemptForReservationV1(state, reservation);
         if (!attempt || attempt.producerKind !== "owned_worker" || !state.workerBindings[attempt.stageAttemptId]) continue;
         if (["running", "settling"].includes(attempt.state)) {
           const completion = terminal.get(attempt.stageAttemptId);
@@ -1001,6 +997,12 @@ export class DagConductorServiceV1 {
       return value;
     } catch (error: any) { if (error?.code === "ENOENT") return null; throw error; }
   }
+}
+
+export function attemptForReservationV1(state: DagRunStateV1, reservation: DagRunStateV1["scheduler"]["reservations"][string]): DagRunStateV1["stageAttempts"][string] | null {
+  const attemptId = state.workItems[reservation.workItemId]?.stages[reservation.stage]?.currentAttemptId ?? null;
+  const attempt = attemptId ? state.stageAttempts[attemptId] : null;
+  return attempt && reservation.leaseIds.every((leaseId) => attempt.leaseIds.includes(leaseId)) ? attempt : null;
 }
 
 function compareSemanticActions(left: DagSemanticActionV1, right: DagSemanticActionV1): number { return left.operation.localeCompare(right.operation) || (left.workItemId ?? "").localeCompare(right.workItemId ?? "") || (left.stage ?? "").localeCompare(right.stage ?? "") || left.actionId.localeCompare(right.actionId); }
