@@ -2870,7 +2870,7 @@ function validateStageEnvironmentAuthority(state: DagRunStateV1, context: DagRun
   }
   if (stage === "F7") {
     const environment = typeof evidence.environmentObservationHash === "string" ? context.facts[evidence.environmentObservationHash] as any : undefined;
-    pushIssue(issues, `${path}/currentEvidence`, evidence.readOnly && environment?.kind === "environment_observation" && environment.cleanliness === "clean", "F7 requires read-only fresh clean exact-tree environment authority");
+    pushIssue(issues, `${path}/currentEvidence`, evidence.readOnly && environment?.kind === "environment_observation" && (evidence.disposition !== "PASS" || environment.cleanliness === "clean"), "F7 requires read-only exact-tree environment authority, and PASS additionally requires cleanliness");
   }
   // Non-PASS authority remains bound to the immutable attempt materialization validated above.
   // The repository workspace projection may legitimately advance for another concurrent work item
