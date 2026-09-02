@@ -2340,6 +2340,9 @@ for (const launchCrash of ["dispatch_recorded", "launch_returned"]) {
       cancelled = (await restarted.finalizeSemantic(recoveryLifecycle.ctx, recoveryLifecycle.state.runId, finalize.actionId)).state;
     }
     assert.equal(cancelled.cancellations[cancellationId].state, "closed", `${launchCrash} cancellation-first agent replay recovers, binds, cancels, and exactly closes the pre-bind worker`);
+    const terminalChoices = await restarted.nextAction(recoveryLifecycle.ctx, recoveryLifecycle.state.runId);
+    assert.equal(terminalChoices.frontier.length, 0); assert.equal(terminalChoices.controls.length, 0); assert.equal(terminalChoices.waiting, false);
+    assert.match(terminalChoices.notice, /terminal \(cancelled\).*work-completion accounting remains open/i, "terminal cancellation is not misreported as scheduler blockage merely because authorized work remains incomplete");
     assert.equal(cancelled.effects[launch.effectId].reconciliation, "applied_exact", "the original launch effect is reconciled under its unchanged durable identity");
     const exactBinding = cancelled.workerBindings[attemptId]; assert(exactBinding, "cancellation recovery binds the exact worker attempt before issuing cancellation");
     const cancellationEffects = cancelled.cancellations[cancellationId].effectIds.map((effectId) => cancelled.effects[effectId]);

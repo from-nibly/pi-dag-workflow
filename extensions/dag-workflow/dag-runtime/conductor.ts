@@ -524,7 +524,10 @@ export class DagConductorServiceV1 {
       }
     }
     actions.sort(compareSemanticActions); controls.sort(compareSemanticActions);
-    return { schemaVersion: 1, kind: "DagNextActionResultV1", runId, revision: state.revision, snapshotHash: state.snapshotHash, frontier: actions, controls, waiting: actions.length === 0 && !runTerminal && !cancellation, notice: `${decision.notice} Choices are revision-bound; invoke one mutation, then refresh dag_next_action before selecting another.` };
+    const frontierNotice = runTerminal
+      ? `Run is terminal (${state.current.run}); work-completion accounting remains ${state.completion.state}. No further semantic mutation is required.`
+      : `${decision.notice} Choices are revision-bound; invoke one mutation, then refresh dag_next_action before selecting another.`;
+    return { schemaVersion: 1, kind: "DagNextActionResultV1", runId, revision: state.revision, snapshotHash: state.snapshotHash, frontier: actions, controls, waiting: actions.length === 0 && !runTerminal && !cancellation, notice: frontierNotice };
   }
 
   /** Resolve a callback to one canonical completion identity without changing DAG state. */
