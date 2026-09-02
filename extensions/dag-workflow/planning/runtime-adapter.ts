@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
+import { readFileSync, realpathSync } from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -103,11 +104,13 @@ export async function prepareDagRunV1(input: PrepareDagRunV1Input): Promise<Prep
 
 export function createBuiltInLifecycleProcedureAdapterV1(input: { repositoryRoot: string }): DagProcedureExecutionAdapterV1 {
   const repositoryRoot = resolve(input.repositoryRoot);
+  const executable = { node: realpathSync(process.execPath), nodeHash: hashBytes(readFileSync(realpathSync(process.execPath))) };
+  const allowsProcedure = (procedure: ProcedureCatalogBindingV1) => isBuiltInProcedure(procedure, executable);
   return {
     adapterKind: "immutable-catalog-command-v1",
-    allowsProcedure: isBuiltInProcedure,
+    allowsProcedure,
     async executeExact({ plan, state, attempt, procedure, signal }) {
-      if (!isBuiltInProcedure(procedure)) throw new Error("Lifecycle procedure is not an exact built-in compatibility mapping");
+      if (!allowsProcedure(procedure)) throw new Error("Lifecycle procedure does not match the exact current built-in executable mapping");
       return executeLifecycleProcedure(repositoryRoot, plan, state, attempt, procedure, signal);
     },
   };
@@ -477,7 +480,7 @@ function procedureCatalog(executableIdentity: { node: string; nodeHash: string }
   }));
 }
 
-function isBuiltInProcedure(procedure: ProcedureCatalogBindingV1): boolean {
+function isBuiltInProcedure(procedure: ProcedureCatalogBindingV1, executableIdentity: { node: string; nodeHash: string }): boolean {
   const stage = procedure.stages.length === 1 ? procedure.stages[0] : null;
   if (!stage) return false;
   const readOnly = !WRITING_STAGES.has(stage);
@@ -491,8 +494,8 @@ function isBuiltInProcedure(procedure: ProcedureCatalogBindingV1): boolean {
     && procedure.readOnly === readOnly
     && procedure.environmentProfileHash === environmentProfileHash
     && procedure.executable.argv.length === 4
-    && procedure.executable.argv[0].startsWith("/")
-    && /^sha256:[0-9a-f]{64}$/.test(procedure.executable.executableArtifactHash)
+    && procedure.executable.argv[0] === executableIdentity.node
+    && procedure.executable.executableArtifactHash === executableIdentity.nodeHash
     && procedure.executable.argv[1] === HELPER_PATH
     && procedure.executable.argv[2] === "--lifecycle"
     && procedure.executable.argv[3] === stage
