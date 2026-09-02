@@ -11261,6 +11261,29 @@
       "updatedAt": "2026-08-17T22:30:39.828Z"
     },
     {
+      "body": "Fractory run run-984ff4d8-86e8-454f-b59a-bd9f48ef388f reached r163 with current.run=cancelled and its cancellation record closed while completion.state remained open because authorized work was not completed. The run is terminal; completion.state tracks work-scope completion rather than lifecycle terminality. Generic zero-action scheduler wording caused the session to misclassify this valid terminal cancellation as blocked.",
+      "createdAt": "2026-09-02T13:13:47.815Z",
+      "id": "DISC-terminal-cancellation-work-completion-distinction",
+      "introducedBy": "agent",
+      "relationships": [],
+      "revision": 163,
+      "runId": "run-984ff4d8-86e8-454f-b59a-bd9f48ef388f",
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "source": "Cross-session notice plus exact run-state inspection at revision 163.",
+      "sourceRefs": [],
+      "state": "untriaged",
+      "title": "Terminal cancellation can retain open work-completion accounting",
+      "updatedAt": "2026-09-02T13:13:47.815Z"
+    },
+    {
       "body": "Independent adversarial review found that an instance-local fault latch would be lost on conductor service or process replacement, allowing session_start/timer activation to retry without explicit diagnosis. It also found that dirty wakes must preserve their own occurredAt rather than inherit the first pump timestamp. The follow-up patch now publishes a hash-validated durable per-run fault marker before rejecting callers, suppresses background resume across service replacement, removes the marker only through explicit retry, and tracks the latest dirty wake timestamp for successor passes.",
       "createdAt": "2026-08-17T20:50:09.481Z",
       "id": "DISC-terminal-conductor-faults-require-durable-latch",
@@ -15702,9 +15725,9 @@
         }
       ]
     },
-    "revision": 258,
+    "revision": 259,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-08-27T23:42:10.594Z"
+    "updatedAt": "2026-09-02T13:13:47.815Z"
   },
   "proposals": [
     {
