@@ -487,6 +487,8 @@ export class DagConductorServiceV1 {
       const mayContinueAdmittedWork = !runTerminal && state.desired.run === "running" && ["active", "integration"].includes(state.current.run);
       if (mayContinueAdmittedWork) for (const reservation of outstanding) {
         const attempt = attemptForReservationV1(state, reservation);
+        const stageProjection = state.workItems[reservation.workItemId]?.stages[reservation.stage];
+        if (!attempt && stageProjection && ["failed", "blocked", "budget_exhausted"].includes(stageProjection.state)) continue;
         if (reservation.operationKind === "integration") action(actions, "integrate", { reservation, explanation: `Continue the already-admitted exact integration for ${reservation.workItemId}.` });
         else if (!attempt || (attempt.producerKind === "owned_worker" && !state.workerBindings[attempt.stageAttemptId])) {
           const operation = ["implementation", "evaluation", "codification", "review", "hardening"].includes(reservation.operationKind) ? "start_work" : "run_checks";
@@ -1018,7 +1020,7 @@ function retryIsAdmissible(state: DagRunStateV1, retry: DagRunStateV1["retryLedg
 
 function semanticRetryFailureCount(state: DagRunStateV1, retry: DagRunStateV1["retryLedger"][string]): number {
   const stage = state.workItems[retry.workItemId]?.stages[retry.stage];
-  const failedAttempts = stage?.state === "blocked" ? stage.attemptIds.length : 0;
+  const failedAttempts = stage && ["failed", "blocked", "budget_exhausted"].includes(stage.state) ? stage.attemptIds.length : 0;
   const integrationConflicts = Object.values(state.integrationAttempts).filter((attempt) => attempt.conflictClass !== "none" && Object.values(state.integrationTrains).some((train) => train.entries[attempt.entryId]?.workItemId === retry.workItemId)).length;
   return Math.max(retry.failureSequence.length, failedAttempts, retry.dimension === "integration" ? integrationConflicts : 0);
 }

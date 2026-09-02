@@ -335,7 +335,11 @@ function deriveSlot(plan: CanonicalDagPlanV1, state: DagRunStateV1, workItemId: 
   }
   item.blockerIds.forEach((id) => blockers.push({ code: "ITEM_BLOCKER", id }));
   item.stages[stage].blockerIds.forEach((id) => blockers.push({ code: "STAGE_BLOCKER", id }));
-  const attempt = item.stages[stage].currentAttemptId ? state.stageAttempts[item.stages[stage].currentAttemptId!] : null;
+  const stageProjection = item.stages[stage];
+  const attempt = stageProjection.currentAttemptId ? state.stageAttempts[stageProjection.currentAttemptId] : null;
+  const terminalNonPass = ["failed", "blocked", "budget_exhausted"].includes(stageProjection.state);
+  const retryAuthorized = Object.values(state.retryLedger).some((entry) => entry.workItemId === workItemId && entry.stage === stage && entry.stop === "none" && entry.lastRetryCommandId !== null && entry.count >= stageProjection.attemptIds.length);
+  if (terminalNonPass && !retryAuthorized) blockers.push({ code: "STAGE_BLOCKER", id: `${workItemId}/${stage}/${stageProjection.state}` });
   if (attempt && !["sealed", "cancelled", "failed", "lost", "quarantined"].includes(attempt.state)) blockers.push({ code: "ATTEMPT_ACTIVE", id: attempt.stageAttemptId });
   for (const effect of Object.values(state.effects)) if (effect.subject.kind === "work_item" && effect.subject.id === workItemId && !["applied_exact", "compensated", "proven_absent"].includes(effect.reconciliation)) blockers.push({ code: "EFFECT_UNRECONCILED", id: effect.effectId });
   state.scheduler.providerHoldIds.forEach((id) => blockers.push({ code: "PROVIDER_HOLD", id }));

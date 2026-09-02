@@ -1047,7 +1047,7 @@ function applyInput(
 
 function retryFailureCount(state: DagRunStateV1, entry: DagRunStateV1["retryLedger"][string]): number {
   const stage = state.workItems[entry.workItemId]?.stages[entry.stage];
-  const failedAttempts = stage?.state === "blocked" ? stage.attemptIds.length : 0;
+  const failedAttempts = stage && ["failed", "blocked", "budget_exhausted"].includes(stage.state) ? stage.attemptIds.length : 0;
   const integrationConflicts = Object.values(state.integrationAttempts).filter((attempt) => attempt.conflictClass !== "none" && Object.values(state.integrationTrains).some((train) => train.entries[attempt.entryId]?.workItemId === entry.workItemId)).length;
   return Math.max(entry.failureSequence.length, failedAttempts, entry.dimension === "integration" ? integrationConflicts : 0);
 }
