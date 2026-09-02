@@ -27,7 +27,7 @@ Tracked Markdown under `spec/` is a deterministic readable projection of accepte
 ## Install
 
 ```nu
-pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.3.9
+pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.3.10
 ```
 
 ## Project-model migration
