@@ -823,6 +823,8 @@ function applyInput(
       item.integrationReceipt = fact.hash; item.current = "complete"; item.completedAt = input.occurredAt; item.currentStage = "F8";
       state.evidenceIndex.integrationReceipts[attempt.integrationAttemptId] = { kind: "integration", schemaVersion: 1, id: attempt.integrationAttemptId, hash: fact.hash, bytes: Buffer.byteLength(canonicalStringify(fact)), mediaType: "application/json", sensitivity: "internal", retention: "project", locator: null };
       train.acceptedPrefix = structuredClone(fact.landed); train.expectedTarget = structuredClone(fact.landed); train.acceptedPrefixOrdinal = entry.ordinal + 1; train.acceptedPrefixReceipt = fact.hash; train.activeIntegrationAttemptId = null;
+      const nextEntry = Object.values(train.entries).find((candidate) => candidate.ordinal === train.acceptedPrefixOrdinal);
+      if (nextEntry?.state === "waiting") nextEntry.state = "eligible";
       const repository = state.repositories[train.repositoryId]; repository.observedTarget = structuredClone(fact.landed); repository.observedTargetAt = input.occurredAt; repository.observationReceipt = attempt.landingObservationFactHash; state.freshness.repositoryObservationHashes[train.repositoryId] = attempt.landingObservationFactHash;
       const lockReleaseError = releaseIntegrationLock(state, train.repositoryId, attempt.integrationAttemptId, input.occurredAt, "integration receipt accepted");
       if (lockReleaseError) return precondition(lockReleaseError);
