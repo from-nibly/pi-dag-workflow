@@ -2393,11 +2393,12 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     pushIssue(issues, `/integrationTrains/${repositoryId}/acceptedPrefixOrdinal`, train.acceptedPrefixOrdinal === integratedCount, "must equal the exact integrated prefix length");
     pushIssue(issues, `/integrationTrains/${repositoryId}/acceptedPrefix`, canonicalHash(train.acceptedPrefix) === canonicalHash(expectedAcceptedPrefix), "must equal the last exact integrated landing or repository baseline");
     pushIssue(issues, `/integrationTrains/${repositoryId}/acceptedPrefixReceipt`, train.acceptedPrefixReceipt === (lastIntegratedEntry?.integrationReceipt ?? null), "must equal the exact last integrated receipt");
-    train.entryOrder.forEach((entryId, ordinal) => {
+    train.entryOrder.forEach((entryId, orderIndex) => {
       const entry = train.entries[entryId];
-      pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/ordinal`, entry?.ordinal === ordinal, "must match entry order");
+      const priorEntry = orderIndex > 0 ? train.entries[train.entryOrder[orderIndex - 1]] : undefined;
+      pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/ordinal`, Boolean(entry && (!priorEntry || priorEntry.ordinal < entry.ordinal)), "must follow strictly increasing exact plan ordinals");
       pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/workItemId`, Boolean(entry && state.workItems[entry.workItemId]), "references an unknown work item");
-      pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/workItemId`, entry?.workItemId === planTrain?.members[ordinal]?.workItemId, "must follow exact plan train order");
+      pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/workItemId`, entry?.workItemId === planTrain?.members.find((member) => member.ordinal === entry?.ordinal)?.workItemId, "must match the exact plan train member ordinal");
       const item = entry ? state.workItems[entry.workItemId] : undefined;
       if (entry && item) {
         const entryTerminallyInvalidated = ["invalidated", "quarantined"].includes(entry.state);
@@ -2406,8 +2407,8 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
         pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/sourceCandidate`, entryTerminallyInvalidated || (item.candidate !== null && item.candidate.candidateHash === entry.sourceCandidate.candidateHash && item.candidateGeneration === entry.sourceCandidate.generation), "active entry must bind the work item's current candidate generation and hash");
         if (entry.state === "integrated") pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/integrationReceipt`, entry.integrationReceipt !== null && item.current === "complete" && item.integrationReceipt === entry.integrationReceipt, "integrated entry requires the work item's exact accepted integration receipt and completion");
       }
-      if (headOrdinal >= 0 && ordinal > headOrdinal) pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/state`, entry?.state === "waiting", "future train entries must wait until every predecessor is landed and receipted");
-      if (entry && entry.state !== "waiting") for (const predecessorId of train.entryOrder.slice(0, ordinal)) {
+      if (headOrdinal >= 0 && orderIndex > headOrdinal) pushIssue(issues, `/integrationTrains/${repositoryId}/entries/${entryId}/state`, entry?.state === "waiting", "future train entries must wait until every predecessor is landed and receipted");
+      if (entry && entry.state !== "waiting") for (const predecessorId of train.entryOrder.slice(0, orderIndex)) {
         const predecessor = train.entries[predecessorId];
         const predecessorItem = predecessor ? state.workItems[predecessor.workItemId] : undefined;
         const predecessorFact = predecessor?.integrationReceipt ? context.facts[predecessor.integrationReceipt] : undefined;

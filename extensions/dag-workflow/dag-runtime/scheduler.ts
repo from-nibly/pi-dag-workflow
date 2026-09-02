@@ -346,7 +346,8 @@ function deriveSlot(plan: CanonicalDagPlanV1, state: DagRunStateV1, workItemId: 
   if (operationKind === "integration") {
     const train = state.integrationTrains[item.writeRepositoryId]; const entryId = item.integrationEntryId;
     const head = train?.entryOrder.find((id) => train.entries[id]?.state !== "integrated");
-    if (!entryId || head !== entryId) blockers.push({ code: "INTEGRATION_NOT_HEAD", id: head ?? item.writeRepositoryId });
+    const entry = entryId ? train?.entries[entryId] : null;
+    if (!entryId || head !== entryId || entry?.state !== "eligible") blockers.push({ code: "INTEGRATION_NOT_HEAD", id: head ?? item.writeRepositoryId });
     if (state.freshness.blocksIntegration) blockers.push({ code: "INTEGRATION_DRIFT", id: state.freshness.receipt.hash });
   }
   const mutexGroupIds = plan.constraints.semanticMutexes.filter((mutex) => mutex.members.some((member) => member.workItemId === workItemId && member.phases.includes(stage))).map(({ mutexGroupId }) => mutexGroupId).sort();

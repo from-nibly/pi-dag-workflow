@@ -1261,14 +1261,14 @@ function sealStageAttempt(state: DagRunStateV1, input: DagRunInputV1, payload: a
     const planTrain = context.plan.constraints.integrationTrains.find((train) => train.repositoryId === item.writeRepositoryId); const train = state.integrationTrains[item.writeRepositoryId]; const member = planTrain?.members.find((candidate) => candidate.workItemId === item.workItemId);
     if (!planTrain || !train || !member) return precondition("F8 enqueue must resolve the exact plan train member");
     const entryId = `entry-${String(member.ordinal).padStart(3, "0")}-${item.workItemId}`; const existingEntry = train.entries[entryId];
-    const pristineInitialSlot = !existingEntry && member.ordinal === train.entryOrder.length;
+    const pristineInitialSlot = !existingEntry;
     const exactConflictRetrySlot = existingEntry?.workItemId === item.workItemId && existingEntry.ordinal === member.ordinal && existingEntry.state === "invalidated" && existingEntry.currentAttemptId !== null && state.integrationAttempts[existingEntry.currentAttemptId]?.conflictClass !== "none";
     if ((!pristineInitialSlot && !exactConflictRetrySlot) || item.integrationEntryId || item.integrationReadyReceipt) return precondition("F8 integration-ready/train slot is neither pristine plan order nor an exact invalidated conflict retry");
     state.evidenceIndex.integrationReady[item.workItemId] = structuredClone(payload.integrationReady);
     item.integrationReadyReceipt = ready.hash; item.integrationEntryId = entryId; item.current = "integration_ready"; item.currentStage = "F8";
     if (pristineInitialSlot) {
       train.entries[entryId] = { entryId, workItemId: item.workItemId, ordinal: member.ordinal, state: member.ordinal === train.acceptedPrefixOrdinal ? "eligible" : "waiting", integrationReadyHash: ready.hash, sourceCandidate: structuredClone(item.candidate), attemptIds: [], currentAttemptId: null, integrationReceipt: null, blockerIds: [] };
-      train.entryOrder = [...train.entryOrder, entryId];
+      train.entryOrder = [...train.entryOrder, entryId].sort((left, right) => train.entries[left].ordinal - train.entries[right].ordinal || left.localeCompare(right));
     } else existingEntry.integrationReadyHash = ready.hash;
   } else if (aggregate.disposition === "PASS") {
     const nextStage = PLAN_STAGE_IDS[PLAN_STAGE_IDS.indexOf(attempt.stage) + 1]; item.current = "active"; item.currentStage = nextStage ?? attempt.stage;
