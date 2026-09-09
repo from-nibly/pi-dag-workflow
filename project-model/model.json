@@ -6605,18 +6605,18 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-03T18:56:21.863Z",
+        "acceptedAt": "2026-09-09T18:31:36.698Z",
         "actor": "user",
-        "batchRef": "sha256:487bc1e2f935e79950c3bebec6736390c60f65842613f1df228b97bbf0197b7d",
-        "contentHash": "sha256:47a50ce3cfbe99c1b4c0bec61a210f661edbe670e9f3e3a39d4d27d3592fc9bd",
-        "interactionRef": "lavish-feedback:review-canonical-dag-run-state-v1:sha256:4a5f04002d229855923e1d5ef2686cbcba9d57d30a7e517948804d8029cf3e7e",
-        "mode": "accepted_existing"
+        "batchRef": "sha256:430af8470b1541e95bce3217cdb47bd968844ede74e9d42648678f8af53455ce",
+        "contentHash": "sha256:1c533c70563c4bb2436ce1bada578c4aa98fd42bbf61aec8efc21f9a87ba0edf",
+        "interactionRef": "lavish-feedback:review-historical-runs-successor-unblock-decisions:sha256:4ef622cdc7a435f7ee220cc3d438543d04516eb874d34af8d1ba38d77830bdc0",
+        "mode": "direct_direction"
       },
-      "body": "A canonical immutable `AuthorizationSetV1` contains sorted currently valid receipt hashes and mechanically derives the effective work-item, stage, repository, effect, integration, credential, retry, and validity scope. Multiple partial receipts may union only within the immutable plan maximum and only when the resulting scope is dependency/effect/integration closed. Every stage attempt and external effect binds the exact authorization-set hash; later authorization never retroactively authorizes earlier work, and expiry/revocation creates a new set that fences only affected continuing effects and integration. A successor plan always creates a distinct run ID/nonce linked to the old run and never changes the old run's plan hash. V1 permits only exact candidate commit/tree reuse through a detached equivalence/adoption receipt; all F0–F8 lifecycle evidence reruns under the successor plan. Direct cross-plan stage-evidence adoption is deferred until dogfood demonstrates sufficient benefit to justify its equivalence and freshness complexity.",
+      "body": "A canonical immutable `AuthorizationSetV1` contains sorted currently valid receipt hashes and mechanically derives the effective work-item, stage, repository, effect, integration, credential, retry, and validity scope. Multiple partial receipts may union only within the immutable plan maximum and only when the resulting scope is dependency/effect/integration closed; excluded nodes remain unauthorized and cannot be admitted. Every stage attempt and external effect binds the exact authorization-set hash; later authorization never retroactively authorizes earlier work, and expiry/revocation creates a new set that fences only affected continuing effects and integration. A successor plan always creates a distinct run ID/nonce linked to the old run and never changes the old run's plan hash. An exact approved and authorized successor selector may atomically replace a terminal current-session binding while retaining the terminal historical run as immutable and addressable; an active conflicting binding still fails closed. V1 permits only exact candidate commit/tree reuse through a detached equivalence/adoption receipt; all F0–F8 lifecycle evidence reruns under the successor plan. Direct cross-plan stage-evidence adoption is deferred until dogfood demonstrates sufficient benefit to justify its equivalence and freshness complexity.",
       "createdAt": "2026-08-03T18:34:55.189Z",
       "id": "DEC-run-authorization-successor-candidate-adoption-v1",
       "introducedBy": "agent",
-      "rationale": "Canonical receipt composition supports useful partial authorization without boolean drift. Candidate-only successor reuse is conservative, understandable, and avoids making evidence-adoption correctness a v1 release blocker.",
+      "rationale": "Canonical receipt composition supports useful partial authorization without boolean drift. Terminal historical context must not block an exact successor, while active conflicts, stale identities, dependency-open scopes, and missing authority remain fail-closed. Candidate-only successor reuse stays conservative and understandable.",
       "relationships": [
         {
           "kind": "addresses",
@@ -6625,6 +6625,10 @@
         {
           "kind": "derived_from",
           "targetId": "PROP-run-authorization-successor-candidate-adoption-v1"
+        },
+        {
+          "kind": "derived_from",
+          "targetId": "PROP-targeted-successor-admission-relaxation"
         }
       ],
       "resolvesQuestionIds": [
@@ -6638,16 +6642,20 @@
         ]
       },
       "selectedProposalIds": [
-        "PROP-run-authorization-successor-candidate-adoption-v1"
+        "PROP-run-authorization-successor-candidate-adoption-v1",
+        "PROP-targeted-successor-admission-relaxation"
       ],
       "sourceRefs": [
         "DEC-broad-coordination-plan-authorization-v1",
+        "DISC-terminal-session-binding-blocks-explicit-successor",
+        "DISC-v1-plan-authorization-is-whole-plan",
         "EV-dag-run-state-v1-schema-design",
-        "PROP-run-authorization-successor-candidate-adoption-v1"
+        "PROP-run-authorization-successor-candidate-adoption-v1",
+        "PROP-targeted-successor-admission-relaxation"
       ],
       "state": "accepted",
-      "title": "Compose hash-bound authorization sets and limit v1 successor reuse to candidates",
-      "updatedAt": "2026-08-03T18:56:21.863Z"
+      "title": "Compose hash-bound authorization sets and admit terminal-bound successors",
+      "updatedAt": "2026-09-09T18:31:36.698Z"
     },
     {
       "acceptance": {
@@ -8664,6 +8672,31 @@
       "state": "integrated",
       "title": "Brainstorm surfaces need to serve as project-model projections",
       "updatedAt": "2026-08-17T22:31:54.445Z"
+    },
+    {
+      "body": "The thin-plan built-in lifecycle adapter validates an executable mapping but executes an in-process producer instead; the cataloged `--lifecycle` helper path would fail if directly invoked. The producer derives one aggregate disposition and stamps all applicable checks and F2 oracle assertions with it rather than retaining independent command/assertion observations. The runtime therefore spends substantial validation complexity proving the internal consistency of an evidence envelope whose underlying product evidence is coarser than the envelope suggests.",
+      "createdAt": "2026-09-09T21:37:12.846Z",
+      "id": "DISC-canonical-evidence-structure-exceeds-evidence-semantics",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "source": "Current validation audit.",
+      "sourceRefs": [
+        "extensions/dag-workflow/planning/integration-validation-pass.mjs:5-27",
+        "extensions/dag-workflow/planning/runtime-adapter.ts:105-115",
+        "extensions/dag-workflow/planning/runtime-adapter.ts:393-479"
+      ],
+      "state": "untriaged",
+      "title": "Canonical evidence structure is stricter than its built-in evidence semantics",
+      "updatedAt": "2026-09-09T21:37:12.846Z"
     },
     {
       "body": "One mutable DAG file cannot safely own reviewed meaning, operational authorization, execution observation, evidence, and worker facts. The canonical boundary is an immutable plan payload plus a detached exact-plan-hash authorization receipt, one atomic mutable conductor snapshot, immutable bounded evidence envelopes, and generic immutable worker results. The accepted one-artifact direction means one planning authority and review surface, not one file that accumulates approval and progress.",
@@ -11311,6 +11344,27 @@
       "updatedAt": "2026-08-17T20:50:09.481Z"
     },
     {
+      "body": "Both `/dag run --plan pbs-kids-downloader-successor@3` and `/dag run --plan optd-successor-preflight@3` were rejected with `Explicit plan selector does not match the exact current-session run source` because each focus session remained bound to its cancelled historical run. The successor plans were exact, approved, and authorized; execution did not start.",
+      "createdAt": "2026-09-09T18:23:55.722Z",
+      "id": "DISC-terminal-session-binding-blocks-explicit-successor",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "source": "Current Fractory and Operant pane output after exact successor start attempts.",
+      "sourceRefs": [],
+      "state": "untriaged",
+      "title": "Terminal focus-session binding blocks an exact successor selector",
+      "updatedAt": "2026-09-09T18:23:55.722Z"
+    },
+    {
       "body": "Pi's structured-output pattern makes the tool call the final action in that Pi agent run and exposes its typed result to the caller/client. In the owned async architecture, the caller is the detached RPC supervisor—not the already-settled top-level agent. Therefore `subagent_report` itself supplies the worker summary and eliminates any extra child assistant response, but it does not replace durable result writing, parent watcher ingestion, serial queueing, or a later `pi.sendMessage(..., { deliverAs: \"followUp\", triggerTurn: true })` to wake the top-level agent. The supervisor should still wait for `agent_settled`, persist the immutable result, and close the child RPC process.",
       "confidence": "high",
       "createdAt": "2026-07-30T18:30:40.475Z",
@@ -11495,6 +11549,30 @@
       "state": "integrated",
       "title": "Operant proven-dead reattachment advanced ownership but the first recovery turn did not pump",
       "updatedAt": "2026-08-17T15:32:58.580Z"
+    },
+    {
+      "body": "Operant plan optd-successor-release@2 rejected an exact seven-node authorization because the current V1 prepared-run contract requires authorization to contain every work-item ID. A plan that needs later independent authority for irreversible external effects must split the safe implementation/preflight prefix and external-effect suffix into separate plans/runs rather than relying on partial work-item authorization within one plan.",
+      "createdAt": "2026-09-09T16:20:47.817Z",
+      "id": "DISC-v1-plan-authorization-is-whole-plan",
+      "introducedBy": "agent",
+      "planId": "optd-successor-release",
+      "planRevision": 2,
+      "relationships": [],
+      "repository": "/home/jordan/gh/from-nibly/operant",
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "source": "Cross-session Operant successor-plan authorization rejection.",
+      "sourceRefs": [],
+      "state": "untriaged",
+      "title": "V1 run authorization cannot exclude external-effect suffix nodes",
+      "updatedAt": "2026-09-09T16:20:47.817Z"
     },
     {
       "body": "Scheduler terminology overloaded “downstream.” The protected capacity serves later F2/F4/F5/F6/F7/F8 and integration operations for nodes that already produced candidates. It does not make a separate causally dependent work item ready. Under the accepted rule, a true consumer B remains blocked from F0 onward until producer A has a current accepted integration receipt and reconciled conductor-branch landing. Future-prefix speculation likewise cannot start B early.",
@@ -12084,6 +12162,31 @@
       "state": "current",
       "title": "Current cutover replaces unmanaged files only at declared projection targets",
       "updatedAt": "2026-08-18T22:08:48.978Z"
+    },
+    {
+      "body": "The current `dag-runtime` and `planning` modules total roughly 16,000 lines across plan, run-state, reducer, store, conductor, lifecycle, scheduler, integration, Git, evaluation, and planning layers. Representative command/runtime guards bind exact repository identity and baseline/tree cleanliness, accepted model hashes, plan approval and authorization revisions, prepared-start intents, session bindings, owner epochs, action IDs, snapshot revisions/hashes, reservation generations, worker completion identities, candidate trees, environment evidence, and integration train state. Several concepts are revalidated across schema, adapter, conductor, and reducer boundaries.",
+      "createdAt": "2026-09-09T18:40:31.113Z",
+      "id": "EV-current-dag-validation-footprint",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "extensions/dag-workflow/dag-runtime/conductor.ts:267-1060",
+        "extensions/dag-workflow/dag-runtime/reducer.ts",
+        "extensions/dag-workflow/dag-runtime/run-state.ts",
+        "extensions/dag-workflow/planning/runtime-adapter.ts:113-608"
+      ],
+      "state": "current",
+      "title": "Current canonical DAG validation is distributed across a large runtime surface",
+      "updatedAt": "2026-09-09T18:40:31.113Z"
     },
     {
       "body": "extensions/dag-workflow/dag-runtime/integration.ts installs canonical-dag-run above the editor, refreshes projection state every second, calls requestRender, and computes animation time inside render. widget.ts emits 4–12 independently cropped text lines, spends most rows on one-edge-per-line topology, and always appends an instructional footer. The component invalidate method is empty.",
@@ -13353,6 +13456,28 @@
       "state": "current",
       "title": "Legacy DAG design and control-plane audit",
       "updatedAt": "2026-07-31T04:29:39.126Z"
+    },
+    {
+      "body": "At initial standalone package commit `b1cf024`, `extensions/dag-workflow/dag.ts` was 250 lines and contained two throwing execution guards. `validateDag` checked schema version, required run fields, positive concurrency, non-empty nodes, arrays, unique IDs, known step/flow/node references, required chunk files, dependency references, and basic owned/forbidden-file list shape. It did not carry canonical run snapshots, receipt hashes, owner epochs, stage evidence identities, exact action claims, or current-session binding equality.",
+      "createdAt": "2026-09-09T18:40:31.112Z",
+      "id": "EV-legacy-dag-validation-footprint",
+      "introducedBy": "agent",
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "git:b1cf024:extensions/dag-workflow/dag.ts:60-163"
+      ],
+      "state": "current",
+      "title": "Legacy DAG validation was narrow and structural",
+      "updatedAt": "2026-09-09T18:40:31.112Z"
     },
     {
       "body": "The retained legacy run state has useful DAG/node/step/worktree fields, but `saveRunState` directly writes `manifest.json` and `nodes.json` as two separate non-atomic files; worker records are also direct overwrites. The old launch flow marks an attempt `running` and saves before a separate model-mediated subagent launch, while result ingestion is a later model call that mutates nodes and writes a worker record. There is no run revision, ownership token, process identity, launch receipt, terminal result ID/hash, ingestion receipt, completion queue, or mutation serialization. A crash can leave manifest/nodes inconsistent, a `running` attempt with no process, a live process with no persisted PID, or a duplicated result transition.",
@@ -15337,32 +15462,24 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "## Effective tool-driven DAG contract\n\nThe accepted explicit semantic tool surface replaces direct ready-packet dispatch as the normal orchestration contract. `dag_next_action` reports every admissible choice for one exact revision. The agent performs one named mutation, then refreshes; stale sibling action tokens fail closed rather than authorizing work against replacement state.\n\nPublic mutation tools start work, run checks, record completion, integrate, retry, pause, resume, cancel, and finalize. Owned-worker completion follow-ups wake the agent but do not mutate canonical DAG state. Timer pumps and process-local conductor-generation ceremony are absent from normal operation, and explicit interruption propagates through owned operations.",
-      "generatedAt": "2026-08-27T23:42:10.594Z",
+      "body": "## Accepted direction\n\nBring runtime behavior back into line with the accepted authorization model: mechanically closed partial authorization is valid, and an exact approved successor may supersede a terminal session binding while preserving the old run.\n\n## Preserved safeguards\n\nExcluded nodes remain unauthorized. Active-run conflicts, stale plan identities, dependency-open scopes, clean-tree and evidence requirements, and external-effect authority remain fail-closed.\n\n## Immediate state\n\nNeither Fractory nor Operant successor execution has started; both exact selectors were rejected by their cancelled historical session bindings. The runtime must implement the accepted terminal-successor path before these plans can begin normally.",
+      "generatedAt": "2026-09-09T18:31:36.699Z",
       "sourceObjects": [
         {
-          "id": "DEC-tool-driven-dag-public-action-surface",
-          "semanticHash": "sha256:a8c4b8f2ed9621b5ac9defb383cb3390bf7d685aca79fb07acbbabd56e672965"
+          "id": "DEC-run-authorization-successor-candidate-adoption-v1",
+          "semanticHash": "sha256:1c533c70563c4bb2436ce1bada578c4aa98fd42bbf61aec8efc21f9a87ba0edf"
         },
         {
-          "id": "DEC-dag-next-action-returns-independent-frontier",
-          "semanticHash": "sha256:f3ddceccba1da4eadc8ce7dacd38ba67f543e977e3e3f7218a0a6f94556d0a61"
+          "id": "PROP-targeted-successor-admission-relaxation",
+          "semanticHash": "sha256:a61ace567b7d303dd31c0daca26da6720e385852914d19aae003f05080e7f074"
         },
         {
-          "id": "DEC-canonical-completion-recorded-by-agent-tool",
-          "semanticHash": "sha256:4d8c07c5af04f1f89ea7e00c061420fe9d4705ee95cb52a71a2dc0e4af62ed06"
+          "id": "DISC-v1-plan-authorization-is-whole-plan",
+          "semanticHash": "sha256:c48ca3122ca0b093aa6e115c665a5374a80c0874293aeee2962880cdcb0d3fb6"
         },
         {
-          "id": "DEC-tool-driven-dag-preserves-canonical-run-history",
-          "semanticHash": "sha256:a71c835412e926eb55b9b93a904db470f47df326d95a5a6cd3e60d024ac05ed6"
-        },
-        {
-          "id": "PROP-agent-driven-tool-only-dag-advancement-v1",
-          "semanticHash": "sha256:f30dd81f4331da6a2434147917a32f672c480c34b886a394ec09edbdc78937ce"
-        },
-        {
-          "id": "ASM-tool-driven-dag-stage-to-operation-mapping-v1",
-          "semanticHash": "sha256:81196a207b41f9049a500f24ecc8fa27d22d0b26cbd85eaac46780c5f3aad573"
+          "id": "DISC-terminal-session-binding-blocks-explicit-successor",
+          "semanticHash": "sha256:e5bd486d7cce321aa9dc41649b470e9807031c961da0f9a9d3d9a3e08b64b240"
         }
       ]
     },
@@ -15725,9 +15842,9 @@
         }
       ]
     },
-    "revision": 259,
+    "revision": 266,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-09-02T13:13:47.815Z"
+    "updatedAt": "2026-09-09T21:37:12.847Z"
   },
   "proposals": [
     {
@@ -18608,6 +18725,31 @@
       "updatedAt": "2026-08-17T22:10:14.159Z"
     },
     {
+      "body": "Preserve concrete operational invariants from the canonical runtime—frozen plan identity, structural DAG correctness, atomic single-writer state, dependency/resource admission, durable worker generations, stale-result fencing, direct command-level product evidence, transactional Git landing, idempotent crash recovery, and explicit irreversible-effect authority—while collapsing proof chains between trusted local components. Candidate removals include blocking semantic action IDs, exact scheduler-decision reproduction, ordinary executable-byte attestation, hash-bound consent chains, full-history revalidation after every transition, terminal-binding selector vetoes, and duplicate receipts. Replace these with one lease and revision CAS, ingress validation plus local transition invariants, mechanically closed partial authorization, and bounded real command evidence.",
+      "createdAt": "2026-09-09T21:37:12.847Z",
+      "id": "PROP-legacy-plus-validation-runtime",
+      "introducedBy": "agent",
+      "recommended": true,
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [
+        "DISC-canonical-evidence-structure-exceeds-evidence-semantics",
+        "EV-current-dag-validation-footprint",
+        "EV-legacy-dag-validation-footprint"
+      ],
+      "state": "candidate",
+      "title": "Design a Legacy+ DAG validation runtime",
+      "updatedAt": "2026-09-09T21:37:12.847Z"
+    },
+    {
       "body": "Each catalog check is required, conditional with a deterministic predicate, or plan-declared not applicable; F0 confirms the result. Missing tools, credentials, time, or failed observations are BLOCKED/FAIL, never N/A. Waivers are detached exact-scope human/policy receipts, never self-issued, apply only to checks, expose residual risk, and expire on relevant plan/oracle/candidate/environment/rebase change. Plan/authorization identity, immutable baseline, evidence integrity, independent F2/F5, clean F7, F8 integrity, and authorization for undeclared/production/irreversible scope are non-waivable. External procedures declare pure/idempotent/compensatable/non_repeatable/unknown replay classes; durable effect intent and reconciliation precede retry, and unknown/non-repeatable effects never auto-retry.",
       "createdAt": "2026-08-02T15:20:59.759Z",
       "id": "PROP-lifecycle-applicability-waiver-effect-retry-v1",
@@ -20746,6 +20888,27 @@
       "state": "selected",
       "title": "Prompt for contextual synthesis rather than template completeness",
       "updatedAt": "2026-08-17T22:30:39.828Z"
+    },
+    {
+      "body": "Keep exact plan revision, approval, authorization, clean-tree, evidence, and effect gates. Change admission semantics so an exact explicit plan selector may create a new run when the current binding is terminal, then atomically rebind the session to the new run while preserving the historical run. Also support dependency-closed authorized plan prefixes, or have planning deterministically compile separately authorized effect-gated suffixes into follow-on plans. Reject only active-run conflicts, stale plan revisions, dependency-open scopes, or missing authority—not terminal historical bindings or intentionally withheld future-effect authority.",
+      "createdAt": "2026-09-09T18:23:55.723Z",
+      "id": "PROP-targeted-successor-admission-relaxation",
+      "introducedBy": "agent",
+      "recommended": true,
+      "relationships": [],
+      "scope": {
+        "kind": "workstreams",
+        "workstreamIds": [
+          "WS-agent-workflow",
+          "WS-artifacts-lavish",
+          "WS-lifecycle-authority",
+          "WS-surface-interaction"
+        ]
+      },
+      "sourceRefs": [],
+      "state": "candidate",
+      "title": "Relax successor admission without weakening evidence integrity",
+      "updatedAt": "2026-09-09T18:23:55.723Z"
     },
     {
       "body": "Make the first runtime require atomic conductor transitions, explicit worker ownership/profile/context, structured terminal results, idempotent recovery and completion receipts, and compact snapshots. Never persist `message_update`, cumulative `partial`/`message`, reasoning deltas, or raw RPC streams. Optional diagnostics may retain normalized final `message_end`, tool, lifecycle, and control records behind asynchronous bounded writing and a configurable per-run cap defaulting to 50 MiB. Treat token, cost, turn, and aggressive timeout budgets as configurable policy rather than mandatory finite v1 constraints.",

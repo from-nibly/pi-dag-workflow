@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:a5ba0f612e52da78b0876e792ba501903f893924f91d1f1cbcc7003d87a65a67 -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-model-aware-dag-runtime; contract: 1; input: sha256:4c3024c8f575f049a66c747193bbab223b89a826ba05a3cb994d4c4ab541b7c9 -->
 
 # Model-aware DAG planning and execution
 
@@ -346,11 +346,11 @@ Ordinary pause stops new worker, procedure, effect, and integration dispatch whi
 
 <a id="obj-dec-run-authorization-successor-candidate-adoption-v1"></a>
 
-### Compose hash-bound authorization sets and limit v1 successor reuse to candidates
+### Compose hash-bound authorization sets and admit terminal-bound successors
 
-A canonical immutable `AuthorizationSetV1` contains sorted currently valid receipt hashes and mechanically derives the effective work-item, stage, repository, effect, integration, credential, retry, and validity scope. Multiple partial receipts may union only within the immutable plan maximum and only when the resulting scope is dependency/effect/integration closed. Every stage attempt and external effect binds the exact authorization-set hash; later authorization never retroactively authorizes earlier work, and expiry/revocation creates a new set that fences only affected continuing effects and integration. A successor plan always creates a distinct run ID/nonce linked to the old run and never changes the old run's plan hash. V1 permits only exact candidate commit/tree reuse through a detached equivalence/adoption receipt; all F0–F8 lifecycle evidence reruns under the successor plan. Direct cross-plan stage-evidence adoption is deferred until dogfood demonstrates sufficient benefit to justify its equivalence and freshness complexity.
+A canonical immutable `AuthorizationSetV1` contains sorted currently valid receipt hashes and mechanically derives the effective work-item, stage, repository, effect, integration, credential, retry, and validity scope. Multiple partial receipts may union only within the immutable plan maximum and only when the resulting scope is dependency/effect/integration closed; excluded nodes remain unauthorized and cannot be admitted. Every stage attempt and external effect binds the exact authorization-set hash; later authorization never retroactively authorizes earlier work, and expiry/revocation creates a new set that fences only affected continuing effects and integration. A successor plan always creates a distinct run ID/nonce linked to the old run and never changes the old run's plan hash. An exact approved and authorized successor selector may atomically replace a terminal current-session binding while retaining the terminal historical run as immutable and addressable; an active conflicting binding still fails closed. V1 permits only exact candidate commit/tree reuse through a detached equivalence/adoption receipt; all F0–F8 lifecycle evidence reruns under the successor plan. Direct cross-plan stage-evidence adoption is deferred until dogfood demonstrates sufficient benefit to justify its equivalence and freshness complexity.
 
-**Rationale.** Canonical receipt composition supports useful partial authorization without boolean drift. Candidate-only successor reuse is conservative, understandable, and avoids making evidence-adoption correctness a v1 release blocker.
+**Rationale.** Canonical receipt composition supports useful partial authorization without boolean drift. Terminal historical context must not block an exact successor, while active conflicts, stale identities, dependency-open scopes, and missing authority remain fail-closed. Candidate-only successor reuse stays conservative and understandable.
 
 <a id="obj-dec-balanced-retry-dimension-defaults-v1"></a>
 
