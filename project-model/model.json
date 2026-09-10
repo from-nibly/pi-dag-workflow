@@ -3952,21 +3952,21 @@
     },
     {
       "acceptance": {
-        "acceptedAt": "2026-08-13T19:25:52.063Z",
+        "acceptedAt": "2026-09-10T00:22:06.592Z",
         "actor": "user",
-        "batchRef": "sha256:1d911f257f632116e7f6cc37ce6886cf14c6f4980cd56a72397e70c16d566f8b",
-        "contentHash": "sha256:01c1e9a443f1296f75fe4f5039ffc924b7b5f966eee006a98106ba35f6b41477",
-        "interactionRef": "lavish-feedback:review-authoritative-planning-compiler-release-contract:sha256:1a3d410612c5a9c740cc4236091669a89c28c4fb0c02125e7f3951882aa7fc77",
-        "mode": "accepted_existing"
+        "batchRef": "sha256:56c245d8bfc170bcca53400ea21708e7718ee94d335e06b9950d6cc3f24314f2",
+        "contentHash": "sha256:9e6084c86a8f3304ac62c2d19fd02c17e78edc7db40986b184722b703ee5967b",
+        "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1788999676887",
+        "mode": "direct_direction"
       },
-      "body": "Explicit unambiguous user direction commits once; silence and agent-derived implications never commit; ambiguity or conflict remains unresolved. The agent uses contextual judgment to determine whether the user approved the semantic payload, and content references support traceability and stale-response handling rather than serving as a security or cryptographic consent boundary. Do not require a separate trusted adapter, typed approval ceremony, or byte-exact human-interaction receipt merely to defend against an agent hallucinating approval; the agent is already inside the trust boundary. Preserve clear separation between plan approval, execution authorization, and start intent through ordinary explicit interaction and model review semantics.",
+      "body": "Explicit unambiguous user direction commits once; silence and agent-derived implications never commit; ambiguity or conflict remains unresolved. The agent uses contextual judgment to determine whether the user accepted the semantic payload, and content references support traceability and stale-response handling rather than serving as a security or cryptographic consent boundary. Do not require a separate trusted adapter, typed approval ceremony, byte-exact human-interaction receipt, formal plan-approval state, approval revision, or approval artifact. Planning remains reviewable and revisable without an approval transition. When the user explicitly tells the agent to run one exact current plan, that run intent also expresses acceptance of that plan and may proceed directly to the applicable execution-authorization and start boundary. Scope/effect authorization remains enforceable independently, and fresh explicit authority is still required for production, publication, credentials, irreversible effects, or materially expanded scope.",
       "createdAt": "2026-07-28T18:37:09.022Z",
       "id": "DEC-direct-user-commit-derived-review",
       "introducedBy": "migration",
       "legacyIds": [
         "D-direct-user-commit-derived-review"
       ],
-      "rationale": "This project structures planning and execution for reliability and oversight; it should not add security theater that cannot constrain the trusted agent.",
+      "rationale": "A separate formal approval transition duplicates the user's later exact run intent and adds ceremony without constraining the trusted agent. Plan review remains visible, while authorization continues to protect scope and effects that require distinct authority.",
       "relationships": [],
       "resolvesQuestionIds": [],
       "scope": {
@@ -3974,11 +3974,12 @@
       },
       "selectedProposalIds": [],
       "sourceRefs": [
+        "PROP-legacy-plus-validation-runtime",
         "legacy-brainstorm:D-direct-user-commit-derived-review"
       ],
       "state": "accepted",
-      "title": "Use agent judgment for explicit user direction; do not claim a security boundary",
-      "updatedAt": "2026-08-13T19:25:52.063Z"
+      "title": "Use contextual user direction and make run intent accept the plan",
+      "updatedAt": "2026-09-10T00:22:06.592Z"
     },
     {
       "acceptance": {
@@ -15462,24 +15463,20 @@
   "project": {
     "createdAt": "2026-07-28T18:37:08.996Z",
     "currentUnderstanding": {
-      "body": "## Accepted direction\n\nBring runtime behavior back into line with the accepted authorization model: mechanically closed partial authorization is valid, and an exact approved successor may supersede a terminal session binding while preserving the old run.\n\n## Preserved safeguards\n\nExcluded nodes remain unauthorized. Active-run conflicts, stale plan identities, dependency-open scopes, clean-tree and evidence requirements, and external-effect authority remain fail-closed.\n\n## Immediate state\n\nNeither Fractory nor Operant successor execution has started; both exact selectors were rejected by their cancelled historical session bindings. The runtime must implement the accepted terminal-successor path before these plans can begin normally.",
-      "generatedAt": "2026-09-09T18:31:36.699Z",
+      "body": "## Legacy+ planning and execution direction\n\nPlans remain visible and revisable, but have no formal approval state, approval revision, or approval receipt. An explicit request to run one exact current plan expresses plan acceptance at the moment it is needed.\n\nExecution authorization remains a separate scope/effect control where applicable. Production, publication, credential, irreversible-effect, and materially expanded scopes still require fresh explicit authority. The simplification removes duplicated consent ceremony; it does not weaken concrete effect safety.\n\nThe draft Legacy+ implementation plan must now include removal of formal plan approval and end-to-end run-intent acceptance behavior.",
+      "generatedAt": "2026-09-10T00:22:06.592Z",
       "sourceObjects": [
+        {
+          "id": "DEC-direct-user-commit-derived-review",
+          "semanticHash": "sha256:9e6084c86a8f3304ac62c2d19fd02c17e78edc7db40986b184722b703ee5967b"
+        },
+        {
+          "id": "PROP-legacy-plus-validation-runtime",
+          "semanticHash": "sha256:041bb9f23d6fd03c224bf81238d59840bf31abea7725f3273a24737fd9345319"
+        },
         {
           "id": "DEC-run-authorization-successor-candidate-adoption-v1",
           "semanticHash": "sha256:1c533c70563c4bb2436ce1bada578c4aa98fd42bbf61aec8efc21f9a87ba0edf"
-        },
-        {
-          "id": "PROP-targeted-successor-admission-relaxation",
-          "semanticHash": "sha256:a61ace567b7d303dd31c0daca26da6720e385852914d19aae003f05080e7f074"
-        },
-        {
-          "id": "DISC-v1-plan-authorization-is-whole-plan",
-          "semanticHash": "sha256:c48ca3122ca0b093aa6e115c665a5374a80c0874293aeee2962880cdcb0d3fb6"
-        },
-        {
-          "id": "DISC-terminal-session-binding-blocks-explicit-successor",
-          "semanticHash": "sha256:e5bd486d7cce321aa9dc41649b470e9807031c961da0f9a9d3d9a3e08b64b240"
         }
       ]
     },
@@ -15842,9 +15839,9 @@
         }
       ]
     },
-    "revision": 266,
+    "revision": 267,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-09-09T21:37:12.847Z"
+    "updatedAt": "2026-09-10T00:22:06.593Z"
   },
   "proposals": [
     {

@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-mixed-initiative; contract: 1; input: sha256:5bdde9a4801676d63885d3a1c984795986233a8ef7b2f55446019f3c3455478b -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-mixed-initiative; contract: 1; input: sha256:82104d0f241f97ea1a30a338a7d2878a5a3397dda6197b46454fc3992977baab -->
 
 # Mixed-initiative project model
 
@@ -104,11 +104,11 @@ v1 uses a small explicit type union and shared metadata; subtype-specific fields
 
 <a id="obj-dec-direct-user-commit-derived-review"></a>
 
-### Use agent judgment for explicit user direction; do not claim a security boundary
+### Use contextual user direction and make run intent accept the plan
 
-Explicit unambiguous user direction commits once; silence and agent-derived implications never commit; ambiguity or conflict remains unresolved. The agent uses contextual judgment to determine whether the user approved the semantic payload, and content references support traceability and stale-response handling rather than serving as a security or cryptographic consent boundary. Do not require a separate trusted adapter, typed approval ceremony, or byte-exact human-interaction receipt merely to defend against an agent hallucinating approval; the agent is already inside the trust boundary. Preserve clear separation between plan approval, execution authorization, and start intent through ordinary explicit interaction and model review semantics.
+Explicit unambiguous user direction commits once; silence and agent-derived implications never commit; ambiguity or conflict remains unresolved. The agent uses contextual judgment to determine whether the user accepted the semantic payload, and content references support traceability and stale-response handling rather than serving as a security or cryptographic consent boundary. Do not require a separate trusted adapter, typed approval ceremony, byte-exact human-interaction receipt, formal plan-approval state, approval revision, or approval artifact. Planning remains reviewable and revisable without an approval transition. When the user explicitly tells the agent to run one exact current plan, that run intent also expresses acceptance of that plan and may proceed directly to the applicable execution-authorization and start boundary. Scope/effect authorization remains enforceable independently, and fresh explicit authority is still required for production, publication, credentials, irreversible effects, or materially expanded scope.
 
-**Rationale.** This project structures planning and execution for reliability and oversight; it should not add security theater that cannot constrain the trusted agent.
+**Rationale.** A separate formal approval transition duplicates the user's later exact run intent and adds ceremony without constraining the trusted agent. Plan review remains visible, while authorization continues to protect scope and effects that require distinct authority.
 
 <a id="obj-dec-model-prose-deterministic-projections"></a>
 
