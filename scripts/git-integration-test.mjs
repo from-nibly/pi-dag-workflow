@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -67,6 +67,14 @@ try {
   await assert.rejects(() => new ExactGitIntegrationV1(runtime()).execute(unsupportedTree.request), (error) => error instanceof GitIntegrationBlockedError && error.code === "UNSUPPORTED_ATTRIBUTES");
   const gitlinkTree = await fixture(root, "gitlink-tree"); const gitlinkAuthor = join(root, "gitlink-tree-author-2"); await gitRaw(gitlinkTree.repo, ["worktree", "add", "-b", "gitlink-tree-candidate-2", gitlinkAuthor, gitlinkTree.base.commit]); await gitRaw(gitlinkAuthor, ["update-index", "--add", "--cacheinfo", `160000,${gitlinkTree.base.commit},vendor/module`]); await gitRaw(gitlinkAuthor, ["commit", "-m", "feat: add raw gitlink"]); gitlinkTree.request.candidate = { repositoryId: "repo-main", ...(await gitRef(gitlinkAuthor, "HEAD")) }; await gitRaw(gitlinkTree.repo, ["worktree", "remove", "--force", gitlinkAuthor]); await assert.rejects(() => new ExactGitIntegrationV1(runtime()).execute(gitlinkTree.request), (error) => error instanceof GitIntegrationBlockedError && error.code === "UNSUPPORTED_GITLINK");
   const bindingMismatch = await fixture(root, "binding-mismatch"); await assert.rejects(() => new ExactGitIntegrationV1(runtime()).execute({ ...bindingMismatch.request, expectedRepositoryBinding: { ...bindingMismatch.request.expectedRepositoryBinding, commonDirIdentityHash: H("f") } }), (error) => error instanceof GitIntegrationBlockedError && error.code === "REPOSITORY_AUTHORITY_MISMATCH");
+  const replacedDirectory = await fixture(root, "replaced-common-dir");
+  const originalGitDir = join(root, "original-common-dir");
+  await rename(join(replacedDirectory.repo, ".git"), originalGitDir);
+  await cp(originalGitDir, join(replacedDirectory.repo, ".git"), { recursive: true });
+  const replacementBinding = await readRepositoryBindingIdentityV1(replacedDirectory.repo);
+  assert.notEqual(replacementBinding.commonDirIdentityHash, replacedDirectory.request.expectedRepositoryBinding.commonDirIdentityHash, "same-path Git directory replacement changes the integration identity even with identical objects and config");
+  await assert.rejects(() => new ExactGitIntegrationV1(runtime()).execute(replacedDirectory.request), (error) => error instanceof GitIntegrationBlockedError && error.code === "REPOSITORY_AUTHORITY_MISMATCH");
+  assert.equal(await git(replacedDirectory.repo, ["rev-parse", "HEAD"]), replacedDirectory.base.commit, "real common-directory drift cannot move the target");
 
   const dirtyReplay = await fixture(root, "dirty-worktree-replay"); const dirtyRequestPath = join(root, "request-dirty-worktree-replay.json"); await writeFile(dirtyRequestPath, JSON.stringify(dirtyReplay.request)); await assert.rejects(() => execFileAsync(process.execPath, ["scripts/fixtures/git-integration-crash-child.mjs", dirtyRequestPath, "after_worktree"], { cwd: process.cwd() }), (error) => error?.code === 86); const [dirtyWorkspaceName] = await readdir(join(dirtyReplay.request.controlRoot, "worktrees")); await writeFile(join(dirtyReplay.request.controlRoot, "worktrees", dirtyWorkspaceName, "poison"), "untrusted\n"); let dirtyVerifierCalled = false; await assert.rejects(() => new ExactGitIntegrationV1(runtime(undefined, async () => { dirtyVerifierCalled = true; return evidence(); })).execute(dirtyReplay.request), (error) => error instanceof GitIntegrationBlockedError && error.code === "VERIFICATION_WORKTREE_DIRTY"); assert.equal(dirtyVerifierCalled, false, "dirty replay workspace is fenced before verification dispatch");
 

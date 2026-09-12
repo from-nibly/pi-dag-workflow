@@ -2375,7 +2375,11 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
 
   const activeCommonDirLocks = new Map<string, string>();
   for (const repository of Object.values(state.repositories)) if (repository.integrationLockLeaseId) {
-    const lease = state.leases[repository.integrationLockLeaseId]; const commonDir = repository.workspace.gitCommonDirIdentityHash;
+    const lease = state.leases[repository.integrationLockLeaseId];
+    const attempt = lease?.holderIntegrationAttemptId ? state.integrationAttempts[lease.holderIntegrationAttemptId] : null;
+    const binding = attempt?.repositoryBindingFactHash ? context.facts[attempt.repositoryBindingFactHash] as any : null;
+    const commonDir = binding?.commonDirIdentityHash;
+    pushIssue(issues, `/repositories/${repository.repositoryId}/integrationLockLeaseId`, lease?.kind === "integration_lock" && isExactGitTransactionFact(binding, state, "repository_binding", repository.repositoryId, null), "integration lock must resolve its holder attempt's exact repository binding");
     if (lease && lease.state !== "released" && commonDir) { const prior = activeCommonDirLocks.get(commonDir); pushIssue(issues, `/repositories/${repository.repositoryId}/integrationLockLeaseId`, prior === undefined, "only one repository identity may hold an active integration lock for an exact Git common directory"); if (!prior) activeCommonDirLocks.set(commonDir, repository.repositoryId); }
   }
 

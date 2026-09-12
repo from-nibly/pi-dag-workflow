@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -32,6 +33,7 @@ import {
   parseStrictJson,
   sealCanonicalDagPlanV1,
   reduceDagRunV1,
+  readRepositoryBindingIdentityV1,
   renderDagWidgetV1,
   projectDagExecutionV1,
   projectDagExecutionV2,
@@ -41,6 +43,7 @@ import {
   validateCanonicalDagPlanV1,
   validateDagRunStateV1,
 } from "../extensions/dag-workflow/dag-runtime/index.ts";
+import { createBuiltInLifecycleProcedureAdapterV1 } from "../extensions/dag-workflow/planning/runtime-adapter.ts";
 import { WorkerManager } from "../extensions/dag-workflow/worker-runtime/manager.mjs";
 import { attemptPaths, withResultHash, writeImmutableJson } from "../extensions/dag-workflow/worker-runtime/core.mjs";
 import { privateCandidateRefV1, sealPrivateCandidateRefV1 } from "../extensions/dag-workflow/index.ts";
@@ -170,7 +173,7 @@ function planFixture(repositoryBaseline = { repositoryId: "repo-main", commit: O
   });
 }
 
-function runFixture(plan) {
+function runFixture(plan, procedures = procedureCatalogFixture()) {
   const emptyStages = Object.fromEntries(PLAN_STAGE_IDS.map((stage) => [stage, {
     stage, state: "pending", attemptIds: [], currentAttemptId: null, currentEvidence: null, adoptionReceipt: null,
     invalidationIds: [], lastDisposition: null, blockerIds: [],
@@ -211,7 +214,7 @@ function runFixture(plan) {
     scheduler: { policyVersion: "sticky-lanes-v1", policyHash: DAG_SCHEDULER_POLICY_HASH_V1, normalizedIndexHash: H("6"), maxActiveNodes: 1, decisionSequence: 0, nextReservationSequence: 1, lastDecisionCommandId: null, activeNodeLanes: {}, reservations: {}, bypassCounters: {}, fairnessCounters: {}, dynamicExclusions: {}, providerHoldIds: [], operationalCapacities: Object.fromEntries(["worker.process", "role:implementation", "role:evaluation", "role:review", "role:check", "repository-worktree:repo-main", "repository-integration:repo-main"].map((namespace) => [namespace, { namespace, observedCapacity: namespace.startsWith("repository-integration") ? 1 : 4, allocatedUnits: 0, reservationIds: [], observationHash: H("4") }])) },
     freshness: { class: "valid_exact", receipt: freshness, evaluatedPlanHash: plan.planHash, modelClosureHash: plan.modelBinding.closure.closureHash, repositoryObservationHashes: { "repo-main": repository.observationReceipt }, affectedWorkItemIds: [], blocksNewLaunches: false, blocksIntegration: false, evaluatedAt: NOW },
     completion: { state: "open", authorizedScopeHash: authorizationSet.hash, completeWorkItemIds: [], remainingAuthorizedWorkItemIds: ["item-api"], unauthorizedWorkItemIds: [], completedRepositoryIds: [], completedAt: null },
-  }, { plan, authorization: authorizationContext, historicalAuthorizations: {}, catalog: catalogBinding(plan), normalizedSchedulerIndexHash: H("6"), facts: {} });
+  }, { plan, authorization: authorizationContext, historicalAuthorizations: {}, catalog: { ...catalogBinding(plan), procedures }, normalizedSchedulerIndexHash: H("6"), facts: {} });
 }
 
 function expectInvalid(validate, value, label) {
@@ -1714,9 +1717,9 @@ const denseNodes = Array.from({ length: 9 }, (_, index) => ({ ...widgetNode, ali
 
 function buildIntegrationReadyFixture(fixturePlan, attachedState, baseContext, options = {}) {
   const generation = options.generation ?? 1; const prefix = options.prefix ?? "integration"; const startStageOrdinal = options.startStageOrdinal ?? 0; const preserveTrain = options.preserveTrain ?? false;
-  const state = clone(attachedState); const facts = { ...baseContext.facts }; const procedures = procedureCatalogFixture(); const checkAggregates = { ...baseContext.catalog.checkAggregates };
+  const state = clone(attachedState); const facts = { ...baseContext.facts }; const procedures = options.procedures ?? procedureCatalogFixture(); const checkAggregates = { ...baseContext.catalog.checkAggregates };
   state.workItems["item-api"].candidateGeneration = generation;
-  const candidateCore = { kind: "candidate", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", generation, candidateId: `candidate-${prefix}`, base: fixturePlan.repositories[0].baseline, git: { repositoryId: "repo-main", commit: O(generation === 1 ? "c" : "7"), tree: O(generation === 1 ? "d" : "6") }, patchIdentityHash: canonicalHash({ prefix, patch: true }), producedByStageAttemptId: `attempt-${prefix}-f1`, lineageHash: state.workItems["item-api"].implementationLineageHash };
+  const candidateCore = { kind: "candidate", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", generation, candidateId: `candidate-${prefix}`, base: fixturePlan.repositories[0].baseline, git: options.candidateGit ?? { repositoryId: "repo-main", commit: O(generation === 1 ? "c" : "7"), tree: O(generation === 1 ? "d" : "6") }, patchIdentityHash: canonicalHash({ prefix, patch: true }), producedByStageAttemptId: `attempt-${prefix}-f1`, lineageHash: state.workItems["item-api"].implementationLineageHash };
   const candidateFact = { ...candidateCore, hash: canonicalHash(candidateCore) }; facts[candidateFact.hash] = candidateFact;
   state.evidenceIndex.candidates[candidateFact.hash] = ref("candidate", `candidate-${prefix}`, candidateFact.hash);
   state.workItems["item-api"].candidate = { generation, candidateId: `candidate-${prefix}`, candidateHash: candidateFact.hash, base: candidateFact.base, git: candidateFact.git, patchIdentityHash: candidateFact.patchIdentityHash, producedByStageAttemptId: candidateFact.producedByStageAttemptId, lineageHash: candidateFact.lineageHash };
@@ -1741,14 +1744,16 @@ function buildIntegrationReadyFixture(fixturePlan, attachedState, baseContext, o
     const assertions = [];
     let environmentObservation = null;
     if (["F2", "F5", "F7"].includes(stage)) {
-      const commonDirIdentityHash = canonicalHash({ fixture: prefix, commonDir: true });
-      const worktreeIdentityHash = canonicalHash({ fixture: prefix, stage, attemptId });
+      const commonDirIdentityHash = options.environmentBundles?.[stage]?.environmentObservation.commonDirIdentityHash ?? canonicalHash({ fixture: prefix, commonDir: true });
+      const worktreeIdentityHash = options.environmentBundles?.[stage]?.environmentObservation.worktreeIdentityHash ?? canonicalHash({ fixture: prefix, stage, attemptId });
       const materializationCore = { kind: "workspace_materialization", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", stageAttemptId: attemptId, repositoryId: "repo-main", candidateGeneration: generation, candidateHash: candidateFact.hash, candidateTree: candidateFact.git, commonDirIdentityHash, worktreeIdentityHash, materializedAt: NOW };
-      const materialization = { ...materializationCore, hash: canonicalHash(materializationCore) }; facts[materialization.hash] = materialization;
+      const materialization = options.environmentBundles?.[stage]?.workspaceMaterialization ?? { ...materializationCore, hash: canonicalHash(materializationCore) }; facts[materialization.hash] = materialization;
       state.evidenceIndex.workspaceMaterializations ??= {}; state.evidenceIndex.workspaceMaterializations[materialization.hash] = ref("workspace_materialization", attemptId, materialization.hash);
       const observationCore = { kind: "environment_observation", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", stage, stageAttemptId: attemptId, attemptInputHash: inputFact.hash, repositoryId: "repo-main", candidateGeneration: generation, candidateHash: candidateFact.hash, candidateTree: candidateFact.git, environmentProfileHash: procedure.environmentProfileHash, workspaceMaterializationHash: materialization.hash, commonDirIdentityHash, worktreeIdentityHash, cleanliness: "clean", observedAt: NOW };
-      environmentObservation = { ...observationCore, hash: canonicalHash(observationCore) }; facts[environmentObservation.hash] = environmentObservation;
+      environmentObservation = options.environmentBundles?.[stage]?.environmentObservation ?? { ...observationCore, hash: canonicalHash(observationCore) }; facts[environmentObservation.hash] = environmentObservation;
       state.evidenceIndex.environmentObservations ??= {}; state.evidenceIndex.environmentObservations[environmentObservation.hash] = ref("environment_observation", attemptId, environmentObservation.hash);
+      // Mirror sealStageAttempt: later lifecycle evidence overwrites this mixed-namespace projection.
+      Object.assign(state.repositories["repo-main"].workspace, { state: "clean", gitCommonDirIdentityHash: commonDirIdentityHash, gitWorktreeIdentityHash: worktreeIdentityHash, expectedHead: candidateFact.git, observationReceipt: materialization.hash });
     }
     if (stage === "F2") {
       const assertion = fixturePlan.acceptanceOracles[0].assertions[0]; const oracleCore = { kind: "oracle_assertion", planHash: fixturePlan.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: "item-api", stage: "F2", stageAttemptId: attemptId, attemptInputHash: inputFact.hash, authorizationSetHash: state.identity.authorizationSet.hash, oracleId: fixturePlan.acceptanceOracles[0].oracleId, assertionId: assertion.assertionId, procedureId: assertion.procedureId, environmentProfileId: assertion.environmentProfileId, observationMethod: assertion.observationMethod, requiredEvidenceClass: assertion.requiredEvidenceClass, disposition: "PASS", observationHash: workerResultHash };
@@ -1797,6 +1802,49 @@ for (const [label, observedAt] of [["future", "2099-01-01T00:00:00.000Z"], ["pre
   const forgedContext = { ...integrationContext, facts: { ...integrationContext.facts, [forgedBinding.hash]: forgedBinding } };
   assert.equal(reduceDagRunV1(integrationState, reducerInput(integrationState, "reserve_integration_attempt", forgedPayload, { commandId: `command-${label}-repository-binding`, idempotencyKey: `${label}-repository-binding` }), forgedContext).accepted, false, `${label} repository binding observation cannot reserve integration authority`);
 }
+assert.notEqual(integrationState.repositories["repo-main"].workspace.gitCommonDirIdentityHash, repositoryBinding.commonDirIdentityHash, "first integration follows lifecycle evidence in a different common-dir hash namespace");
+const unacceptedBinding = rehashFact({ ...repositoryBinding, commonDirIdentityHash: H("f") });
+const firstAfterLifecycle = reduceDagRunV1(integrationState, reducerInput(integrationState, "reserve_integration_attempt", reserveIntegrationPayload, { commandId: "command-first-after-lifecycle", idempotencyKey: "first-after-lifecycle" }), { ...integrationContext, facts: { ...integrationContext.facts, [unacceptedBinding.hash]: unacceptedBinding } });
+assert.equal(firstAfterLifecycle.accepted, true, `lifecycle projection and unaccepted binding facts do not establish integration identity: ${JSON.stringify(firstAfterLifecycle)}`);
+assert.deepEqual(integrationContext.facts[repositoryBinding.hash], repositoryBinding, "reservation preserves immutable binding evidence");
+// Exercise the production F7 adapter and Git binding reader, not just synthetic hashes.
+{
+  const root = await mkdtemp(join(tmpdir(), "pi-dag-binding-namespace-"));
+  try {
+    const git = async (...args) => (await execFileAsync("git", args, { cwd: root })).stdout.trim();
+    await git("init", "-b", "main"); await git("config", "user.name", "DAG Test"); await git("config", "user.email", "dag-test@example.invalid");
+    await writeFile(join(root, "tracked.txt"), "baseline\n"); await git("add", "."); await git("commit", "-m", "baseline");
+    const baseline = { repositoryId: "repo-main", commit: await git("rev-parse", "HEAD"), tree: await git("rev-parse", "HEAD^{tree}") };
+    const node = await realpath(process.execPath); const environment = { LC_ALL: "C", LANG: "C" };
+    const environmentProfileHash = canonicalHash({ profileId: "thin-plan-lifecycle-env-v1", environment });
+    const procedure = rehashFact({ procedureId: "thin-plan-f7-v1", purpose: "lifecycle", stages: ["F7"], producerKinds: ["deterministic_runner"], readOnly: true, environmentProfileHash, executable: { executableArtifactHash: `sha256:${createHash("sha256").update(await readFile(node)).digest("hex")}`, argv: [node, resolve("extensions/dag-workflow/planning/integration-validation-pass.mjs"), "--lifecycle", "F7"], cwdMode: "repository_root", environmentProfileId: "thin-plan-lifecycle-env-v1", environmentProfileHash, environmentHash: canonicalHash(environment), timeoutMs: 30_000, readOnly: true, noEdit: true } });
+    const procedures = Object.fromEntries(Object.entries(procedureCatalogFixture()).filter(([, value]) => !value.stages.includes("F7"))); procedures[procedure.hash] = procedure;
+    const realPlan = planFixture(baseline); realPlan.lifecycleBinding.profileHash = canonicalHash(Object.values(procedures).sort((left, right) => left.procedureId.localeCompare(right.procedureId))); rehashPlan(realPlan);
+    const genesis = runFixture(realPlan, procedures);
+    const context = { ...runContext, plan: realPlan, catalog: { ...catalogBinding(realPlan), procedures }, normalizedSchedulerIndexHash: genesis.scheduler.normalizedIndexHash, authorization: authorizationBinding(realPlan, genesis.identity.reviewReceipt.hash, genesis.identity.authorizationReceipts.map(({ hash }) => hash), genesis.identity.authorizationSet.hash), facts: {} };
+    const ownership = ownershipFactFor(genesis, attachSuccessor, "absent"); context.facts[ownership.hash] = ownership;
+    const attached = reduceDagRunV1(genesis, reducerInput(genesis, "attach_owner", { ...attachSuccessor, ownershipReceipt: ownership.hash, priorOwnerDisposition: "absent" }, { kind: "observation" }), context);
+    assert.equal(attached.accepted, true, JSON.stringify(attached));
+    const options = { candidateGit: baseline, procedures };
+    const beforeObservation = buildIntegrationReadyFixture(realPlan, attached.state, context, options);
+    const adapter = createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: root });
+    assert.equal(adapter.allowsProcedure(procedure), true);
+    const f7 = await adapter.executeExact({ plan: realPlan, state: beforeObservation.state, attempt: beforeObservation.state.stageAttempts["attempt-integration-f7"], procedure, effectId: "real-f7", requestHash: H("1"), executionRequest: {} });
+    assert.equal(f7.checkAggregate.disposition, "PASS", "the real F7 adapter observes a clean exact Git tree");
+    const ready = buildIntegrationReadyFixture(realPlan, attached.state, context, { ...options, environmentBundles: { F7: f7 } });
+    assert.equal(ready.state.workItems["item-api"].stages.F7.currentEvidence, f7.evidence.hash, "the reducer fixture retains the exact real F7 evidence and environment facts");
+    assert.equal(validateDagRunStateV1(ready.state, ready.context).ok, true, JSON.stringify(validateDagRunStateV1(ready.state, ready.context).issues));
+    const identity = await readRepositoryBindingIdentityV1(root);
+    assert.notEqual(f7.environmentObservation.commonDirIdentityHash, identity.commonDirIdentityHash, "the same real directory has different lifecycle/integration namespace hashes");
+    const binding = rehashFact({ ...repositoryBinding, planHash: realPlan.planHash, authorizationSetHash: ready.state.identity.authorizationSet.hash, commonDirIdentityHash: identity.commonDirIdentityHash, worktreeIdentityHash: identity.worktreeIdentityHash, gitConfigHash: identity.configHash, gitVersionHash: canonicalHash(identity.gitVersion), objectFormat: identity.objectFormat, commit: baseline.commit, tree: baseline.tree });
+    ready.context.facts[binding.hash] = binding;
+    const payload = { ...reserveIntegrationPayload, sourceCandidateHash: ready.state.workItems["item-api"].candidate.candidateHash, sourceBase: baseline, sourceCandidate: baseline, expectedPrefix: baseline, expectedTarget: baseline, repositoryBindingFactHash: binding.hash, compositionEffect: { ...compositionEffect, boundAuthorizationSetHash: ready.state.identity.authorizationSet.hash, createdRevision: ready.state.revision + 1 } };
+    const evidenceBefore = canonicalStringify(ready.context.facts);
+    const reserved = reduceDagRunV1(ready.state, reducerInput(ready.state, "reserve_integration_attempt", payload, { commandId: "command-real-binding", idempotencyKey: "real-binding" }), ready.context);
+    assert.equal(reserved.accepted, true, `first integration after real lifecycle evidence accepts the Git binding namespace: ${JSON.stringify(reserved)}`);
+    assert.equal(canonicalStringify(ready.context.facts), evidenceBefore, "real historical evidence is not rewritten");
+  } finally { await rm(root, { recursive: true, force: true }); }
+}
 let conflictState = integrationState;
 let conflictTransition = reduceDagRunV1(conflictState, reducerInput(conflictState, "reserve_integration_attempt", { ...reserveIntegrationPayload, integrationAttemptId: "integration-conflict", lockLeaseId: "lease-integration-conflict", compositionEffect: { ...compositionEffect, effectId: "integration-conflict-compose" } }, { commandId: "command-conflict-reserve", idempotencyKey: "conflict-reserve" }), integrationContext); assert.equal(conflictTransition.accepted, true); conflictState = conflictTransition.state;
 conflictTransition = reduceDagRunV1(conflictState, reducerInput(conflictState, "mark_effect_dispatching", { effectId: "integration-conflict-compose", expectedDispatchCount: 0 }, { commandId: "command-conflict-dispatch", idempotencyKey: "conflict-dispatch" }), integrationContext); assert.equal(conflictTransition.accepted, true); conflictState = conflictTransition.state;
@@ -1810,12 +1858,36 @@ if (conflictTransition.accepted) {
   const retryKey = H("7"); const retrySeed = clone(conflictTransition.state); retrySeed.retryLedger[retryKey] = { retryKey, workItemId: "item-api", stage: "F1", dimension: "integration", procedureId: null, failureClass: "integration", fingerprint: H("8"), count: 0, ceiling: 2, authorizationSetHash: retrySeed.identity.authorizationSet.hash, candidateTrees: [], repairCommitTrees: [], progressHashes: [], failureSequence: [], stop: "none", lastRetryCommandId: null }; rehashRun(retrySeed);
   const repaired = buildIntegrationReadyFixture(plan, retrySeed, conflictContext, { generation: 2, prefix: "repair2", startStageOrdinal: 1, preserveTrain: true }); assert.equal(validateDagRunStateV1(repaired.state, repaired.context).ok, true, `fresh post-conflict F1-F8 state is valid: ${JSON.stringify(validateDagRunStateV1(repaired.state, repaired.context).issues)}`);
   const authorized = reduceDagRunV1(repaired.state, reducerInput(repaired.state, "authorize_retry", { retryKey, expectedCount: 0, workItemId: "item-api", stage: "F1", dimension: "integration", fingerprint: H("8"), candidateGeneration: 2 }, { commandId: "command-retry-authorize", idempotencyKey: "retry-authorize" }), repaired.context); assert.equal(authorized.accepted, true, "post-conflict integration retry consumes one exact authorization count");
-  if (authorized.accepted) { const retryEffect = { ...compositionEffect, effectId: "integration-retry-compose", requestHash: H("a"), boundCandidateGeneration: 2, createdRevision: authorized.state.revision + 1 }; const retryPayload = { ...reserveIntegrationPayload, integrationAttemptId: "integration-retry", retryOrdinal: 1, retryAuthorizationKey: retryKey, sourceCandidateHash: authorized.state.workItems["item-api"].candidate.candidateHash, sourceBase: authorized.state.workItems["item-api"].candidate.base, sourceCandidate: authorized.state.workItems["item-api"].candidate.git, lockLeaseId: "lease-integration-retry", compositionEffect: retryEffect }; let retried = reduceDagRunV1(authorized.state, reducerInput(authorized.state, "reserve_integration_attempt", retryPayload, { commandId: "command-conflict-retry", idempotencyKey: "conflict-retry" }), repaired.context); assert.equal(retried.accepted, true, "fresh sealed F1 candidate and exact one-shot authorization permit integration retry");
+  if (authorized.accepted) { const retryEffect = { ...compositionEffect, effectId: "integration-retry-compose", requestHash: H("a"), boundCandidateGeneration: 2, createdRevision: authorized.state.revision + 1 }; const retryPayload = { ...reserveIntegrationPayload, integrationAttemptId: "integration-retry", retryOrdinal: 1, retryAuthorizationKey: retryKey, sourceCandidateHash: authorized.state.workItems["item-api"].candidate.candidateHash, sourceBase: authorized.state.workItems["item-api"].candidate.base, sourceCandidate: authorized.state.workItems["item-api"].candidate.git, lockLeaseId: "lease-integration-retry", compositionEffect: retryEffect };
+    const driftBinding = rehashFact({ ...repositoryBinding, commonDirIdentityHash: H("f") });
+    for (const projectionHash of [repositoryBinding.commonDirIdentityHash, authorized.state.repositories["repo-main"].workspace.gitCommonDirIdentityHash, driftBinding.commonDirIdentityHash]) {
+      const driftState = clone(authorized.state); driftState.repositories["repo-main"].workspace.gitCommonDirIdentityHash = projectionHash; rehashRun(driftState);
+      const beforeDrift = canonicalStringify(driftState);
+      const drift = reduceDagRunV1(driftState, reducerInput(driftState, "reserve_integration_attempt", { ...retryPayload, repositoryBindingFactHash: driftBinding.hash }, { commandId: "command-binding-drift", idempotencyKey: "binding-drift" }), { ...repaired.context, facts: { ...repaired.context.facts, [driftBinding.hash]: driftBinding } });
+      assert.equal(drift.accepted, false, "same-namespace common-dir drift fails even after lifecycle overwrites the workspace projection");
+      assert.equal(drift.code, "PRECONDITION_FAILED");
+      assert.match(drift.message, /common-dir identity conflicts with prior integration binding/);
+      assert.equal(canonicalStringify(driftState), beforeDrift, "rejected drift does not mutate state");
+    }
+    let retried = reduceDagRunV1(authorized.state, reducerInput(authorized.state, "reserve_integration_attempt", retryPayload, { commandId: "command-conflict-retry", idempotencyKey: "conflict-retry" }), repaired.context); assert.equal(retried.accepted, true, "fresh sealed F1 candidate and exact one-shot authorization permit integration retry");
     if (retried.accepted) { retried = reduceDagRunV1(retried.state, reducerInput(retried.state, "mark_effect_dispatching", { effectId: retryEffect.effectId, expectedDispatchCount: 0 }, { commandId: "command-retry-dispatch", idempotencyKey: "retry-dispatch" }), repaired.context); assert.equal(retried.accepted, true); if (retried.accepted) { const retryConflictFact = gitFact({ kind: "git_transaction", factType: "composition", planHash: plan.planHash, runId: retried.state.runId, runNonce: retried.state.runNonce, repositoryId: "repo-main", integrationAttemptId: "integration-retry", effectId: retryEffect.effectId, requestHash: retryEffect.requestHash, commonDirIdentityHash: H("2"), targetRef: null, commit: null, tree: null, parentCommit: O("a"), reconciliation: "conflict", detailsHash: H("9"), observedAt: NOW }); const retryConflictContext = { ...repaired.context, facts: { ...repaired.context.facts, [retryConflictFact.hash]: retryConflictFact } }; const conflictedAgain = reduceDagRunV1(retried.state, reducerInput(retried.state, "record_git_composition_conflict", { integrationAttemptId: "integration-retry", compositionFactHash: retryConflictFact.hash, conflictClass: "mechanical" }, { kind: "observation", commandId: "command-retry-conflict", idempotencyKey: "retry-conflict" }), retryConflictContext); assert.equal(conflictedAgain.accepted, true); if (conflictedAgain.accepted) { const repairedAgain = buildIntegrationReadyFixture(plan, conflictedAgain.state, retryConflictContext, { generation: 3, prefix: "repair3", startStageOrdinal: 1, preserveTrain: true }); const reuseEffect = { ...compositionEffect, effectId: "integration-reuse-compose", boundCandidateGeneration: 3, createdRevision: repairedAgain.state.revision + 1 }; const reuse = reduceDagRunV1(repairedAgain.state, reducerInput(repairedAgain.state, "reserve_integration_attempt", { ...retryPayload, integrationAttemptId: "integration-reuse", sourceCandidateHash: repairedAgain.state.workItems["item-api"].candidate.candidateHash, sourceBase: repairedAgain.state.workItems["item-api"].candidate.base, sourceCandidate: repairedAgain.state.workItems["item-api"].candidate.git, lockLeaseId: "lease-integration-reuse", compositionEffect: reuseEffect }, { commandId: "command-retry-reuse", idempotencyKey: "retry-reuse" }), repairedAgain.context); assert.equal(reuse.accepted, false, "one integration retry authorization ordinal cannot be reused after another conflict"); } } }
   }
 }
 let transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "reserve_integration_attempt", reserveIntegrationPayload, { commandId: "command-integration-reserve", idempotencyKey: "integration-reserve" }), integrationContext);
 assert.equal(transition.accepted, true, "integration head reservation atomically binds lock, entry, attempt, and composition intent"); integrationState = transition.state;
+{
+  const overwritten = clone(integrationState);
+  overwritten.repositories["repo-main"].workspace = clone(integrationReadyFixture.state.repositories["repo-main"].workspace); rehashRun(overwritten);
+  assert.equal(validateDagRunStateV1(overwritten, integrationContext).ok, true, "lifecycle projection overwrite does not invalidate a retained integration binding or lock");
+  const missingHolder = clone(overwritten); missingHolder.leases["lease-integration-001"].holderIntegrationAttemptId = null; rehashRun(missingHolder);
+  assert(validateDagRunStateV1(missingHolder, integrationContext).issues.some(({ message }) => message === "integration lock must resolve its holder attempt's exact repository binding"), "unresolvable lock identity fails closed rather than falling back to a lifecycle projection");
+  const alias = clone(overwritten.repositories["repo-main"]); alias.repositoryId = "repo-alias"; alias.workspace.gitCommonDirIdentityHash = H("e"); alias.integrationLockLeaseId = "lease-alias";
+  overwritten.repositories[alias.repositoryId] = alias;
+  overwritten.leases[alias.integrationLockLeaseId] = { ...clone(overwritten.leases["lease-integration-001"]), leaseId: alias.integrationLockLeaseId, subject: { kind: "repository", id: alias.repositoryId } };
+  rehashRun(overwritten);
+  const issues = validateDagRunStateV1(overwritten, integrationContext).issues;
+  assert(issues.some(({ path, message }) => path === "/repositories/repo-alias/integrationLockLeaseId" && message.includes("only one repository identity")), "duplicate common-dir locks are diagnosed from attempt bindings even when workspace projections have different lifecycle hashes");
+}
 transition = reduceDagRunV1(integrationState, reducerInput(integrationState, "mark_effect_dispatching", { effectId: compositionEffect.effectId, expectedDispatchCount: 0 }, { commandId: "command-compose-dispatch", idempotencyKey: "compose-dispatch" }), integrationContext);
 assert.equal(transition.accepted, true, "composition dispatch requires persisted effect intent"); integrationState = transition.state;
 const integrationSuccessor = { ownerTokenHash: H("1"), sessionId: "session-integration-successor", pid: process.pid, processStartIdentity: PROCESS_START_IDENTITY, lockIdentity: H("0") };
