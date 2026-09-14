@@ -360,6 +360,57 @@ test("store retains immutable history and records approval then independent auth
   }
 });
 
+test("historical V1 inspection preserves every stored byte and path", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dag-planning-history-read-"));
+  try {
+    const store = new DagPlanningStoreV1(root);
+    const initial = createDagPlanningPlanV1(planInput(), NOW);
+    await store.create(initial);
+    await store.mutateDecision(initial.planId, 1, (decision) => {
+      decision.status = "ready";
+      decision.approval = { status: "approved", by: "user", at: NOW, note: "Historical approval." };
+    }, NOW);
+    await store.mutateDecision(initial.planId, 2, (decision) => {
+      decision.authorization = { status: "authorized", by: "operator", at: NOW, scope: ["store", "views"], maxConcurrency: 1, note: "Historical scope." };
+    }, NOW);
+
+    // Noncanonical whitespace catches normalization-on-read even when hashes agree.
+    for (const path of [store.pathFor(initial.planId), store.revisionPathFor(initial.planId, 1), store.revisionPathFor(initial.planId, 2), store.revisionPathFor(initial.planId, 3)]) {
+      const content = JSON.parse(await readFile(path, "utf8"));
+      await writeFile(path, ` \n${JSON.stringify(content, null, "\t")}\n\n`);
+    }
+    const snapshot = async () => {
+      const entries = (await readdir(root, { recursive: true, withFileTypes: true }))
+        .map((entry) => ({ path: join(entry.parentPath, entry.name), directory: entry.isDirectory() }))
+        .sort((left, right) => left.path.localeCompare(right.path));
+      return Promise.all(entries.map(async ({ path, directory }) => [path, directory ? null : await readFile(path)]));
+    };
+    const before = await snapshot();
+    const head = await store.read(initial.planId);
+    assert.equal(head.approval.status, "approved");
+    assert.equal(head.authorization.status, "authorized");
+    assert.equal((await store.list()).length, 1);
+    assert.equal((await store.select(initial.planId)).revision, 3);
+    const history = await store.listRevisions(initial.planId);
+    assert.deepEqual(history.map(({ revision }) => revision), [1, 2, 3]);
+    for (const retained of history) {
+      const selected = await store.select(`${initial.planId}@${retained.revision}`);
+      assert.deepEqual(selected, retained);
+      assert.equal(dagPlanningPlanHashV1(selected), retained.planHash);
+      renderDagPlanningMarkdownV1(selected);
+      projectDagPlanningGraphV1(selected);
+      renderDagPlanningGraphV1(selected);
+      projectDagPlanningNodeV1(selected, "store");
+    }
+    projectDagPlanningLineageV1(history);
+    await expectReject(() => store.read(initial.planId, 99), /not found/);
+    await expectReject(() => store.select("missing-plan"), /not found|No DAG planning/i);
+    assert.deepEqual(await snapshot(), before, "inspection neither rewrites bytes nor creates or removes store paths");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("store refuses repository paths through symlinks", async () => {
   const root = await mkdtemp(join(tmpdir(), "dag-planning-link-"));
   const outside = await mkdtemp(join(tmpdir(), "dag-planning-outside-"));

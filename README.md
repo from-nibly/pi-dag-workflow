@@ -60,6 +60,12 @@ Reloading, resuming, forking, or cloning a linked Pi conversation restores the e
 
 One product workflow carries accepted project meaning into the shipped canonical runtime:
 
+The commands below describe the shipped V1 behavior. The
+[simplified contract and V1 compatibility matrix](spec/model-aware-dag-runtime/contract-compatibility.md)
+defines the new-writer target: direct run-intent acceptance without a separate
+plan-approval state, with retained execution protections and read-only historical
+V1 coexistence. That cutover is not implemented by the contract document.
+
 ```text
 /dag plan [--new | --plan <plan-id>] [goal]       # architecture, then internal decomposition
 /dag plan approve --plan <plan-id>@<revision>      # approve the exact current head
