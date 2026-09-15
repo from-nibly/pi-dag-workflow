@@ -6,6 +6,7 @@ import { canonicalHash, canonicalStringify, parseStrictJson } from "./common.ts"
 import { assertBoundedDagReadyPacketV1, DagLifecycleRuntimeV1, normalizeDagTacticalDirectiveV1, type DagIntegrationReconciliationAdapterV1, type DagLifecycleRuntimeOptionsV1, type DagOwnedWorkerDispatchResultV1, type DagOwnedWorkerReadyPacketV1 } from "./lifecycle-runtime.ts";
 import { parseCanonicalDagPlanV1, type CanonicalDagPlanV1 } from "./plan.ts";
 import { type DagRunInputV1 } from "./reducer.ts";
+import { isRecoveredWorkerRetryV1, recoverableWorkerRetriesV1 } from "./retry.ts";
 import { ownershipChainHashV1, parseDagRunStateV1, type DagRunStateV1, type DagRunValidationContextV1 } from "./run-state.ts";
 import { buildSchedulerPlanIndexV1, DAG_SCHEDULER_POLICY_HASH_V1, projectDagExecutionV2, scheduleDagRunV1, type DagExecutionProjectionV2, type DagSchedulerDecisionV1, type DagWorkerProjectionInputV1 } from "./scheduler.ts";
 import { DagRunSnapshotStoreV1, createDagRunStoreDeadOwnerProofV1, dagRunStoreLockIdentityFromOwner, type DagRunStoreLockIdentityV1 } from "./store.ts";
@@ -515,7 +516,7 @@ export class DagConductorServiceV1 {
           const operation = proposal.operationKind === "integration" ? "integrate" : ["implementation", "evaluation", "codification", "review", "hardening"].includes(proposal.operationKind) ? "start_work" : "run_checks";
           action(actions, operation, { workItemId: proposal.workItemId, stage: proposal.stage, explanation: operation === "integrate" ? `Admit exact integration for ${proposal.workItemId}.` : operation === "start_work" ? `Admit and start exact owned ${proposal.stage} work for ${proposal.workItemId}.` : `Admit and run synchronous ${proposal.stage} checks for ${proposal.workItemId}.`, mutexGroupIds: proposal.mutexGroupIds });
         }
-        for (const retry of Object.values(state.retryLedger).sort((left, right) => left.retryKey.localeCompare(right.retryKey))) if (retryIsAdmissible(state, retry)) action(actions, "retry", { workItemId: retry.workItemId, stage: retry.stage, retryKey: retry.retryKey, retryCount: retry.count, explanation: `Authorize the next exact ${retry.dimension} retry (${retry.count + 1}/${retry.ceiling}).` });
+        for (const retry of Object.values({ ...Object.fromEntries(Object.entries(state.retryLedger).filter(([, entry]) => !isRecoveredWorkerRetryV1(entry))), ...await recoverableRetries(loaded) }).sort((left, right) => left.retryKey.localeCompare(right.retryKey))) if (retryIsAdmissible(state, retry)) action(actions, "retry", { workItemId: retry.workItemId, stage: retry.stage, retryKey: retry.retryKey, retryCount: retry.count, explanation: `Authorize the next exact ${retry.dimension} retry (${retry.count + 1}/${retry.ceiling}).` });
         action(controls, "pause", { explanation: "Pause only new canonical admission; already-admitted work remains observable and finalizable." });
         action(controls, "cancel", { explanation: "Cancel the bound run and reconcile every exact effect." });
       } else if (!runTerminal && state.desired.run === "paused") {
@@ -635,7 +636,7 @@ export class DagConductorServiceV1 {
   async #retrySemantic(ctx: DagConductorContextV1, runId: string, actionId: string, retryKey: string, signal?: AbortSignal): Promise<{ state: DagRunStateV1; next: DagNextActionResultV1 }> {
     const selected = await this.#requireSemanticAction(ctx, runId, actionId, "retry", { retryKey }, signal);
     const occurredAt = new Date().toISOString();
-    const loaded = await this.#loadOperational(ctx, runId, occurredAt, signal); this.#assertActionState(loaded.state, selected); const entry = loaded.state.retryLedger[retryKey];
+    const loaded = await this.#loadOperational(ctx, runId, occurredAt, signal); this.#assertActionState(loaded.state, selected); const entry = (await recoverableRetries(loaded))[retryKey] ?? loaded.state.retryLedger[retryKey];
     if (!entry || !retryIsAdmissible(loaded.state, entry)) throw new Error("Exact retry is no longer admissible");
     const guard = semanticGuard(loaded.state, "retry", actionId, occurredAt);
     const state = await this.retry(ctx, guard, { retryKey, expectedCount: entry.count, workItemId: entry.workItemId, stage: entry.stage, dimension: entry.dimension, fingerprint: entry.fingerprint, candidateGeneration: loaded.state.workItems[entry.workItemId].candidateGeneration }, signal);
@@ -1011,6 +1012,16 @@ export function attemptForReservationV1(state: DagRunStateV1, reservation: DagRu
 }
 
 function compareSemanticActions(left: DagSemanticActionV1, right: DagSemanticActionV1): number { return left.operation.localeCompare(right.operation) || (left.workItemId ?? "").localeCompare(right.workItemId ?? "") || (left.stage ?? "").localeCompare(right.stage ?? "") || left.actionId.localeCompare(right.actionId); }
+
+async function recoverableRetries(loaded: LoadedRunV1): Promise<DagRunStateV1["retryLedger"]> {
+  const facts = { ...loaded.context.facts };
+  for (const item of Object.values(loaded.state.workItems)) {
+    const stage = item.currentStage ? item.stages[item.currentStage] : null;
+    const attempt = stage?.currentAttemptId ? loaded.state.stageAttempts[stage.currentAttemptId] : null;
+    if (attempt?.workerResult && stage && ["failed", "blocked"].includes(stage.state)) facts[attempt.workerResult.hash] = await loaded.store.readImmutableFact(attempt.workerResult.hash) as typeof facts[string];
+  }
+  return recoverableWorkerRetriesV1(loaded.state, { ...loaded.context, facts });
+}
 
 function retryIsAdmissible(state: DagRunStateV1, retry: DagRunStateV1["retryLedger"][string]): boolean {
   const item = state.workItems[retry.workItemId];

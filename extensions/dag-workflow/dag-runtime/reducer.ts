@@ -17,6 +17,7 @@ import {
 } from "./common.ts";
 import { PLAN_STAGE_IDS } from "./plan.ts";
 import { scheduleDagRunV1 } from "./scheduler.ts";
+import { isRecoveredWorkerRetryV1, recoverableWorkerRetriesV1 } from "./retry.ts";
 import {
   EffectProjectionV1Schema,
   HashRefV1Schema,
@@ -481,12 +482,22 @@ function applyInput(
       return null;
     }
     case "authorize_retry": {
-      const entry = state.retryLedger[payload.retryKey]; const item = state.workItems[payload.workItemId];
+      const entry = state.retryLedger[payload.retryKey] ?? recoverableWorkerRetriesV1(state, context)[payload.retryKey]; const item = state.workItems[payload.workItemId];
       if (state.desired.run !== "running" || !["active", "integration"].includes(state.current.run) || state.completion.state !== "open" || Object.values(state.cancellations).some((candidate) => candidate.state !== "closed")) return precondition("terminal, paused, or cancelling runs cannot authorize retries");
       if (!entry || !item || entry.workItemId !== payload.workItemId || entry.stage !== payload.stage || entry.dimension !== payload.dimension || entry.fingerprint !== payload.fingerprint || item.candidateGeneration !== payload.candidateGeneration || ["complete", "cancelled", "superseded"].includes(item.current)) return precondition("retry request does not bind an existing exact nonterminal retry ledger slot");
+      if (isRecoveredWorkerRetryV1(entry) && !recoverableWorkerRetriesV1(state, context)[payload.retryKey]) return precondition("worker replacement requires an exact terminal failure, remaining authority, and reconciled replay-safe effects");
       if (entry.count !== payload.expectedCount || entry.count >= entry.ceiling || entry.stop !== "none" || retryFailureCount(state, entry) <= entry.count) return precondition("retry count, observed failure authority, ceiling, or stop disposition rejects authorization");
       if (Object.values(state.effects).some((effect) => effect.subject.kind === "work_item" && effect.subject.id === item.workItemId && !["applied_exact", "compensated", "proven_absent"].includes(effect.reconciliation))) return precondition("retry requires every prior effect reconciled");
       entry.count += 1; entry.lastRetryCommandId = input.commandId;
+      if (entry.count === entry.ceiling) entry.stop = "ceiling_reached";
+      state.retryLedger[payload.retryKey] = entry;
+      const stage = item.stages[payload.stage];
+      if (["failed", "blocked", "budget_exhausted"].includes(stage.state)) {
+        // Keep immutable attempt/evidence history, but free the current natural
+        // slot so the authorized retry can pass begin_stage_attempt as well as scheduling.
+        stage.state = "pending"; stage.currentAttemptId = null; stage.currentEvidence = null; stage.lastDisposition = null; stage.adoptionReceipt = null;
+        item.current = "active";
+      }
       notices.push(notice(state, "retry_authorized", payload.workItemId, payload.retryKey));
       return null;
     }

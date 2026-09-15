@@ -5,6 +5,8 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { recoverableWorkerRetriesV1 } from "../extensions/dag-workflow/dag-runtime/retry.ts";
+import { reduceDagRunV1 } from "../extensions/dag-workflow/dag-runtime/reducer.ts";
 import { validationExecutableIdentityMatchesV1 } from "../extensions/dag-workflow/dag-runtime/integration-driver.ts";
 import {
   canonicalHash,
@@ -473,6 +475,134 @@ test("built-in lifecycle adapter emits exact F0, F2, and F8 fact bundles with pr
     assert.equal(f8.integrationReady.candidateHash, state.workItems.compile.candidate.candidateHash);
     assert.equal(f8.integrationReady.f8EvidenceHash, f8.evidence.hash);
     assertSelfHashed(f8.checkAggregate); assertSelfHashed(f8.evidence); assertSelfHashed(f8.integrationReady);
+  } finally { await rm(fx.root, { recursive: true, force: true }); }
+});
+
+test("empty thin-plan ledger recovers a sealed failed F2 through semantic retry and a fresh successful attempt", async () => {
+  const fx = await fixture();
+  try {
+    const prepared = await prepareDagRunV1(prepareInput(fx));
+    assert.deepEqual(prepared.genesis.retryLedger, {});
+    const ctx = { cwd: fx.root, sessionManager: { getSessionId: () => "retry-session", getSessionFile: () => null, getHeader: () => ({ type: "session", id: "retry-session", cwd: fx.root }) } };
+    const terminals = new Map(); const launches = []; const cleanups = [];
+    let failF2 = true;
+    const output = { outputRepositoryId: fx.repositoryId, outputCommonDirIdentityHash: canonicalHash({ retry: "common" }), outputWorktreeIdentityHash: canonicalHash({ retry: "worktree" }), outputSourceBase: { repositoryId: fx.repositoryId, commit: fx.baselineCommit, tree: fx.baselineTree }, outputCommit: fx.baselineCommit, outputTree: fx.baselineTree, outputObjectFormat: "sha1", candidateObservedAt: AT };
+    const service = new DagConductorServiceV1({ lifecycle: {
+      procedure: createBuiltInLifecycleProcedureAdapterV1({ repositoryRoot: fx.root }),
+      candidate: { async inspectAndSealCandidate({ plan, state, attempt, repositoryId }) {
+        const item = state.workItems[attempt.workItemId]; const base = plan.repositories.find((repository) => repository.repositoryId === repositoryId).baseline;
+        const git = { repositoryId, commit: fx.baselineCommit, tree: fx.baselineTree };
+        const core = { kind: "candidate", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: item.workItemId, generation: item.candidateGeneration + 1, candidateId: `candidate-${attempt.stageAttemptId}`, base, git, patchIdentityHash: canonicalHash({ base, git }), producedByStageAttemptId: attempt.stageAttemptId, lineageHash: item.implementationLineageHash };
+        return { candidate: { ...core, hash: canonicalHash(core) }, workerOutput: output };
+      } },
+      worker: {
+        async launchExact(request, state) {
+          launches.push(request);
+          const stageAttempt = Object.values(state.stageAttempts).find((attempt) => state.launchIntents[attempt.launchIntentId]?.workerId === request.workerId);
+          const attemptNonce = `retry-attempt-${request.workerId}`;
+          const config = { storageId: "retry-store", ownerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, launchKey: request.launchKey, requestHash: request.configRequestHash, task: request.task, launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity } };
+          const configHash = canonicalHash(config); const core = { kind: "worker_config", configHash, config };
+          output.candidateObservedAt = new Date().toISOString();
+          terminals.set(request.workerId, { completionId: `completion-${request.workerId}`, terminalStatus: stageAttempt.stage === "F2" && failF2 ? "needs_attention" : "succeeded", workerOutput: { ...output } });
+          return { workerStorageId: config.storageId, launchOwnerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, configHash, configFact: { ...core, hash: canonicalHash(core) }, supervisorPid: process.pid, supervisorStartIdentity: `retry-process-${process.pid}`, childPid: null, childStartIdentity: null, mailboxHash: null, heartbeatAt: AT };
+        },
+        async readTerminalExact(binding) { return terminals.get(binding.workerId) ?? null; },
+        async cleanupExact(binding) { cleanups.push(binding.workerId); return "applied_exact"; },
+      },
+    } });
+    const runId = prepared.genesis.runId;
+    await service.startPrepared(ctx, { runId, runNonce: prepared.genesis.runNonce, planHash: prepared.canonicalPlan.planHash, maxActiveNodes: prepared.genesis.scheduler.maxActiveNodes, occurredAt: AT, plan: prepared.canonicalPlan, genesis: prepared.genesis, context: prepared.context, seedFacts: [...prepared.seedFacts], sourcePlanningPlanId: "thin-runtime", sourcePlanningPlanHash: canonicalHash({ source: "thin-runtime" }) });
+    const advance = async (until) => {
+      for (let step = 0; step < 80; step += 1) {
+        const next = await service.nextAction(ctx, runId);
+        const state = (await service.status(ctx, runId)).state;
+        if (until(state, next)) return { state, next };
+        const choice = next.frontier.find((a) => a.operation === "finalize" && a.finalizationKind === "cleanup") ?? next.frontier.find((a) => ["start_work", "run_checks", "record_completion", "finalize"].includes(a.operation));
+        assert(choice, `No progress action: ${JSON.stringify(next.frontier)}`);
+        if (choice.operation === "start_work") await service.startWork(ctx, runId, choice.actionId, choice.workItemId, choice.stage, "Run the complete checks with an adequate execution budget; never infer PASS from an incomplete run.");
+        else if (choice.operation === "run_checks") await service.runChecks(ctx, runId, choice.actionId, choice.workItemId, choice.stage);
+        else if (choice.operation === "record_completion") await service.recordCompletion(ctx, runId, choice.actionId, choice.stageAttemptId, choice.completionId);
+        else await service.finalizeSemantic(ctx, runId, choice.actionId, choice.stageAttemptId);
+      }
+      assert.fail("bounded semantic test driver did not reach its target");
+    };
+    const failed = await advance((state, next) => state.workItems.compile.stages.F2.state === "failed" && next.frontier.some((a) => a.operation === "retry"));
+    assert.equal(Object.keys(failed.state.retryLedger).length, 0, "read-only retry discovery never mutates retained empty genesis authority");
+    const failedAttempt = failed.state.stageAttempts[failed.state.workItems.compile.stages.F2.currentAttemptId];
+    assert(cleanups.includes(failed.state.workerBindings[failedAttempt.stageAttemptId].workerId), "failed worker cleanup precedes retry discovery");
+    let retry = failed.next.frontier.find((a) => a.operation === "retry");
+    const store = new DagRunSnapshotStoreV1(join(fx.root, ".ai", "dag-runs-v1"), runId);
+    const validationContext = await store.contextWithReferencedFacts(failed.state, prepared.context);
+    const retryEntry = recoverableWorkerRetriesV1(failed.state, validationContext)[retry.retryKey];
+    assert(retryEntry);
+    const payload = { retryKey: retry.retryKey, expectedCount: 0, workItemId: "compile", stage: "F2", dimension: retryEntry.dimension, fingerprint: retryEntry.fingerprint, candidateGeneration: failed.state.workItems.compile.candidateGeneration };
+    const command = (state, data = payload) => ({ schemaVersion: 1, kind: "command", type: "authorize_retry", commandId: "test-retry-command", idempotencyKey: "test-retry-command", payloadHash: canonicalHash(data), runId, runNonce: state.runNonce, expectedRevision: state.revision, expectedSnapshotHash: state.snapshotHash, ownerEpoch: state.owner.ownerEpoch, occurredAt: new Date().toISOString(), payload: data });
+    const exactCommand = command(failed.state);
+    const accepted = reduceDagRunV1(failed.state, exactCommand, validationContext);
+    assert.equal(accepted.accepted, true, JSON.stringify(accepted));
+    const replayed = reduceDagRunV1(accepted.state, exactCommand, validationContext);
+    assert.equal(replayed.accepted, true); assert.equal(replayed.state.revision, accepted.state.revision, "exact low-level acknowledgement replay is a no-op");
+    for (const change of [{ candidateGeneration: payload.candidateGeneration + 1 }, { expectedCount: 1 }, { fingerprint: canonicalHash({ wrong: true }) }, { stage: "F5" }]) {
+      const rejected = reduceDagRunV1(failed.state, command(failed.state, { ...payload, ...change }), validationContext);
+      assert.equal(rejected.accepted, false, `reject mismatched retry identity ${JSON.stringify(change)}`);
+    }
+    for (const change of [{ expectedRevision: failed.state.revision - 1 }, { ownerEpoch: failed.state.owner.ownerEpoch + 1 }, { expectedSnapshotHash: canonicalHash({ stale: true }) }]) assert.equal(reduceDagRunV1(failed.state, { ...command(failed.state), ...change }, validationContext).accepted, false);
+    const rejectVariant = (label, alter, alterContext = () => {}) => {
+      const state = structuredClone(failed.state); const context = structuredClone(validationContext);
+      alter(state); alterContext(context);
+      assert.equal(Object.keys(recoverableWorkerRetriesV1(state, context)).length, 0, `${label}: recovery discovery must also fail closed`);
+      state.snapshotHash = canonicalHash(Object.fromEntries(Object.entries(state).filter(([key]) => key !== "snapshotHash")));
+      assert.equal(reduceDagRunV1(state, command(state), context).accepted, false, label);
+    };
+    rejectVariant("paused", (state) => { state.desired.run = "paused"; });
+    rejectVariant("terminal", (state) => { state.current.run = "completed"; });
+    rejectVariant("needs replan", (state) => { state.desired.run = "needs_replan"; });
+    rejectVariant("cancelling", (state) => { state.cancellations.pending = { state: "requested" }; });
+    rejectVariant("stale attempt generation", (state) => { state.workItems.compile.candidateGeneration += 1; });
+    rejectVariant("stale attempt authorization", (state) => { state.stageAttempts[failedAttempt.stageAttemptId].authorizationSetHash = canonicalHash({ stale: true }); });
+    rejectVariant("open finding", (state) => { state.workItems.compile.openFindingIds.push("finding-open"); });
+    rejectVariant("successful-worker check failure is not worker replacement", () => {}, (context) => { context.facts[failedAttempt.workerResult.hash].terminalStatus = "succeeded"; });
+    rejectVariant("exhausted ceiling", (state) => { state.retryLedger[retry.retryKey] = { ...retryEntry, count: 2, stop: "ceiling_reached" }; });
+    rejectVariant("narrowed ceiling", (state) => { state.retryLedger[retry.retryKey] = { ...retryEntry, ceiling: 0, stop: "ceiling_reached" }; });
+    rejectVariant("no-progress stop", (state) => { state.retryLedger[retry.retryKey] = { ...retryEntry, stop: "no_material_progress" }; });
+    rejectVariant("budget-exhausted stage", (state) => { state.workItems.compile.stages.F2.state = "budget_exhausted"; });
+    rejectVariant("unknown policy", () => {}, (context) => { context.plan.lifecycleBinding.retryPolicyHash = canonicalHash({ unknown: true }); });
+    rejectVariant("changed authorization", () => {}, (context) => { context.authorization.retryCeilingsHash = canonicalHash({ changed: true }); });
+    const cleanupId = Object.values(failed.state.effects).find((effect) => effect.kind === "cleanup_worktree" && effect.boundStageAttemptId === failedAttempt.stageAttemptId).effectId;
+    rejectVariant("missing cleanup", (state) => { delete state.effects[cleanupId]; });
+    rejectVariant("unreconciled effect", (state) => { state.effects[cleanupId].reconciliation = "unknown"; });
+    for (const procedureClass of ["unknown", "non_repeatable"]) rejectVariant(`replay class ${procedureClass}`, (state) => { state.effects[cleanupId].procedureClass = procedureClass; });
+    rejectVariant("retained attempts cannot reset budget", (state) => { state.workItems.compile.stages.F2.attemptIds.push("older-attempt-2", "older-attempt-3"); });
+    const pause = failed.next.controls.find((a) => a.operation === "pause");
+    const paused = await service.pauseSemantic(ctx, runId, pause.actionId, "Verify recovery never bypasses pause");
+    assert(!paused.next.frontier.some((a) => a.operation === "retry"));
+    await assert.rejects(() => service.retrySemantic(ctx, runId, retry.actionId, retry.retryKey), /stale|no longer|not.*available|not.*current/i);
+    const resume = paused.next.controls.find((a) => a.operation === "resume");
+    const resumed = await service.resumeSemantic(ctx, runId, resume.actionId, "Resume explicit bounded recovery");
+    retry = resumed.next.frontier.find((a) => a.operation === "retry");
+    assert(retry);
+    const beforeLaunches = launches.length;
+    const authorized = await service.retrySemantic(ctx, runId, retry.actionId, retry.retryKey);
+    assert.equal(authorized.state.retryLedger[retry.retryKey].count, 1);
+    assert.equal(authorized.state.workItems.compile.stages.F2.state, "pending");
+    assert.equal(authorized.state.workItems.compile.stages.F2.currentAttemptId, null);
+    assert.equal(launches.length, beforeLaunches, "authorization does not itself launch a worker");
+    await assert.rejects(() => service.retrySemantic(ctx, runId, retry.actionId, retry.retryKey), /stale|no longer|not.*available|not.*current/i);
+    assert.equal((await service.status(ctx, runId)).state.retryLedger[retry.retryKey].count, 1);
+    const failedAgain = await advance((state, next) => state.workItems.compile.stages.F2.attemptIds.length === 2 && next.frontier.some((a) => a.operation === "retry"));
+    const lastRetry = failedAgain.next.frontier.find((a) => a.operation === "retry");
+    failF2 = false;
+    const lastAuthorization = await service.retrySemantic(ctx, runId, lastRetry.actionId, lastRetry.retryKey);
+    assert.equal(lastAuthorization.state.retryLedger[retry.retryKey].count, 2);
+    assert.equal(lastAuthorization.state.retryLedger[retry.retryKey].stop, "ceiling_reached", "the final permitted retry exhausts future authority, not its own launch");
+    const passed = await advance((state) => state.workItems.compile.stages.F2.state === "passed");
+    const stage = passed.state.workItems.compile.stages.F2;
+    assert.equal(stage.attemptIds.length, 3);
+    assert.notEqual(stage.currentAttemptId, failedAttempt.stageAttemptId);
+    assert.equal(passed.state.stageAttempts[failedAttempt.stageAttemptId].evidence.hash, failedAttempt.evidence.hash, "failed immutable evidence is retained, not rewritten to PASS");
+    assert.equal(passed.state.stageAttempts[stage.currentAttemptId].ordinal, 3);
+    assert.notEqual(passed.state.workerBindings[stage.currentAttemptId].workerId, failed.state.workerBindings[failedAttempt.stageAttemptId].workerId);
+    assert.equal(passed.state.workItems.compile.candidate.candidateHash, failed.state.workItems.compile.candidate.candidateHash, "fresh evaluation binds the same exact candidate");
   } finally { await rm(fx.root, { recursive: true, force: true }); }
 });
 

@@ -179,6 +179,8 @@ Guarded mutation tools:
 - `dag_run_retry`
 - `dag_run_reattach`
 
+Retained thin-plan runs may begin with an empty retry ledger. After a failed owned-worker attempt is sealed and its exact worktree cleanup and effects are reconciled, `dag_next_action` can offer `dag_retry` under the existing `thin-plan-bounded-retry-v1` policy. Authorization creates the missing worker-replacement slot atomically and frees the current stage pointer for a fresh attempt; failed evidence remains immutable. Recovery allows at most two replacement retries per work item/stage, conservatively counting retained attempts across candidate generations. It does not relabel incomplete validation as PASS, authorize product repair, retry successful-worker check failures, bypass findings or exhausted budgets, or replay unknown/non-repeatable effects. Other policy hashes require their own explicit policy support.
+
 Every post-start mutation carries the exact run nonce, owner epoch, revision, snapshot hash, command/idempotency identity, and explicit timestamp; start itself binds immutable plan/genesis/context artifacts and an explicit run identity. Interactive TUI sessions show a passive bounded DAG widget with static activity marks and render deduplication; headless modes expose the same semantic projection without rendering a widget.
 
 The deterministic scheduler separates correctness readiness from lane/resource/mutex admission. `maxActiveNodes` lanes remain sticky through phase waits, repairs, blocking, and integration. Generic worker status affects DAG projection only through an exact run-state worker binding.
