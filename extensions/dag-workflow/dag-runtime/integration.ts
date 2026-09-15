@@ -104,7 +104,7 @@ export function registerCanonicalDagRuntime(pi: ExtensionAPI, service = new DagC
     name: "dag_next_action", label: "Canonical DAG Next Action", description: "Read the full current semantic choices for one exact session-bound canonical DAG run. Choices share one revision and must be refreshed after each mutation. This operation is read-only.", parameters: ReadBinding,
     async execute(_id, params, signal, _update, ctx) {
       const result = await service.nextAction(ctx, params.runId, signal);
-      const lines = result.frontier.map((item) => `${item.actionId} ${item.operation} ${item.workItemId ?? "run"}${item.stage ? `/${item.stage}` : ""}${item.completionId ? ` completion=${item.completionId}` : ""} — ${item.explanation}`);
+      const lines = result.frontier.map((item) => `${item.actionId} ${item.operation} ${item.workItemId ?? "run"}${item.stage ? `/${item.stage}` : ""}${item.stageAttemptId ? ` stageAttemptId=${item.stageAttemptId}` : ""}${item.completionId ? ` completion=${item.completionId}` : ""}${item.retryKey ? ` retryKey=${item.retryKey}` : ""} — ${item.explanation}`);
       const controls = result.controls.map((item) => `${item.actionId} ${item.operation} run — ${item.explanation}`);
       return ok(`DAG ${params.runId} r${result.revision} choices=${result.frontier.length}${result.waiting ? " waiting on owned workers or external authority" : ""}\nChoose one mutation, then refresh dag_next_action.\n${[...lines, ...controls].join("\n") || `No semantic action; ${result.notice}`}`, result as any);
     },

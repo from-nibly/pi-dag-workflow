@@ -14,6 +14,7 @@ import {
   buildDagOwnedWorkerPromptV1,
   normalizeDagTacticalDirectiveV1,
   DagConductorServiceV1,
+  registerCanonicalDagRuntime,
   DagRunSnapshotStoreV1,
   parseStrictJson,
   validateCanonicalDagPlanV1,
@@ -511,6 +512,34 @@ test("empty thin-plan ledger recovers a sealed failed F2 through semantic retry 
       },
     } });
     const runId = prepared.genesis.runId;
+    const tools = new Map();
+    registerCanonicalDagRuntime({ on() {}, registerTool(tool) { tools.set(tool.name, tool); } }, service);
+    const invoke = (name, params) => tools.get(name).execute("visible-selector-test", params, undefined, undefined, ctx);
+    const visibleSelections = new Map();
+    const invokeVisible = async (operation) => {
+      // Deliberately ignore details: these are the only selectors the orchestrator sees.
+      const { content } = await invoke("dag_next_action", { runId });
+      const text = content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+      const displayedRunId = /^DAG (\S+) r\d+/m.exec(text)?.[1];
+      assert(displayedRunId, text);
+      const line = text.split("\n").find((line) => line.split(" ")[1] === operation);
+      assert(line, text);
+      const actionId = line.split(" ")[0];
+      const selector = (name) => {
+        const value = new RegExp(` ${name}=(\\S+)`).exec(line.split(" — ")[0])?.[1];
+        assert(value, `Missing ${name} in visible action: ${line}`);
+        return value;
+      };
+      const params = { runId: displayedRunId, actionId };
+      if (operation === "retry") params.retryKey = selector("retryKey");
+      else {
+        params.stageAttemptId = selector("stageAttemptId");
+        if (operation === "record_completion") params.completionId = selector("completion");
+      }
+      visibleSelections.set(operation, (visibleSelections.get(operation) ?? 0) + 1);
+      const result = await invoke(`dag_${operation}`, params);
+      return { state: (await service.status(ctx, runId)).state, params, content: result.content };
+    };
     await service.startPrepared(ctx, { runId, runNonce: prepared.genesis.runNonce, planHash: prepared.canonicalPlan.planHash, maxActiveNodes: prepared.genesis.scheduler.maxActiveNodes, occurredAt: AT, plan: prepared.canonicalPlan, genesis: prepared.genesis, context: prepared.context, seedFacts: [...prepared.seedFacts], sourcePlanningPlanId: "thin-runtime", sourcePlanningPlanHash: canonicalHash({ source: "thin-runtime" }) });
     const advance = async (until) => {
       for (let step = 0; step < 80; step += 1) {
@@ -521,8 +550,7 @@ test("empty thin-plan ledger recovers a sealed failed F2 through semantic retry 
         assert(choice, `No progress action: ${JSON.stringify(next.frontier)}`);
         if (choice.operation === "start_work") await service.startWork(ctx, runId, choice.actionId, choice.workItemId, choice.stage, "Run the complete checks with an adequate execution budget; never infer PASS from an incomplete run.");
         else if (choice.operation === "run_checks") await service.runChecks(ctx, runId, choice.actionId, choice.workItemId, choice.stage);
-        else if (choice.operation === "record_completion") await service.recordCompletion(ctx, runId, choice.actionId, choice.stageAttemptId, choice.completionId);
-        else await service.finalizeSemantic(ctx, runId, choice.actionId, choice.stageAttemptId);
+        else await invokeVisible(choice.operation);
       }
       assert.fail("bounded semantic test driver did not reach its target");
     };
@@ -582,7 +610,8 @@ test("empty thin-plan ledger recovers a sealed failed F2 through semantic retry 
     retry = resumed.next.frontier.find((a) => a.operation === "retry");
     assert(retry);
     const beforeLaunches = launches.length;
-    const authorized = await service.retrySemantic(ctx, runId, retry.actionId, retry.retryKey);
+    const authorized = await invokeVisible("retry");
+    assert.equal(authorized.params.retryKey, retry.retryKey);
     assert.equal(authorized.state.retryLedger[retry.retryKey].count, 1);
     assert.equal(authorized.state.workItems.compile.stages.F2.state, "pending");
     assert.equal(authorized.state.workItems.compile.stages.F2.currentAttemptId, null);
@@ -592,11 +621,15 @@ test("empty thin-plan ledger recovers a sealed failed F2 through semantic retry 
     const failedAgain = await advance((state, next) => state.workItems.compile.stages.F2.attemptIds.length === 2 && next.frontier.some((a) => a.operation === "retry"));
     const lastRetry = failedAgain.next.frontier.find((a) => a.operation === "retry");
     failF2 = false;
-    const lastAuthorization = await service.retrySemantic(ctx, runId, lastRetry.actionId, lastRetry.retryKey);
+    const lastAuthorization = await invokeVisible("retry");
+    assert.equal(lastAuthorization.params.retryKey, lastRetry.retryKey);
     assert.equal(lastAuthorization.state.retryLedger[retry.retryKey].count, 2);
     assert.equal(lastAuthorization.state.retryLedger[retry.retryKey].stop, "ceiling_reached", "the final permitted retry exhausts future authority, not its own launch");
     const passed = await advance((state) => state.workItems.compile.stages.F2.state === "passed");
     const stage = passed.state.workItems.compile.stages.F2;
+    assert.equal(visibleSelections.get("retry"), 2);
+    assert(visibleSelections.get("record_completion") > 0);
+    assert(visibleSelections.get("finalize") > 0);
     assert.equal(stage.attemptIds.length, 3);
     assert.notEqual(stage.currentAttemptId, failedAttempt.stageAttemptId);
     assert.equal(passed.state.stageAttempts[failedAttempt.stageAttemptId].evidence.hash, failedAttempt.evidence.hash, "failed immutable evidence is retained, not rewritten to PASS");
