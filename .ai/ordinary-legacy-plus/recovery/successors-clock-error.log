@@ -1,0 +1,10 @@
+file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:260
+      if (!reduced.accepted) throw new Error(`Dogfood scheduler reducer rejection: ${reduced.code}: ${reduced.message}`);
+                                   ^
+
+Error: Dogfood scheduler reducer rejection: PRECONDITION_FAILED: input occurrence time cannot move snapshot time backward
+    at scenario (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:260:36)
+    at async runCurrentDogfoodManifest (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:91:68)
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:715:51
+
+Node.js v24.19.0

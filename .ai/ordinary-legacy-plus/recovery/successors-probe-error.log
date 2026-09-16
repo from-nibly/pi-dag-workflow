@@ -1,0 +1,12 @@
+file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/extensions/dag-workflow/dag-runtime/scheduler.ts:182
+  if (dagRunSnapshotHash(state) !== state.snapshotHash) throw new Error("Scheduler requires an exact hash-valid run snapshot");
+                                                              ^
+
+Error: Scheduler requires an exact hash-valid run snapshot
+    at scheduleDagRunV1 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/extensions/dag-workflow/dag-runtime/scheduler.ts:182:63)
+    at recoverSuccessorThroughFreshService (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:461:18)
+    at async scenario (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:233:19)
+    at async runCurrentDogfoodManifest (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:90:68)
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:714:51
+
+Node.js v24.19.0

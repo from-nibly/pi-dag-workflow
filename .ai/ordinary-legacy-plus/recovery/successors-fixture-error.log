@@ -1,0 +1,15 @@
+file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/extensions/dag-workflow/dag-runtime/plan.ts:419
+  if (!result.ok) throw new Error(`Invalid CanonicalDagPlanV1:\n${result.issues.map(({ path, message }) => `- ${path}: ${message}`).join("\n")}`);
+                        ^
+
+Error: Invalid CanonicalDagPlanV1:
+- /constraints/semanticMutexes/0: must not duplicate a causal precedence edge
+    at assertCanonicalDagPlanV1 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/extensions/dag-workflow/dag-runtime/plan.ts:419:25)
+    at sealCanonicalDagPlanV1 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/extensions/dag-workflow/dag-runtime/plan.ts:665:3)
+    at planFixture (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:671:10)
+    at scenario (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:126:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runCurrentDogfoodManifest (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:90:68)
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:714:51
+
+Node.js v24.19.0

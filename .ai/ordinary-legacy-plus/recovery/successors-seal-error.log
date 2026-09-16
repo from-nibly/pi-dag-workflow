@@ -1,0 +1,14 @@
+file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/extensions/dag-workflow/dag-runtime/run-state.ts:1782
+  if (!result.ok) throw new Error(`Invalid DagRunStateV1:\n${result.issues.map(({ path, message }) => `- ${path}: ${message}`).join("\n")}`);
+                        ^
+
+Error: Invalid DagRunStateV1:
+- /snapshotHash: does not match canonical snapshot content
+    at assertDagRunStateV1 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/extensions/dag-workflow/dag-runtime/run-state.ts:1782:25)
+    at sealDagRunStateV1 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/extensions/dag-workflow/dag-runtime/run-state.ts:3285:3)
+    at recoverSuccessorThroughFreshService (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:431:18)
+    at async scenario (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:234:19)
+    at async runCurrentDogfoodManifest (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:91:68)
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-recovery/scripts/dag-dogfood-test.mjs:715:51
+
+Node.js v24.19.0
