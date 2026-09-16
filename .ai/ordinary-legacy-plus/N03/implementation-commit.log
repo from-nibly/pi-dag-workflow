@@ -1,0 +1,7 @@
+[implement/legacy-plus-lifecycle 030760e] feat(runtime-v2): enforce direct lifecycle execution evidence
+ 11 files changed, 1114 insertions(+), 30 deletions(-)
+ create mode 100644 extensions/dag-workflow/runtime-v2/command-runner.ts
+ create mode 100644 extensions/dag-workflow/runtime-v2/lifecycle-schema.ts
+ create mode 100644 extensions/dag-workflow/runtime-v2/lifecycle.ts
+ create mode 100644 scripts/dag-v2-lifecycle-test.mjs
+ create mode 100644 scripts/fixtures/dag-v2-lifecycle.mjs

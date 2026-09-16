@@ -1,0 +1,9 @@
+ok - agent dispatch is the sole fresh-launch boundary with exact CAS, replay, prompt, completion, and legacy compatibility
+ok - launch-before-bind owner transfer exposes exact agent recovery without autonomous relaunch
+ok - legacy pre-bind snapshots require explicit agent dispatch and preserve the old request identity
+ok - prepares a valid canonical plan, scheduler context, genesis, and strict validation command
+ok - mapping is deterministic for exact thin plan, Git baseline, IDs, and time
+ok - stale target baseline, dirty root, and unresolved source joins block before preparation
+ok - built-in lifecycle adapter emits exact F0, F2, and F8 fact bundles with pragmatic Git checks
+ok - empty thin-plan ledger recovers a sealed failed F2 through semantic retry and a fresh successful attempt
+ok - 8 DAG planning runtime adapter tests passed

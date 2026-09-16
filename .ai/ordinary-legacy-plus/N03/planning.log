@@ -1,0 +1,7 @@
+ok - artifact binds exact typed sources and hashes only static plan semantics
+ok - projections are deterministic and node selectors are exact
+ok - plan selectors distinguish exact heads and historical revisions
+ok - store retains immutable history and records approval then independent authorization
+ok - historical V1 inspection preserves every stored byte and path
+ok - store refuses repository paths through symlinks
+ok - 6 planning tests passed

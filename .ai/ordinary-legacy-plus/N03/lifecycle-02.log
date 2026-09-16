@@ -1,0 +1,38 @@
+PASS closed applicability and oracle schema cannot skip checkpoints or add attestation fields (0.12s)
+PASS worker claim and permissive integration adapter cannot advance; complete actual F0-F8 can (6.36s)
+PASS missing, wrong-plan, attempt, generation and candidate results never advance (0.83s)
+PASS failed argv retains exact exit, timing, bounded output and actionable diagnostics (0.69s)
+FAIL only actually invoked producers are evidence; missing producers and executables block AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+'FAIL' !== 'BLOCKED'
+
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/scripts/dag-v2-lifecycle-test.mjs:94:14
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/scripts/dag-v2-lifecycle-test.mjs:242:71 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 'FAIL',
+  expected: 'BLOCKED',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+PASS command acknowledgement loss and service reload read one durable execution (0.76s)
+PASS F2/F5 must be fresh independent contexts even for a trusted result adapter (2.41s)
+PASS candidate changes invalidate F2/F5/F7/readiness, preserve prior results and quarantine late outcomes (6.34s)
+PASS F7 checks run on clean materializations of exact final candidate; editing checks fail (2.79s)
+FAIL pause permits settlement but not dispatch; cancellation fences before signal and quarantines late results Error: STORE_BUSY
+    at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/planning/v2.ts:49:107)
+    at StoreV2.transaction (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/store.ts:113:7)
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/scripts/dag-v2-lifecycle-test.mjs:155:13
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/scripts/dag-v2-lifecycle-test.mjs:242:71
+PASS unlaunched cancelled intent cannot spawn and needs explicit durable non-execution reconciliation (0.52s)
+file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/planning/v2.ts:49
+export function requireV2(condition         , message        )                    { if (!condition) throw new Error(message); }
+                                                                                                          ^
+
+Error: REPOSITORY_DIRECTORY_MISSING
+    at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/planning/v2.ts:49:107)
+    at StoreDirectory.open (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/store.ts:60:11)
+    at async StoreV2.transaction (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/store.ts:106:21)
+    at async CommandRunnerV2.ensure (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/command-runner.ts:69:5)
+
+Node.js v24.19.0

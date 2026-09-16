@@ -1,0 +1,44 @@
+PASS save/show/revise are inert; current explicit run has no extra plan transition (1.16s)
+PASS closed plan inputs reject invalid record keys, values and envelope fields without publication (0.67s)
+PASS every snapshot record is closed and semantic output failures preserve bytes and revision (1.29s)
+PASS freshness, closed scope and restricted effects fail before creation (0.36s)
+PASS dependencies, sticky concurrency, resources, mutexes and gates govern admission (1.18s)
+PASS revision/lease/generation fences and exact reservation request prevent duplicates (0.69s)
+PASS atomic creation recovers both sides of rename; lease/reservation survive reload (1.26s)
+PASS launch acknowledgement loss uses same durable natural identity after recovery (0.40s)
+PASS absent store inspection is inert; static symlinks and nonregular files fail closed (0.15s)
+PASS ancestor replacement cannot redirect a locked transaction or publication (1.38s)
+PASS state and lock replacement before publication preserve original and replacement bytes (0.45s)
+PASS process-shared OS lock blocks concurrent writers and releases after SIGKILL (0.91s)
+PASS live cross-process lease blocks takeover; proven-dead lease recovers and fences (1.01s)
+PASS competing process CAS saves cannot overwrite the winning content revision (1.37s)
+FAIL real Git producer landing and fresh persisted reload release dependent successor Error: INVALID_V2: /executions/execution-96fb587e-8800-41ee-8da4-0d1a96248354/owner/pid: must be <= 1000000
+    at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/planning/v2.ts:49:107)
+    at validateShapeV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/planning/v2.ts:51:47)
+    at auditSnapshotV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/state.ts:57:3)
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/store.ts:132:9
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/command-runner.ts:65:13
+    at StoreV2.transaction (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/store.ts:130:28)
+    at async CommandRunnerV2.ensure (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/command-runner.ts:55:20)
+    at async finishLifecycleV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/scripts/fixtures/dag-v2-lifecycle.mjs:35:7)
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/scripts/dag-v2-state-test.mjs:338:11
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/scripts/dag-v2-state-test.mjs:536:9
+FAIL serial admission protects the prefix from later independent sticky lanes Error: INVALID_V2: /executions/execution-3bc15cd6-6f15-4558-b30c-745c864edc1d/owner/pid: must be <= 1000000
+    at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/planning/v2.ts:49:107)
+    at validateShapeV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/planning/v2.ts:51:47)
+    at auditSnapshotV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/state.ts:57:3)
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/store.ts:132:9
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/command-runner.ts:65:13
+    at StoreV2.transaction (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/store.ts:130:28)
+    at async CommandRunnerV2.ensure (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/extensions/dag-workflow/runtime-v2/command-runner.ts:55:20)
+    at async finishLifecycleV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/scripts/fixtures/dag-v2-lifecycle.mjs:35:7)
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/scripts/dag-v2-state-test.mjs:379:13
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-lifecycle/scripts/dag-v2-state-test.mjs:536:9
+PASS serial ordering rejects later dependencies and audits out-of-prefix state before publication (0.44s)
+PASS serial safe prefix, pause and replan hold; explicit disposition resumes unchanged plan (0.68s)
+PASS unsupported historical input stays byte/path preserving and cannot start V2 (0.11s)
+PASS actual process death during creation, lease and reservation publication recovers (4.57s)
+PASS concurrent admissions recheck capacity under the shared transaction lock (0.28s)
+PASS cancel fences before signalling; successor waits for terminal reconciliation (0.70s)
+PASS process death after keyed worker creation cannot launch a duplicate (1.10s)
+21/23 passed

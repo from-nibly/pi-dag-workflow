@@ -1,0 +1,1 @@
+git commit -m "feat(runtime-v2): enforce direct lifecycle execution evidence" -m "Bind F0-F8 to grounded checks and exact candidate generations. Persist command and invoked-producer outcomes, reconcile interrupted execution, and enforce fresh review, clean final verification and bounded typed retries before integration."
