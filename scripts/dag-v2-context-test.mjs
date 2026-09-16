@@ -41,6 +41,32 @@ async function reload(f) {
   f.runner = new CommandRunnerV2(f.store, f.repository, f.producers);
   f.run = (await f.store.read()).runs[f.run.runId];
 }
+test("F7 producer replay without actual independent context is durably blocked", async () => {
+  const f = await fixture(request => `actual-${request.id}`);
+  try {
+    await through(f, 6);
+    const original = f.producers.get("evaluator");
+    f.producers.set("evaluator", { run: async input => {
+      const observation = await original.run(input);
+      delete observation.context;
+      return observation;
+    } });
+    const request = await prepare(f, "review");
+    await f.runner.ensure(request);
+    const result = await f.runner.read(request);
+    assert.equal(result.executor.invoked, true);
+    assert.equal(result.disposition, "BLOCKED");
+    assert.match(result.diagnostic, /PRODUCER_INDEPENDENT_CONTEXT_REQUIRED/);
+    await reload(f);
+    await record(f, request);
+    assert.equal(last(f).result.disposition, "BLOCKED");
+    await assert.rejects(f.rt.advanceLifecycle(m(f.run), "item", 1, 7));
+    f.run = await f.rt.cancel(m(f.run));
+    f.run = await f.rt.reconcileCancellation(m(f.run), async () => {});
+    assert.equal(f.run.status, "cancelled");
+  } finally { await f.cleanup(); }
+});
+
 const last = (f, item = "item") => f.run.nodes[item].lifecycle.executions.at(-1);
 async function prepare(f, check, item = "item") {
   f.run = await f.rt.prepareCheck(m(f.run), item, 1, check); return last(f, item).request;

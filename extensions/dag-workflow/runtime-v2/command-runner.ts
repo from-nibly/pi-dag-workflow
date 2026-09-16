@@ -204,7 +204,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
           return producer.run({ cwd: cwd!, request: structuredClone(request), signal });
         });
         requireV2(typeof observed.observation === "string" && observed.observation.trim().length > 0, "PRODUCER_OBSERVATION_REQUIRED");
-        if (request.stage === 2 || request.stage === 5) requireV2(observed.context, "PRODUCER_INDEPENDENT_CONTEXT_REQUIRED");
+        if (request.stage === 2 || request.stage === 5 || request.stage === 7) requireV2(observed.context, "PRODUCER_INDEPENDENT_CONTEXT_REQUIRED");
         if (observed.context) { result.executor.contextId = observed.context.id; result.executor.lineage = observed.context.lineage; }
         result.disposition = observed.disposition; result.stdout = bounded(observed.observation); result.truncated = observed.observation.length > 16384;
         result.findings = observed.findings; result.diagnostic = `producer=${procedure.producerId}: ${bounded(observed.observation)}`;
