@@ -206,6 +206,14 @@ dag_status
 
 They cannot create or advance execution.
 
+## Runtime-v2 local command capability
+
+The runtime-v2 `CommandRunnerV2` requires Linux in the same PID namespace, readable `/proc`, and `python3` on `PATH` (Python 3.9+ stdlib `ctypes`, `os.pidfd_open`, `signal.pidfd_send_signal`; Linux `PR_SET_CHILD_SUBREAPER` and pidfds). Missing Python, denied kernel capabilities, or an unavailable packaged helper fail closed before command launch. No Python package or installation is performed. The helper is shipped under `extensions/dag-workflow/runtime-v2/command-supervisor.py` and resolved relative to the importing module, not the candidate or current directory.
+
+A detached, gated subreaper announces its boot/start identity only after enabling subreaping. The runner syncs a request/identity/nonce launch journal and rechecks the current intent under the store lock before sending argv launch permission. The supervisor records the actual argv exit independently, adopts/reaps orphan descendants, and publishes a synced nonce/identity/workspace-bound extinction receipt **only after `waitpid(-1)` returns `ECHILD`**. A finite fork/exit handoff cannot disappear between observations. `/proc` enumeration is used only for positive cancellation signaling via pidfds, never as an extinction proof. Abort, authority expiry, and owner pipe loss start TERM then KILL escalation; the supervisor continues after argv/owner exit and does not kill itself during escalation.
+
+No durable extinction receipt after launch means no lifecycle result, PASS, retry, or workspace cleanup. The job and workspace remain unresolved, including when a supervisor dies and `/proc` appears empty. Recovery never relaunches the natural request. `reconcileInterrupted` still requires an independent process-tree/**effect** settlement callback, even with a receipt; without one, supervisor death is ambiguity, not settlement. A live supervisor without a receipt must finish reaping first. Successful reconciliation emits infrastructure BLOCKED, retains the workspace, and requires an explicit bounded retry. This is trusted local command process management, **not a sandbox**: hostile same-UID receipt tampering, session/namespace escape, and effects delegated to unrelated services are outside containment. Trusted producer callbacks retain their own effect protocols.
+
 ## Legacy migration adapter
 
 `/dag migrate` automatically recognizes the previous `.ai/brainstorm/structured-brainstorming.json` snapshot and uses its deterministic mapper as a fast path. The repository-only `node scripts/migrate-brainstorm-to-project-model.mjs` command remains available for reproducing that adapter directly. It emits the candidate model, mapping/omission report, and ignored generated preview, but never bypasses the same semantic audit, artifact dispositions, Lavish review, freshness checks, or exact cutover required by the product command.

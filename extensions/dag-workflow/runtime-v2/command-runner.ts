@@ -1,5 +1,7 @@
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtemp, rm, readFile, readdir, open, rename } from "node:fs/promises";
+import { mkdtemp, rm, readFile, open, rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -70,7 +72,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
       await publish(); return true;
     });
     if (!launch) return;
-    const result = await this.execute(request, signal);
+    const { result, protocolDirectory } = await this.execute(request, signal);
     // Only publication is retried on lock contention, never the invocation.
     for (let retry = 0; ; retry++) {
       try {
@@ -82,6 +84,10 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
         break;
       } catch (e) { if ((e as Error).message !== "STORE_BUSY" || retry >= 500) throw e; await delay(20); }
     }
+    // Only protocol metadata remains here; candidate cleanup already succeeded.
+    // Keep the receipt until lifecycle publication is durable, including crashes
+    // between workspace removal and publication. Metadata retention is harmless.
+    if (protocolDirectory) await rm(protocolDirectory, { recursive: true, force: true }).catch(() => {});
   }
   /** Under the same launch lock, absence of a job proves this executor never
    * invoked the obsolete intent. Record that fact so cancellation can finish. */
@@ -109,11 +115,17 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
       const journal = job.workspace && request.check.procedure.kind === "command" ? await readProcessJournalV2(job.workspace) : null;
       if (journal) requireV2(journal.requestId === request.id, "COMMAND_PROCESS_JOURNAL_MISMATCH");
       requireV2(await processIdentityV2(job.owner.pid) !== job.owner.processStart || journal?.state === "BLOCKED", "EXECUTOR_STILL_ALIVE");
+      // No negative /proc scan can prove extinction. A live supervisor must
+      // finish its reaping protocol. If it died without an outcome, the callback
+      // below is the mandatory *independent* process/effect settlement proof.
+      const outcome = journal ? await readProcessOutcomeV2(job.workspace!, journal.identity) : null;
+      if (journal && !outcome) {
+        requireV2(await processIdentityV2(journal.identity.pid) !== journal.identity.processStart, "COMMAND_PROCESS_SETTLEMENT_REQUIRED");
+      }
       await settled(structuredClone(request), structuredClone(job));
-      // A caller's effect reconciliation cannot override a known live command group.
-      if (journal) requireV2((await sessionMembersV2(journal.identity)).length === 0, "COMMAND_PROCESS_SETTLEMENT_REQUIRED");
       const result = this.emptyResult(request);
-      result.diagnostic = "Executor died without a durable outcome; process tree/effects settled. Explicit bounded infrastructure retry required.";
+      if (outcome) { result.executor.invoked = outcome.invoked; result.exitCode = outcome.exitCode; result.signal = outcome.signal; }
+      result.diagnostic = "Executor died without a durable lifecycle result; independent process tree/effects settlement confirmed. Explicit bounded infrastructure retry required.";
       result.findings = [{ id: "executor-lost", kind: "infrastructure_failure", severity: "blocking", materiality: "local", subject: request.check.id, fingerprint: "executor-lost", detail: result.diagnostic }];
       job.result = result; job.status = "settled"; await publish();
     });
@@ -150,9 +162,9 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
         contextId: `context-${request.id}`, lineage: [], invoked: false },
       workspace: { candidate: request.candidate, cleanBefore: false, cleanAfter: false, isolated: true } };
   }
-  private async execute(request: ExecutionRequestV2, signal?: AbortSignal): Promise<ExecutionResultV2> {
+  private async execute(request: ExecutionRequestV2, signal?: AbortSignal): Promise<{ result: ExecutionResultV2; protocolDirectory?: string }> {
     const result = this.emptyResult(request), start = performance.now();
-    let root: string | undefined, cwd: string | undefined, added = false, unsettled = false;
+    let root: string | undefined, cwd: string | undefined, protocolDirectory: string | undefined, added = false, unsettled = false;
     try {
       requireV2(request.check.environment === this.environment, "EXECUTION_ENVIRONMENT_UNAVAILABLE");
       await this.inspect(request.candidate);
@@ -166,13 +178,14 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
       if (procedure.kind === "command") {
         const observed = await this.invoke(request, cwd, () => runArgvV2(procedure.argv, cwd!, signal, {
           timeoutMs: Math.max(1, request.authority.expiresAt - Date.now()),
+          protocolDirectory: dirname(cwd!),
           launch: async (identity, launch) => {
             // The gated session leader cannot invoke argv before this journal is
             // synced and the current intent has been rechecked under the lock.
             for (let retry = 0; ; retry++) {
               try {
                 await this.invoke(request, cwd!, async () => { launch(); },
-                  () => writeProcessJournalV2(cwd!, { version: 1, requestId: request.id, identity, state: "running" }));
+                  () => writeProcessJournalV2(cwd!, { version: 2, requestId: request.id, identity, state: "running" }));
                 break;
               } catch (e) { if ((e as Error).message !== "STORE_BUSY" || retry >= 500) throw e; await delay(20); }
             }
@@ -219,7 +232,11 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
     } finally {
       // Never force-clean a dirty check worktree: preserve it for diagnosis.
       if (!unsettled && added && cwd && result.workspace.cleanAfter) {
-        try { this.git(this.repository, "worktree", "remove", cwd); if (root) await rm(root, { recursive: true }); }
+        try {
+          this.git(this.repository, "worktree", "remove", cwd);
+          if (root && request.check.procedure.kind === "command") protocolDirectory = root;
+          else if (root) await rm(root, { recursive: true });
+        }
         catch (e) {
           result.disposition = "BLOCKED"; result.workspace.cleanAfter = false;
           result.diagnostic += `; cleanup retained (cleanliness/cleanup could not be confirmed): ${String(e)}`;
@@ -232,7 +249,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
     // schema. Keep ambiguous jobs running with no result, and the BLOCKED journal
     // plus workspace for explicit reconciliation instead.
     if (unsettled) throw Error(`COMMAND_PROCESS_SETTLEMENT_REQUIRED: ${result.diagnostic}`);
-    try { validateShapeV2(ExecutionResultV2Schema, result); auditResultV2(request, result); return result; }
+    try { validateShapeV2(ExecutionResultV2Schema, result); auditResultV2(request, result); return { result, protocolDirectory }; }
     catch (error) {
       // A malformed producer response is an observed protocol failure, not a
       // permanently running job or an excuse to invoke the producer again.
@@ -243,7 +260,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
       failure.diagnostic = bounded(`Invalid execution response: ${String(error)}`);
       failure.findings = [{ id: "producer-protocol", kind: "infrastructure_failure", severity: "blocking", materiality: "local", subject: request.check.id,
         fingerprint: "producer-protocol", detail: failure.diagnostic }];
-      return failure;
+      return { result: failure, protocolDirectory };
     }
   }
   private clean(cwd: string, candidate: CandidateV2): boolean {
@@ -262,8 +279,8 @@ export function gitEnvironmentV2(): NodeJS.ProcessEnv {
   return { ...env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null" };
 }
 
-type SessionIdentityV2 = { pid: number; processStart: string };
-type ProcessJournalV2 = { version: 1; requestId: string; identity: SessionIdentityV2; state: "running" | "BLOCKED"; diagnostic?: string };
+type SessionIdentityV2 = { pid: number; processStart: string; token?: string };
+type ProcessJournalV2 = { version: 1 | 2; requestId: string; identity: SessionIdentityV2; state: "running" | "BLOCKED"; diagnostic?: string };
 const journalPathV2 = (cwd: string) => join(dirname(cwd), "command-process.json");
 async function writeProcessJournalV2(cwd: string, journal: ProcessJournalV2): Promise<void> {
   const path = journalPathV2(cwd), temp = `${path}.tmp`;
@@ -277,147 +294,131 @@ async function writeProcessJournalV2(cwd: string, journal: ProcessJournalV2): Pr
 async function readProcessJournalV2(cwd: string): Promise<ProcessJournalV2 | null> {
   try {
     const journal = JSON.parse(await readFile(journalPathV2(cwd), "utf8"));
-    requireV2(journal.version === 1 && Number.isSafeInteger(journal.identity?.pid) && journal.identity.pid > 0 && journal.identity.pid <= 2147483647
+    requireV2((journal.version === 1 || journal.version === 2 && validTokenV2(journal.identity?.token)) && Number.isSafeInteger(journal.identity?.pid) && journal.identity.pid > 0 && journal.identity.pid <= 2147483647
       && typeof journal.identity.processStart === "string" && /^[0-9a-f-]{36}:\d+$/.test(journal.identity.processStart)
       && ["running", "BLOCKED"].includes(journal.state), "INVALID_COMMAND_PROCESS_JOURNAL");
     return journal;
   } catch (e: any) { if (e.code === "ENOENT") return null; throw e; }
 }
 
-/** Linux, same PID namespace, readable /proc, cooperative commands that do not
- * escape their session. The live session anchor prevents ID reuse while argv
- * runs. Session membership also covers descendants that change process groups.
- * Zombies have no executable effects. This is process management, NOT a sandbox
- * against hostile same-UID code, setsid/namespace escape or external effects. */
-async function sessionMembersV2(identity: SessionIdentityV2): Promise<{ pid: number; group: number }[]> {
-  requireV2(process.platform === "linux", "UNSUPPORTED_COMMAND_PROCESS_PROFILE");
-  const boot = (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim();
-  if (!identity.processStart.startsWith(`${boot}:`)) return [];
-  const current = await processIdentityV2(identity.pid);
-  requireV2(!current || current === identity.processStart, "COMMAND_SESSION_IDENTITY_REUSED");
-  const members: { pid: number; group: number }[] = [];
-  for (const name of await readdir("/proc")) {
-    if (!/^\d+$/.test(name)) continue;
-    let stat: string;
-    try { stat = await readFile(`/proc/${name}/stat`, "utf8"); }
-    catch (e: any) { if (e.code === "ENOENT" || e.code === "ESRCH") continue; throw e; }
-    const fields = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/);
-    requireV2(fields.length >= 20 && /^\d+$/.test(fields[3]) && /^\d+$/.test(fields[2]), "INVALID_COMMAND_PROCESS_STAT");
-    if (Number(fields[3]) === identity.pid && !["Z", "X"].includes(fields[0])) members.push({ pid: Number(name), group: Number(fields[2]) });
-  }
-  return members;
+const validTokenV2 = (token: unknown): token is string => typeof token === "string" && /^[0-9a-f-]{36}$/.test(token);
+const outcomePathV2 = (directory: string, token: string) => join(directory, `command-outcome-${token}.json`);
+type ProcessOutcomeV2 = {
+  version: 2; token: string; identity: { pid: number; processStart: string }; cwd: string; extinct: true;
+  invoked: boolean; exitCode: number | null; signal: string | null; interrupted: boolean; diagnostic: string;
+};
+async function readOutcomeV2(directory: string, cwd: string, identity: SessionIdentityV2): Promise<ProcessOutcomeV2 | null> {
+  if (!validTokenV2(identity.token)) return null; // Legacy journals have no reaping proof.
+  try {
+    const value = JSON.parse(await readFile(outcomePathV2(directory, identity.token), "utf8"));
+    requireV2(value.version === 2 && value.token === identity.token && value.identity?.pid === identity.pid
+      && value.identity.processStart === identity.processStart && value.cwd === resolve(cwd) && value.extinct === true
+      && typeof value.invoked === "boolean" && typeof value.interrupted === "boolean" && typeof value.diagnostic === "string"
+      && (value.exitCode === null || Number.isInteger(value.exitCode) && value.exitCode >= 0 && value.exitCode <= 255)
+      && (value.signal === null || typeof value.signal === "string" && /^SIG[A-Z0-9]+$/.test(value.signal))
+      && !(value.exitCode !== null && value.signal !== null)
+      && (!value.invoked || value.exitCode !== null || value.signal !== null), "INVALID_COMMAND_PROCESS_OUTCOME");
+    // Complete durability ourselves if the supervisor died between rename and
+    // directory fsync. The immutable receipt is written only after ECHILD.
+    const file = await open(outcomePathV2(directory, identity.token), "r");
+    try { await file.sync(); } finally { await file.close(); }
+    const dir = await open(directory, "r"); try { await dir.sync(); } finally { await dir.close(); }
+    return value;
+  } catch (e: any) { if (e.code === "ENOENT") return null; throw e; }
 }
-
-// A gate prevents the actual argv from starting before its session identity is
-// durable. The anchor stays alive after the command closes, pins the session ID,
-// and leaves the original command's exit/signal intact in the IPC observation.
-const commandAnchorV2 = `
-const {spawn}=require('node:child_process');
-let launched=false;
-process.on('SIGTERM',()=>{});
-process.on('disconnect',()=>{ if(!launched)process.exit(0); });
-process.on('message',message=>{
-  if(message==='finish')process.exit(0);
-  if(message!=='launch'||launched)return;
-  launched=true;
-  let invoked=false;
-  const child=spawn(process.argv[1],process.argv.slice(2),{stdio:['ignore',1,2]});
-  child.once('spawn',()=>{invoked=true;});
-  child.once('error',error=>{process.stderr.write(error.message+'\\n');});
-  child.once('close',(exitCode,signal)=>{
-    if(process.connected)process.send({exitCode,signal,invoked});
-  });
-});
-process.send('ready');
-`;
+const readProcessOutcomeV2 = (cwd: string, identity: SessionIdentityV2) => readOutcomeV2(dirname(cwd), cwd, identity);
 
 type ArgvObservationV2 = {
   stdout: string; stderr: string; truncated: boolean; exitCode: number | null; signal: string | null; invoked: boolean;
   settled: boolean; interrupted: boolean;
 };
+/** Linux/Python3 subreaper, trusted same-session commands, not a sandbox. Only a
+ * nonce/identity-bound, fsynced ECHILD outcome proves descendant extinction.
+ * The helper path is package-relative, never relative to a candidate/worktree. */
 export async function runArgvV2(argv: readonly string[], cwd: string, signal?: AbortSignal, options: {
   timeoutMs?: number;
+  protocolDirectory?: string;
   launch?: (identity: SessionIdentityV2, launch: () => void) => Promise<void>;
 } = {}): Promise<ArgvObservationV2> {
   requireV2(process.platform === "linux", "UNSUPPORTED_COMMAND_PROCESS_PROFILE");
-  let stdout = "", stderr = "", truncated = false, invoked = false, interrupted = false;
-  let exitCode: number | null = null, killedBy: string | null = null;
-  let ready = false, exited = false, closed = false, observed = false, finishing = false, failure: unknown;
-  let identity: SessionIdentityV2 | undefined, abortAt: number | undefined, launched = false;
-  const child = spawn(process.execPath, ["-e", commandAnchorV2, "--", ...argv], {
-    cwd, env: gitEnvironmentV2(), shell: false, detached: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
-  });
+  const directory = options.protocolDirectory ?? await mkdtemp(join(tmpdir(), "dag-v2-command-"));
+  const token = randomUUID();
+  let stdout = "", stderr = "", truncated = false, interrupted = false, launched = false, settled = false;
+  let ready = false, exited = false, closed = false, failure: unknown, readyText = "";
+  let identity: SessionIdentityV2 | undefined, abortAt: number | undefined, outcome: ProcessOutcomeV2 | null = null;
+  const child = spawn("python3", ["-I", "-B", fileURLToPath(new URL("./command-supervisor.py", import.meta.url)), JSON.stringify({
+    argv, token, outcome: outcomePathV2(directory, token), timeoutMs: options.timeoutMs ?? null,
+  })], { cwd, env: gitEnvironmentV2(), shell: false, detached: true, stdio: ["pipe", "pipe", "pipe", "pipe"] });
   const append = (old: string, next: Buffer) => { const text = old + next.toString("utf8"); truncated ||= text.length > 16384; return bounded(text); };
   child.stdout!.on("data", b => stdout = append(stdout, b)); child.stderr!.on("data", b => stderr = append(stderr, b));
-  child.on("message", message => {
-    if (message === "ready") ready = true;
-    else if (message && typeof message === "object" && "invoked" in message) {
-      const result = message as { exitCode: number | null; signal: string | null; invoked: boolean };
-      observed = true; invoked = result.invoked; exitCode = result.exitCode; killedBy = result.signal;
+  child.stdio[3]!.on("data", (b: Buffer) => {
+    readyText += b.toString("utf8");
+    if (readyText.includes("\n")) {
+      try {
+        const value = JSON.parse(readyText);
+        requireV2(!ready && value.ready?.pid === child.pid && typeof value.ready.processStart === "string", "INVALID_COMMAND_SUPERVISOR_READY");
+        identity = { ...value.ready, token }; ready = true;
+      } catch (e) { failure = e; }
     }
   });
   child.on("error", error => { failure = error; });
+  child.stdin!.on("error", error => { failure ??= error; });
   child.once("exit", () => { exited = true; });
   child.once("close", () => { closed = true; });
-  const abort = () => { interrupted = true; abortAt ??= performance.now(); };
+  const send = (message: object) => { if (!child.stdin!.destroyed) child.stdin!.write(`${JSON.stringify(message)}\n`); };
+  const abort = () => {
+    interrupted = true;
+    if (abortAt === undefined) { abortAt = performance.now(); send({ action: "abort" }); }
+  };
   signal?.addEventListener("abort", abort, { once: true });
   if (signal?.aborted) abort();
   const deadline = options.timeoutMs === undefined ? Infinity : performance.now() + options.timeoutMs;
   const started = performance.now();
-  let termSent = false, killSent = false, settled = false;
   try {
     while (true) {
       if (performance.now() >= deadline) abort();
-      if (!identity && child.pid) {
-        const processStart = await processIdentityV2(child.pid);
-        if (processStart) identity = { pid: child.pid, processStart };
-      }
-      if (ready && !launched && !interrupted && !failure) {
-        requireV2(identity, "COMMAND_SESSION_IDENTITY_UNAVAILABLE");
-        const launch = () => { if (signal?.aborted || performance.now() >= deadline) { abort(); return; } launched = true; child.send("launch"); };
+      if (ready && !launched && !interrupted && !failure && !exited) {
+        requireV2(identity && await processIdentityV2(identity.pid) === identity.processStart, "COMMAND_SUPERVISOR_IDENTITY_MISMATCH");
+        const launch = () => {
+          if (signal?.aborted || performance.now() >= deadline) { abort(); return; }
+          requireV2(!launched, "COMMAND_ALREADY_LAUNCHED"); launched = true;
+          send({ action: "launch", token });
+        };
         try { if (options.launch) await options.launch(identity, launch); else launch(); }
         catch (e) { failure = e; abort(); }
       }
       if (failure) abort();
-      if (!ready && performance.now() - started > 10000) { failure = Error("COMMAND_ANCHOR_NOT_READY"); abort(); }
-      const members = identity ? await sessionMembersV2(identity) : [];
-      // The observation is not settlement: the disconnected-stdio descendant
-      // may still be live. Keep both monitoring and escalation after leader close.
-      if (identity && observed && members.every(p => p.pid === identity!.pid) && !finishing) {
-        finishing = true;
-        if (child.connected) child.send("finish");
+      if (!ready && performance.now() - started > 10000) { failure = Error("COMMAND_SUPERVISOR_NOT_READY"); abort(); }
+      if (identity) outcome = await readOutcomeV2(directory, cwd, identity);
+      // Exit can race the preceding ENOENT read. Once exit is observed, read the
+      // durable receipt again rather than depending on a lost IPC acknowledgement.
+      if (!outcome && identity && (exited || closed)) outcome = await readOutcomeV2(directory, cwd, identity);
+      if (outcome && closed) { settled = true; break; }
+      if (!outcome && (exited || closed)) {
+        // No launch message means argv could not have run, including missing
+        // Python/capabilities. After launch, death without ECHILD is ambiguous.
+        settled = !launched;
+        failure ??= Error(launched ? "COMMAND_SUPERVISOR_LOST_WITHOUT_EXTINCTION" : "COMMAND_SUPERVISOR_UNAVAILABLE");
+        break;
       }
-      if (abortAt !== undefined && identity) {
-        const kill = performance.now() - abortAt >= 1000;
-        if (kill || !termSent) {
-          for (const group of new Set(members.map(p => p.group))) {
-            try { process.kill(-group, kill ? "SIGKILL" : "SIGTERM"); }
-            catch (e: any) { if (e.code !== "ESRCH") throw e; }
-          }
-          if (kill) killSent = true; else termSent = true;
-        }
-      }
-      if (closed && members.length === 0) { settled = true; break; }
-      if (exited && !finishing && !interrupted) { failure = Error("COMMAND_ANCHOR_LOST"); abort(); }
-      if (abortAt !== undefined && performance.now() - abortAt > 5000) throw Error("COMMAND_SESSION_STILL_LIVE_AFTER_SIGKILL");
+      if (abortAt !== undefined && performance.now() - abortAt > 5000) throw Error("COMMAND_REAPING_STILL_PENDING");
       await delay(20);
     }
-  } catch (e) {
-    // Never convert an unreadable/reused/unkillable session to a durable outcome.
-    // Leave the anchor/workspace/identity intact for independent reconciliation.
-    failure = e;
-  } finally {
+  } catch (e) { failure = e; }
+  finally {
     signal?.removeEventListener("abort", abort);
+    child.stdin!.destroy();
     if (!settled) {
-      child.stdout?.destroy(); child.stderr?.destroy();
-      if (child.connected) child.disconnect();
-      child.unref();
+      // EOF asks the independent supervisor to finish TERM/KILL and reaping,
+      // even when this owner cannot observe it. Never kill the reaper itself.
+      child.stdout?.destroy(); child.stderr?.destroy(); child.stdio[3]?.destroy(); child.unref();
     }
+    if (settled && !options.protocolDirectory) await rm(directory, { recursive: true });
   }
+  interrupted ||= outcome?.interrupted ?? false;
+  if (outcome?.diagnostic) stderr = bounded(`${stderr}\n${outcome.diagnostic}`);
   if (failure) stderr = bounded(`${stderr}\n${String(failure)}`);
-  if (interrupted) stderr = bounded(`${stderr}\nCommand aborted or execution deadline expired; process-session settlement ${settled ? "confirmed" : "BLOCKED"}.`);
-  // If SIGKILL took the IPC anchor before its observation, invocation/outcome is
-  // ambiguous, never a success. Preserve the real command result when available.
-  if (!observed && launched) { invoked = true; killedBy = killSent ? "SIGKILL" : killedBy; }
-  return { stdout, stderr, truncated, exitCode, signal: killedBy, invoked, settled, interrupted };
+  if (interrupted) stderr = bounded(`${stderr}\nCommand aborted or execution deadline expired; descendant reaping ${settled ? "confirmed" : "BLOCKED"}.`);
+  return { stdout, stderr, truncated, exitCode: outcome?.exitCode ?? null, signal: outcome?.signal ?? null,
+    invoked: outcome?.invoked ?? launched, settled, interrupted };
 }

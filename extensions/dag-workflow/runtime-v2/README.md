@@ -172,6 +172,35 @@ nor installs dependencies or credentials. Commands must provision any required
 local test dependencies explicitly; there is no hidden setup executable attestation.
 Dirty/ambiguous worktrees are retained with actionable paths, never force-cleaned.
 
+Command execution additionally requires Python 3.9+ on `PATH` with stdlib `ctypes`,
+`os.pidfd_open` and `signal.pidfd_send_signal`, Linux subreaping/pidfd support,
+and readable same-namespace `/proc`. Capability failure prevents launch. The
+package-owned `command-supervisor.py` is resolved via `import.meta.url` and is
+included by the package's `extensions/` files rule; no dependency installation or
+candidate-relative helper lookup is used. The detached supervisor enables
+`PR_SET_CHILD_SUBREAPER` before announcing readiness. Its launch is gated by a
+synced request/boot/start/nonce journal and the current-intent launch lock.
+
+The command's exit is separate from descendant extinction. Only kernel
+`waitpid(-1)` returning `ECHILD` allows the supervisor to atomically publish a
+synced nonce/identity/workspace-bound extinction receipt. The receipt/journal
+remain until the lifecycle result is durably published, including a crash after
+clean candidate removal but before publication. Fork/exit handoffs stay waitable
+through adoption; no negative process-table scan proves settlement.
+Abort, expiry or owner pipe loss initiates TERM/KILL escalation independently of
+argv leader/owner survival. Positive `/proc` observations target same-session
+processes through pidfds, never recycled PIDs; missed handoffs remain waitable.
+This is not a sandbox against session/namespace escape or same-UID tampering.
+
+Missing/corrupt extinction evidence after launch leaves the job running without
+a lifecycle result and retains its workspace. A live supervisor without a receipt
+must complete reaping. A dead supervisor without a receipt remains ambiguous even
+if `/proc` looks empty: only the mandatory independent process/effect settlement
+adapter can resolve that ambiguity. Receipt recovery after owner/acknowledgement
+loss still requires that adapter and yields infrastructure BLOCKED, not invented
+PASS or automatic cleanup/redispatch. Legacy journals have no reaping receipt and
+likewise require independent settlement.
+
 Registered `TrustedProducerV2.run` implementations are actually invoked in the
 isolated workspace and must return a concrete observation and typed findings;
 unused registry entries produce no evidence. F2/F5 worker-backed producers must
@@ -196,7 +225,8 @@ It records BLOCKED infrastructure evidence, enabling an explicit bounded retry. 
 `reconcileUnlaunched` proves under the launch lock that an obsolete intent never
 had a job; it records non-execution so cancellation can terminate. Cancellation
 fences first, then the caller signals workers/commands (an AbortSignal can terminate
-command process groups), then ingests/quarantines results and reconciles settlement.
+the subreaper's descendant termination/reaping protocol), then ingests/quarantines
+results and reconciles settlement.
 A still-current host with an unresolved job is deliberately not presumed dead.
 
 Trusted callbacks receive cloned inputs. These interfaces are local trusted

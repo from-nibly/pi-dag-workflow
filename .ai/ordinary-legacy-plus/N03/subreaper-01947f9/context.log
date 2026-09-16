@@ -1,0 +1,14 @@
+✔ F7 producer replay without actual independent context is durably blocked (5482.152007ms)
+✔ concrete reused F2/F5 observation survives reload, cancels and unblocks a terminal successor (5119.100172ms)
+✔ ordinary rejection blocks passage, preserves raw evidence and supports one fresh infrastructure retry (14012.68274ms)
+✔ quarantined context history cannot be reused on retry or reset the infrastructure ceiling (4811.761585ms)
+✔ two physically settled cross-item results are accepted atomically (forward ingestion) (3585.307911ms)
+✔ two physically settled cross-item results are accepted atomically (reverse ingestion) (4081.36631ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 37107.635205

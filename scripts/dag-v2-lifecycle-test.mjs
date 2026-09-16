@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { RuntimeV2, StoreV2, CommandRunnerV2, createPlanV2, selectorV2, auditSnapshotV2, stageChecksV2 } from "../extensions/dag-workflow/runtime-v2/index.ts";
 import { fixtureLifecycleV2, fixtureSourceV2, fixtureGitV2, finishLifecycleV2, mutationV2 as m } from "./fixtures/dag-v2-lifecycle.mjs";
 const tests = [], test = (name, fn) => tests.push([name, fn]);
@@ -262,8 +262,8 @@ test("producer callback alone cannot claim a fresh F5 context; malformed output 
   }
 });
 test("process death after result rename reconciles exact durable outcome without reexecution", async () => {
-  const f = await fixture(); try {
-    await frame(f); const req = await prepare(f, "static"), url = pathToFileURL(resolve("extensions/dag-workflow/runtime-v2/index.ts")).href;
+  const f = await fixture(); let req; try {
+    await frame(f); req = await prepare(f, "static"); const url = pathToFileURL(resolve("extensions/dag-workflow/runtime-v2/index.ts")).href;
     const code = `import {CommandRunnerV2,StoreV2} from ${JSON.stringify(url)}; import {readFileSync} from 'node:fs';
       const req=JSON.parse(process.argv[3]); let store; store=new StoreV2(process.argv[1],{failpoint:point=>{if(point==='renamed' && JSON.parse(readFileSync(store.statePath,'utf8')).executions?.[req.id]?.result)process.exit(88)}});
       await new CommandRunnerV2(store,process.argv[2]).ensure(req);`;
@@ -272,7 +272,32 @@ test("process death after result rename reconciles exact durable outcome without
     const original = JSON.stringify((await f.store.read()).executions[req.id]); await f.runner.ensure(req);
     assert.equal(JSON.stringify((await f.store.read()).executions[req.id]), original);
     f.run = await f.rt.recordResult(m(f.run), "item", req.id, f.runner); assert.equal(f.run.nodes.item.lifecycle.executions[0].result.disposition, "PASS");
-  } finally { await f.cleanup(); }
+  } finally { if (req) await retainedCleanup(f, req); await f.cleanup(); }
+});
+test("extinction receipt survives crash after candidate cleanup before lifecycle publication", async () => {
+  const f = await fixture(); let req;
+  try {
+    await frame(f); req = await prepare(f, "static");
+    const url = new URL("../extensions/dag-workflow/runtime-v2/index.ts", import.meta.url).href;
+    const code = `import {CommandRunnerV2,StoreV2} from ${JSON.stringify(url)};
+      const runner=new CommandRunnerV2(new StoreV2(process.argv[1]),process.argv[2]);
+      const execute=runner.execute.bind(runner); runner.execute=async(...args)=>{await execute(...args);process.exit(88)};
+      await runner.ensure(JSON.parse(process.argv[3]));`;
+    const owner = spawn(process.execPath, ["--input-type=module", "-e", code, f.root, f.repository, JSON.stringify(req)], { stdio: ["ignore", "pipe", "pipe"] });
+    let errors = ""; owner.stderr.on("data", b => errors += b); owner.stdout.resume();
+    assert.equal(await new Promise(resolve => owner.once("close", resolve)), 88, errors);
+    const job = await commandJob(f, req), receipt = JSON.parse(await readFile(outcomeFile(job), "utf8"));
+    assert.equal(receipt.extinct, true); assert.equal(receipt.exitCode, 0); assert.equal(receipt.invoked, true);
+    assert.equal(job.status, "running"); assert.equal(job.result, undefined);
+    await assert.rejects(readFile(join(job.workspace, "file")), /ENOENT/);
+    await f.runner.ensure(req); assert.equal(await f.runner.read(req), null);
+    await assert.rejects(f.rt.recordResult(m(f.run), "item", req.id, f.runner), /NOT_DURABLE/);
+    await assert.rejects(f.rt.advanceLifecycle(m(f.run), "item", 1, 1), /CHECK_NOT_PASSED/);
+    await assert.rejects(f.runner.reconcileInterrupted(req, async () => { throw Error("independent effect settlement required"); }), /independent effect/);
+    await f.runner.reconcileInterrupted(req, async () => {});
+    const result = await f.runner.read(req);
+    assert.equal(result.disposition, "BLOCKED"); assert.equal(result.exitCode, 0); assert.equal(result.executor.invoked, true);
+  } finally { if (req) await retainedCleanup(f, req); await f.cleanup(); }
 });
 test("a real behavioral oracle fails on an invalid committed candidate despite static success", async () => {
   const f = await fixture(); try {
@@ -450,21 +475,29 @@ test("uncertain settlement retains a BLOCKED journal and workspace, not a settle
   try {
     await frame(f); req = await prepare(f, "static");
     const invoke = f.runner.invoke.bind(f.runner);
-    // Fault injection after the real process settled models a lost /proc proof.
+    // Fault injection after the real process settled models a lost ECHILD receipt.
     // The executor must not turn this into a lifecycle-settled BLOCKED result.
     f.runner.invoke = async (...args) => {
       const value = await invoke(...args);
-      if (value && typeof value === "object" && "settled" in value) return { ...value, settled: false, stderr: "injected unreadable process table" };
+      if (value && typeof value === "object" && "settled" in value) return { ...value, settled: false, stderr: "injected unavailable extinction receipt" };
       return value;
     };
     await assert.rejects(f.runner.ensure(req), /COMMAND_PROCESS_SETTLEMENT_REQUIRED/);
     const job = (await f.store.read()).executions[req.id]; assert.equal(job.status, "running"); assert.equal(job.result, undefined);
     const journal = JSON.parse(await readFile(join(resolve(job.workspace, ".."), "command-process.json"), "utf8"));
-    assert.equal(journal.state, "BLOCKED"); assert.match(journal.diagnostic, /unreadable process table/);
+    assert.equal(journal.state, "BLOCKED"); assert.match(journal.diagnostic, /unavailable extinction receipt/);
     assert.equal(await readFile(join(job.workspace, "file"), "utf8"), "baseline\n");
     await f.runner.ensure(req); assert.equal(await f.runner.read(req), null);
     await assert.rejects(f.rt.recordResult(m(f.run), "item", req.id, f.runner), /NOT_DURABLE/);
     await assert.rejects(f.rt.retryCheck(m(f.run), "item", 1, req.id), /RETRY|RESULT|FAIL|SETTLED/);
+    const receiptPath = join(resolve(job.workspace, ".."), `command-outcome-${journal.identity.token}.json`);
+    const receiptBytes = await readFile(receiptPath, "utf8");
+    for (const change of [r => r.token = "0".repeat(36), r => r.identity.processStart += "0", r => r.cwd += "-other", r => r.extinct = false]) {
+      const receipt = JSON.parse(receiptBytes); change(receipt); await writeFile(receiptPath, JSON.stringify(receipt));
+      await assert.rejects(f.runner.reconcileInterrupted(req, async () => {}), /INVALID_COMMAND_PROCESS_OUTCOME/);
+      assert.equal(await f.runner.read(req), null);
+    }
+    await writeFile(receiptPath, receiptBytes);
     await f.runner.reconcileInterrupted(req, async () => {});
     assert.equal((await f.runner.read(req)).disposition, "BLOCKED");
   } finally { if (req) await retainedCleanup(f, req); await f.cleanup(); }
@@ -472,7 +505,7 @@ test("uncertain settlement retains a BLOCKED journal and workspace, not a settle
 
 test("executor crash preserves a durable session identity; live descendants forbid reconciliation and retry", async () => {
   const root = await mkdtemp(join(tmpdir(), "n03-crash-")), pidfile = join(root, "pid");
-  const descendant = `require('fs').writeFileSync(${JSON.stringify(pidfile)},String(process.pid));setInterval(()=>{},1000)`;
+  const descendant = `process.on('SIGTERM',()=>{});require('fs').writeFileSync(${JSON.stringify(pidfile)},String(process.pid));setInterval(()=>{},1000)`;
   const f = await fixture(l => l.checks[0].procedure.argv = [process.execPath, "-e", `require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'ignore'}).unref()`]);
   let pid, req, journal, owner, completion;
   try {
@@ -492,8 +525,8 @@ test("executor crash preserves a durable session identity; live descendants forb
     await assert.rejects(f.rt.recordResult(m(f.run), "item", req.id, freshRunner), /NOT_DURABLE/);
     job = (await f.store.read()).executions[req.id]; assert.equal(job.status, "running");
     assert.equal(await readFile(join(job.workspace, "file"), "utf8"), "baseline\n");
-    try { process.kill(-journal.identity.pid, "SIGKILL"); } catch (e) { if (e.code !== "ESRCH") throw e; }
-    for (let i = 0; i < 500 && await liveProcess(pid); i++) await delay(10);
+    const outcome = JSON.parse(await waitForFile(join(resolve(job.workspace, ".."), `command-outcome-${journal.identity.token}.json`)));
+    assert.equal(outcome.extinct, true); assert.equal(outcome.exitCode, 0); assert.equal(outcome.interrupted, true);
     assert.equal(await liveProcess(pid), false);
     await freshRunner.reconcileInterrupted(req, async () => {});
     assert.equal((await freshRunner.read(req)).disposition, "BLOCKED");
@@ -504,6 +537,156 @@ test("executor crash preserves a durable session identity; live descendants forb
     if (pid && await liveProcess(pid)) try { process.kill(pid, "SIGKILL"); } catch {}
     await completion; if (req) await retainedCleanup(f, req); await f.cleanup(); await rm(root, { recursive: true, force: true });
   }
+});
+
+const handoffArgv = root => ["python3", "-I", "-B", fileURLToPath(new URL("./fixtures/command-fork-handoff.py", import.meta.url)), root];
+const outcomeFile = job => join(resolve(job.workspace, ".."), `command-outcome-${job.journal.identity.token}.json`);
+async function commandJob(f, req) {
+  const job = (await f.store.read()).executions[req.id];
+  return { ...job, journal: JSON.parse(await readFile(join(resolve(job.workspace, ".."), "command-process.json"), "utf8")) };
+}
+async function denyUnsettled(f, req) {
+  const job = (await f.store.read()).executions[req.id];
+  assert.equal(job.status, "running"); assert.equal(job.result, undefined);
+  assert.equal(await readFile(join(job.workspace, "file"), "utf8"), "baseline\n");
+  await new CommandRunnerV2(new StoreV2(f.root), f.repository).ensure(req);
+  assert.equal(await f.runner.read(req), null);
+  await assert.rejects(f.rt.recordResult(m(f.run), "item", req.id, f.runner), /NOT_DURABLE/);
+  if (f.run.status === "active") {
+    await assert.rejects(f.rt.retryCheck(m(f.run), "item", 1, req.id), /RETRY|RESULT|FAIL|SETTLED/);
+    await assert.rejects(f.rt.advanceLifecycle(m(f.run), "item", 1, 1), /CHECK_NOT_PASSED/);
+  } else await assert.rejects(f.rt.reconcileCancellation(m(f.run), async () => {}), /RECONCILIATION_REQUIRED/);
+}
+for (const aborted of [false, true]) test(`finite fork/exit handoff requires kernel extinction before durable result (${aborted ? "cancelled" : "normal"})`, async () => {
+  const probes = await mkdtemp(join(tmpdir(), "n03-handoff-"));
+  const f = await fixture(l => l.checks[0].procedure.argv = handoffArgv(probes));
+  const controller = new AbortController(); let req, execution, group;
+  try {
+    await frame(f); req = await prepare(f, "static"); execution = f.runner.ensure(req, controller.signal);
+    ({ group } = JSON.parse(await waitForFile(join(probes, "first"))));
+    await waitForFile(join(probes, "middle"));
+    if (aborted) { f.run = await busyRetry(() => f.rt.cancel(m(f.run))); controller.abort(); }
+    await denyUnsettled(f, req);
+    const pid = Number(await waitForFile(join(probes, "last"))); assert(await liveProcess(pid));
+    await denyUnsettled(f, req);
+    if (!aborted) await writeFile(join(probes, "release"), "release");
+    await execution;
+    const job = (await f.store.read()).executions[req.id];
+    assert.equal(await liveProcess(pid), false); assert.equal(job.status, "settled");
+    assert.equal(job.result.disposition, aborted ? "FAIL" : "PASS");
+    assert.equal(job.result.exitCode, 0, "retain actual command exit separately from descendant extinction/cancellation");
+    assert.equal(job.result.signal, null); assert(job.result.durationMs >= 1200);
+    await assert.rejects(readFile(join(job.workspace, "file")), /ENOENT/);
+    if (aborted) await assert.rejects(readFile(join(probes, "done")), /ENOENT/);
+    else assert.equal(Number(await readFile(join(probes, "done"), "utf8")), pid);
+    f.run = await f.rt.recordResult(m(f.run), "item", req.id, f.runner);
+    if (aborted) { f.run = await f.rt.reconcileCancellation(m(f.run), async () => {}); assert.equal(f.run.status, "cancelled"); }
+    else { f.run = await f.rt.advanceLifecycle(m(f.run), "item", 1, 1); assert.equal(f.run.nodes.item.lifecycle.stage, 2); }
+  } finally {
+    controller.abort(); if (group) try { process.kill(-group, "SIGKILL"); } catch {}
+    await execution; if (req) await retainedCleanup(f, req); await f.cleanup(); await rm(probes, { recursive: true, force: true });
+  }
+});
+
+for (const lost of ["owner", "outcome acknowledgement", "supervisor"]) test(`finite handoff crash reconciliation: lost ${lost}`, async () => {
+  const probes = await mkdtemp(join(tmpdir(), "n03-handoff-crash-"));
+  const f = await fixture(l => l.checks[0].procedure.argv = handoffArgv(probes));
+  let req, owner, ownerPid, completion, job, group;
+  const killOwner = signal => { if (ownerPid) try { process.kill(ownerPid, signal); } catch (e) { if (e.code !== "ESRCH") throw e; } };
+  const ownerExit = async () => JSON.parse(await waitForFile(join(probes, "owner-exit")));
+  try {
+    await frame(f); req = await prepare(f, "static");
+    const url = new URL("../extensions/dag-workflow/runtime-v2/index.ts", import.meta.url).href;
+    owner = spawn("python3", ["-I", "-B", fileURLToPath(new URL("./fixtures/command-owner-subreaper.py", import.meta.url)), probes,
+      process.execPath, "--input-type=module", "-e", `import {CommandRunnerV2,StoreV2} from ${JSON.stringify(url)};await new CommandRunnerV2(new StoreV2(process.argv[1]),process.argv[2]).ensure(JSON.parse(process.argv[3]));`, f.root, f.repository, JSON.stringify(req)], { stdio: ["ignore", "pipe", "pipe"] });
+    let errors = ""; owner.stderr.on("data", b => errors += b); owner.stdout.resume();
+    completion = new Promise(resolve => owner.once("close", (code, signal) => resolve({ code, signal })));
+    ownerPid = Number(await waitForFile(join(probes, "owner-pid")));
+    ({ group } = JSON.parse(await waitForFile(join(probes, "first"))));
+    job = await commandJob(f, req);
+    assert.equal(job.journal.version, 2);
+    if (lost === "outcome acknowledgement") {
+      // The owner cannot consume the helper exit or publish/clean while stopped.
+      killOwner("SIGSTOP");
+      const pid = Number(await waitForFile(join(probes, "last"))); assert(await liveProcess(pid));
+      await denyUnsettled(f, req);
+      await writeFile(join(probes, "release"), "release");
+      const receipt = JSON.parse(await waitForFile(outcomeFile(job)));
+      assert.equal(receipt.exitCode, 0); assert.equal(receipt.extinct, true); assert.equal(receipt.interrupted, false);
+      assert.equal(await liveProcess(pid), false);
+      killOwner("SIGKILL"); assert.equal((await ownerExit()).signal, "SIGKILL", errors);
+    } else if (lost === "owner") {
+      await waitForFile(join(probes, "middle")); // Crash during ordinary churn.
+      killOwner("SIGKILL"); assert.equal((await ownerExit()).signal, "SIGKILL", errors);
+      await denyUnsettled(f, req);
+      await assert.rejects(f.runner.reconcileInterrupted(req, async () => {}), /COMMAND_PROCESS_SETTLEMENT_REQUIRED/);
+      const receipt = JSON.parse(await waitForFile(outcomeFile(job)));
+      assert.equal(receipt.exitCode, 0); assert.equal(receipt.extinct, true); assert.equal(receipt.interrupted, true);
+      const pid = Number(await waitForFile(join(probes, "last"))); assert.equal(await liveProcess(pid), false);
+    } else {
+      process.kill(job.journal.identity.pid, "SIGKILL");
+      assert.notEqual((await ownerExit()).code, 0, errors);
+      const pid = Number(await waitForFile(join(probes, "last"))); assert(await liveProcess(pid));
+      await denyUnsettled(f, req);
+      await assert.rejects(readFile(outcomeFile(job)), /ENOENT/);
+      await assert.rejects(f.runner.reconcileInterrupted(req, async () => { throw Error("independent descendant settlement unavailable"); }), /independent descendant/);
+      // Even after the last descendant stops, missing receipt is NOT proof.
+      await writeFile(join(probes, "release"), "release"); await waitForFile(join(probes, "done"));
+      for (let i = 0; i < 500 && await liveProcess(pid); i++) await delay(10);
+      assert.equal(await liveProcess(pid), false);
+      await assert.rejects(f.runner.reconcileInterrupted(req, async () => { throw Error("independent effect settlement still required"); }), /independent effect/);
+      await denyUnsettled(f, req);
+    }
+    let independentlySettled = 0;
+    await f.runner.reconcileInterrupted(req, async () => {
+      // The outer test reaper independently waits to ECHILD, including when the
+      // production supervisor was killed. No negative /proc scan is the proof.
+      assert.equal((await completion).code, 0, errors); independentlySettled++;
+    });
+    assert.equal(independentlySettled, 1);
+    const recovered = await f.runner.read(req); assert.equal(recovered.disposition, "BLOCKED");
+    if (lost !== "supervisor") { assert.equal(recovered.exitCode, 0); assert.equal(recovered.executor.invoked, true); }
+    else assert.equal(recovered.exitCode, null);
+    assert.equal(await readFile(join(job.workspace, "file"), "utf8"), "baseline\n", "reconciliation does not auto-clean or invent PASS");
+    f.run = await f.rt.recordResult(m(f.run), "item", req.id, f.runner);
+    await assert.rejects(f.rt.advanceLifecycle(m(f.run), "item", 1, 1), /CHECK_NOT_PASSED|UNRESOLVED_FINDINGS/);
+    f.run = await f.rt.retryCheck(m(f.run), "item", 1, req.id);
+    assert.equal(f.run.nodes.item.retries[0].dimension, "infrastructure");
+  } finally {
+    killOwner("SIGKILL"); if (group) try { process.kill(-group, "SIGKILL"); } catch {}
+    await completion; if (req) await retainedCleanup(f, req); await f.cleanup(); await rm(probes, { recursive: true, force: true });
+  }
+});
+
+test("current-intent fencing at the subreaper gate prevents actual command launch", async () => {
+  const probes = await mkdtemp(join(tmpdir(), "n03-gate-")), marker = join(probes, "invoked");
+  const f = await fixture(l => l.checks[0].procedure.argv = [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(marker)},'unsafe')`]);
+  let release, reached; const gated = new Promise(resolve => reached = resolve), resume = new Promise(resolve => release = resolve);
+  let execution, req;
+  try {
+    await frame(f); req = await prepare(f, "static");
+    const invoke = f.runner.invoke.bind(f.runner);
+    f.runner.invoke = async (...args) => { if (args[3]) { reached(); await resume; } return invoke(...args); };
+    execution = f.runner.ensure(req); await gated;
+    f.run = await busyRetry(() => f.rt.cancel(m(f.run))); release(); await execution;
+    const result = await f.runner.read(req);
+    assert.equal(result.executor.invoked, false); assert.equal(result.disposition, "BLOCKED");
+    assert.match(result.diagnostic, /FENCED_BEFORE_INVOCATION/);
+    await assert.rejects(readFile(marker), /ENOENT/);
+    f.run = await f.rt.recordResult(m(f.run), "item", req.id, f.runner);
+    assert.equal(f.run.nodes.item.lifecycle.executions.at(-1).status, "quarantined");
+  } finally { release(); await execution; if (req) await retainedCleanup(f, req); await f.cleanup(); await rm(probes, { recursive: true, force: true }); }
+});
+
+test("missing Python capability fails closed before argv launch", async () => {
+  const { runArgvV2 } = await import("../extensions/dag-workflow/runtime-v2/command-runner.ts");
+  const root = await mkdtemp(join(tmpdir(), "n03-no-python-")), previous = process.env.PATH;
+  try {
+    process.env.PATH = root;
+    const result = await runArgvV2([process.execPath, "-e", "throw Error('must not launch')"], root);
+    assert.equal(result.invoked, false); assert.equal(result.settled, true); assert.equal(result.exitCode, null);
+    assert.match(result.stderr, /ENOENT/);
+  } finally { process.env.PATH = previous; await rm(root, { recursive: true, force: true }); }
 });
 
 let failed = 0;
