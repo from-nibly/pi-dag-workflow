@@ -1,1 +1,1 @@
-node scripts/project-model-test.mjs 
+node scripts/project-model-test.mjs

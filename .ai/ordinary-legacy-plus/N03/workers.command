@@ -1,1 +1,1 @@
-node scripts/worker-runtime-test.mjs 
+node scripts/worker-runtime-test.mjs

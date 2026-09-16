@@ -1,1 +1,1 @@
-node scripts/git-integration-test.mjs 
+node scripts/git-integration-test.mjs

@@ -1,1 +1,1 @@
-node scripts/dag-v2-lifecycle-test.mjs 
+node scripts/dag-v2-lifecycle-test.mjs

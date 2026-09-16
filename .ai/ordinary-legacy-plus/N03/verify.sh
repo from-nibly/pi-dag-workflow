@@ -5,8 +5,9 @@ failed=0
 run_check() {
   local label=$1
   shift
-  printf '%q ' "$@" > "$root/$label.command"
-  printf '\n' >> "$root/$label.command"
+  local command
+  printf -v command '%q ' "$@"
+  printf '%s\n' "${command% }" > "$root/$label.command"
   /usr/bin/time -f 'exit=%x duration_seconds=%e' -o "$root/$label.time" "$@" > "$root/$label.log" 2>&1
   local code=$?
   printf '%s exit=%s\n' "$label" "$code"

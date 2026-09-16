@@ -7,7 +7,7 @@ Status: implemented and locally verified; ready for owner review/integration and
 - Branch: `implement/legacy-plus-lifecycle`.
 - Reviewed/integrated N02 base: `1af5c090dd17d1fe0a5e6fc029d0759d86b6af98`.
 - Implementation commit: `030760e7f81d5c446eb6bc070848c0095a13c43a` (`feat(runtime-v2): enforce direct lifecycle execution evidence`).
-- The following evidence-only commit retains this ledger, exact commands, complete stdout/stderr logs, exits and elapsed durations. No integration into main was performed by this worker.
+- Evidence commit: `e141b57` retains this ledger, exact commands, complete stdout/stderr logs, exits and elapsed durations. A following documentation-only correction removes trailing command separators from metadata and its formatter; raw test logs are unchanged. No integration into main was performed by this worker.
 
 ## Delivered
 
@@ -32,7 +32,7 @@ Commands are retained individually in `<label>.command`; complete combined stdou
 - `node scripts/worker-runtime-test.mjs` — exit 0, **44.41 s** (`workers.*`).
 - `node scripts/git-integration-test.mjs` — exit 0, **93.97 s** (`git.*`).
 - `node scripts/dag-planning-runtime-test.mjs` — exit 0, **126.60 s** (`planning-runtime.*`).
-- `git diff --check` — exit 0 (`diff-final.*`); staged whitespace validation also passed before implementation commit.
+- `git diff 1af5c09 --check` — exit 0 across the full deliverable (`diff-final.*`); staged whitespace validation also passed before implementation commit. Evidence staging later exposed trailing spaces in generated `.command` metadata; the metadata/formatter were corrected and the full-base check rerun successfully.
 
 Final suite durations sum to **721.94 s** (not parallel wall time). Tool budgets were **7200 seconds** for the focused aggregate and **14400 seconds** for the regression aggregate; individual exploratory runs had 3600-second budgets. No timeout was classified as PASS.
 
