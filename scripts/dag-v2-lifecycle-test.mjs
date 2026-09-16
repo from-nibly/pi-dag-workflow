@@ -331,6 +331,181 @@ test("independent evaluator contexts cannot be reused across work items", async 
     }
   } finally { await f.cleanup(); }
 });
+const processState = async pid => {
+  try { const text = await readFile(`/proc/${pid}/stat`, "utf8"); return text.slice(text.lastIndexOf(")") + 2).split(" ")[0]; }
+  catch (e) { if (["ENOENT", "ESRCH"].includes(e.code)) return "absent"; throw e; }
+};
+const liveProcess = async pid => !["Z", "X", "absent"].includes(await processState(pid));
+async function waitForFile(path) {
+  for (let i = 0; i < 500; i++) { try { return await readFile(path, "utf8"); } catch (e) { if (e.code !== "ENOENT") throw e; } await delay(10); }
+  throw Error(`Timed out waiting for ${path}`);
+}
+async function retainedCleanup(f, req) {
+  const job = (await f.store.read()).executions[req.id];
+  if (job?.workspace) {
+    try { f.git("worktree", "remove", "--force", job.workspace); } catch {}
+    await rm(resolve(job.workspace, ".."), { recursive: true, force: true });
+  }
+}
+
+test("inherited Git selectors/config cannot redirect source inspection, checks or no-edit validation", async () => {
+  const f = await fixture(l => l.checks[0].procedure = { kind: "command", argv: [process.execPath, "-e", `
+    const fs=require('node:fs'),{execFileSync}=require('node:child_process'),assert=require('node:assert/strict');
+    assert.equal(process.env.GIT_WORK_TREE,undefined); assert.equal(process.env.GIT_DIR,undefined);
+    assert.equal(process.env.GIT_INDEX_FILE,undefined); assert.equal(process.env.GIT_CONFIG_COUNT,undefined);
+    assert.equal(process.env.GIT_CONFIG_PARAMETERS,undefined);
+    assert.equal(execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim(),process.cwd());
+    fs.appendFileSync('file','MUTATION\\n'); console.log('changed actual candidate');
+  `] });
+  const keys = { GIT_WORK_TREE: f.repository, GIT_DIR: join(f.root, "not-a-git-dir"), GIT_COMMON_DIR: join(f.root, "bad-common"),
+    GIT_INDEX_FILE: join(f.root, "bad-index"), GIT_OBJECT_DIRECTORY: join(f.root, "bad-objects"), GIT_ALTERNATE_OBJECT_DIRECTORIES: join(f.root, "bad-alternates"),
+    GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.worktree", GIT_CONFIG_VALUE_0: f.repository,
+    GIT_CONFIG_PARAMETERS: "'core.worktree'='" + f.repository + "'", GIT_CONFIG: join(f.root, "bad-config"),
+    GIT_CONFIG_GLOBAL: join(f.root, "bad-global"), GIT_NAMESPACE: "other", GIT_CEILING_DIRECTORIES: "/tmp" };
+  const saved = Object.fromEntries(Object.keys(keys).map(key => [key, process.env[key]])); let req;
+  try {
+    Object.assign(process.env, keys);
+    await frame(f); req = await execute(f, "static"); const result = await f.runner.read(req);
+    assert.equal(result.exitCode, 0, result.stderr); assert.equal(result.disposition, "FAIL");
+    assert(result.workspace.cleanBefore); assert.equal(result.workspace.cleanAfter, false);
+    const job = (await f.store.read()).executions[req.id];
+    assert.match(await readFile(join(job.workspace, "file"), "utf8"), /MUTATION/);
+    assert.equal(await readFile(join(f.repository, "file"), "utf8"), "baseline\n");
+    await assert.rejects(f.rt.advanceLifecycle(m(f.run), "item", 1, 1), /CHECK_NOT_PASSED/);
+    assert.equal(f.run.nodes.item.lifecycle.stage, 1);
+  } finally {
+    for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    if (req) await retainedCleanup(f, req); await f.cleanup();
+  }
+});
+
+test("contradictory dirty cleanup cannot retain a PASS even if the cleanliness observer claimed clean", async () => {
+  const f = await fixture(l => l.checks[0].procedure.argv = [process.execPath, "-e", "require('fs').appendFileSync('file','mutation\\n')"]); let req;
+  try {
+    await frame(f);
+    // Fault injection at the independent observer recreates the reviewer's
+    // contradictory cleanAfter/dirty-cleanup path without weakening real Git.
+    f.runner.clean = () => true;
+    req = await execute(f, "static"); const result = await f.runner.read(req);
+    assert.equal(result.disposition, "BLOCKED"); assert.equal(result.workspace.cleanAfter, false);
+    assert.match(result.diagnostic, /cleanup retained/);
+    await assert.rejects(f.rt.advanceLifecycle(m(f.run), "item", 1, 1), /CHECK_NOT_PASSED/);
+  } finally { if (req) await retainedCleanup(f, req); await f.cleanup(); }
+});
+
+for (const aborted of [false, true]) test(`same-session unref descendant prevents premature settlement/cleanup (${aborted ? "abort with TERM resistance" : "normal leader exit"})`, async () => {
+  const probes = await mkdtemp(join(tmpdir(), "n03-descendant-")), pidfile = join(probes, "pid");
+  const descendant = `process.on('SIGTERM',()=>{}); require('fs').writeFileSync(${JSON.stringify(pidfile)},String(process.pid)); setTimeout(()=>process.exit(0),${aborted ? 20000 : 1800}); setInterval(()=>{},1000);`;
+  const parent = `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'ignore'}); c.unref(); ${aborted ? "setInterval(()=>{},1000);" : ""}`;
+  const f = await fixture(l => l.checks[0].procedure.argv = [process.execPath, "-e", parent]);
+  let pid, req, execution;
+  const controller = new AbortController();
+  try {
+    await frame(f); req = await prepare(f, "static"); execution = f.runner.ensure(req, controller.signal);
+    pid = Number(await waitForFile(pidfile)); assert(await liveProcess(pid));
+    let job = (await f.store.read()).executions[req.id];
+    const journal = JSON.parse(await readFile(join(resolve(job.workspace, ".."), "command-process.json"), "utf8"));
+    assert.equal(journal.requestId, req.id); assert(journal.identity.pid > 0); assert.match(journal.identity.processStart, /:/);
+    if (aborted) { f.run = await busyRetry(() => f.rt.cancel(m(f.run))); controller.abort(); }
+    await delay(300);
+    assert(await liveProcess(pid), "descendant should still be running before normal exit / KILL escalation");
+    job = (await f.store.read()).executions[req.id]; assert.equal(job.status, "running"); assert.equal(job.result, undefined);
+    assert.equal(await readFile(join(job.workspace, "file"), "utf8"), "baseline\n");
+    assert.equal(await f.runner.read(req), null);
+    await f.runner.ensure(req); // Natural identity is not permission to relaunch.
+    await assert.rejects(f.rt.recordResult(m(f.run), "item", req.id, f.runner), /NOT_DURABLE/);
+    if (aborted) await assert.rejects(f.rt.reconcileCancellation(m(f.run), async () => {}), /RECONCILIATION_REQUIRED/);
+    else {
+      await assert.rejects(f.rt.retryCheck(m(f.run), "item", 1, req.id), /RETRY|RESULT|FAIL|SETTLED/);
+      await assert.rejects(f.rt.advanceLifecycle(m(f.run), "item", 1, 1), /CHECK_NOT_PASSED/);
+    }
+    await execution;
+    assert.equal(await liveProcess(pid), false);
+    job = (await f.store.read()).executions[req.id]; assert.equal(job.status, "settled");
+    assert.equal(job.result.disposition, aborted ? "FAIL" : "PASS");
+    assert(job.result.durationMs >= (aborted ? 1000 : 1800));
+    await assert.rejects(readFile(join(job.workspace, "file")), /ENOENT/);
+    f.run = await f.rt.recordResult(m(f.run), "item", req.id, f.runner);
+    if (aborted) { f.run = await f.rt.reconcileCancellation(m(f.run), async () => {}); assert.equal(f.run.status, "cancelled"); }
+  } finally {
+    controller.abort(); if (pid && await liveProcess(pid)) try { process.kill(pid, "SIGKILL"); } catch {}
+    await execution; if (req) await retainedCleanup(f, req); await f.cleanup(); await rm(probes, { recursive: true, force: true });
+  }
+});
+
+test("timeout escalation survives argv leader close and kills TERM-resistant descendants", async () => {
+  const root = await mkdtemp(join(tmpdir(), "n03-timeout-")), pidfile = join(root, "pid"); let pid;
+  try {
+    const descendant = `process.on('SIGTERM',()=>{});require('fs').writeFileSync(${JSON.stringify(pidfile)},String(process.pid));setInterval(()=>{},1000)`;
+    const { runArgvV2 } = await import("../extensions/dag-workflow/runtime-v2/command-runner.ts");
+    const execution = runArgvV2([process.execPath, "-e", `require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'ignore'}).unref()`], root, undefined, { timeoutMs: 500 });
+    pid = Number(await waitForFile(pidfile)); const result = await execution;
+    assert(result.settled); assert(result.interrupted); assert.equal(await liveProcess(pid), false);
+    assert.match(result.stderr, /deadline expired/);
+  } finally { if (pid && await liveProcess(pid)) try { process.kill(pid, "SIGKILL"); } catch {} await rm(root, { recursive: true, force: true }); }
+});
+
+test("uncertain settlement retains a BLOCKED journal and workspace, not a settled retryable outcome", async () => {
+  const f = await fixture(); let req;
+  try {
+    await frame(f); req = await prepare(f, "static");
+    const invoke = f.runner.invoke.bind(f.runner);
+    // Fault injection after the real process settled models a lost /proc proof.
+    // The executor must not turn this into a lifecycle-settled BLOCKED result.
+    f.runner.invoke = async (...args) => {
+      const value = await invoke(...args);
+      if (value && typeof value === "object" && "settled" in value) return { ...value, settled: false, stderr: "injected unreadable process table" };
+      return value;
+    };
+    await assert.rejects(f.runner.ensure(req), /COMMAND_PROCESS_SETTLEMENT_REQUIRED/);
+    const job = (await f.store.read()).executions[req.id]; assert.equal(job.status, "running"); assert.equal(job.result, undefined);
+    const journal = JSON.parse(await readFile(join(resolve(job.workspace, ".."), "command-process.json"), "utf8"));
+    assert.equal(journal.state, "BLOCKED"); assert.match(journal.diagnostic, /unreadable process table/);
+    assert.equal(await readFile(join(job.workspace, "file"), "utf8"), "baseline\n");
+    await f.runner.ensure(req); assert.equal(await f.runner.read(req), null);
+    await assert.rejects(f.rt.recordResult(m(f.run), "item", req.id, f.runner), /NOT_DURABLE/);
+    await assert.rejects(f.rt.retryCheck(m(f.run), "item", 1, req.id), /RETRY|RESULT|FAIL|SETTLED/);
+    await f.runner.reconcileInterrupted(req, async () => {});
+    assert.equal((await f.runner.read(req)).disposition, "BLOCKED");
+  } finally { if (req) await retainedCleanup(f, req); await f.cleanup(); }
+});
+
+test("executor crash preserves a durable session identity; live descendants forbid reconciliation and retry", async () => {
+  const root = await mkdtemp(join(tmpdir(), "n03-crash-")), pidfile = join(root, "pid");
+  const descendant = `require('fs').writeFileSync(${JSON.stringify(pidfile)},String(process.pid));setInterval(()=>{},1000)`;
+  const f = await fixture(l => l.checks[0].procedure.argv = [process.execPath, "-e", `require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'ignore'}).unref()`]);
+  let pid, req, journal, owner, completion;
+  try {
+    await frame(f); req = await prepare(f, "static");
+    const url = pathToFileURL(resolve("extensions/dag-workflow/runtime-v2/index.ts")).href;
+    owner = spawn(process.execPath, ["--input-type=module", "-e", `import {CommandRunnerV2,StoreV2} from ${JSON.stringify(url)};await new CommandRunnerV2(new StoreV2(process.argv[1]),process.argv[2]).ensure(JSON.parse(process.argv[3]));`, f.root, f.repository, JSON.stringify(req)], { stdio: ["ignore", "pipe", "pipe"] });
+    let errors = ""; owner.stderr.on("data", b => errors += b); owner.stdout.resume();
+    completion = new Promise(resolve => owner.once("close", (code, signal) => resolve({ code, signal })));
+    pid = Number(await waitForFile(pidfile));
+    let job = (await f.store.read()).executions[req.id];
+    journal = JSON.parse(await readFile(join(resolve(job.workspace, ".."), "command-process.json"), "utf8"));
+    owner.kill("SIGKILL"); assert.equal((await completion).signal, "SIGKILL", errors);
+    assert(await liveProcess(pid));
+    const freshRunner = new CommandRunnerV2(new StoreV2(f.root), f.repository);
+    await freshRunner.ensure(req); assert.equal(await freshRunner.read(req), null);
+    await assert.rejects(freshRunner.reconcileInterrupted(req, async () => {}), /COMMAND_PROCESS_SETTLEMENT_REQUIRED/);
+    await assert.rejects(f.rt.recordResult(m(f.run), "item", req.id, freshRunner), /NOT_DURABLE/);
+    job = (await f.store.read()).executions[req.id]; assert.equal(job.status, "running");
+    assert.equal(await readFile(join(job.workspace, "file"), "utf8"), "baseline\n");
+    try { process.kill(-journal.identity.pid, "SIGKILL"); } catch (e) { if (e.code !== "ESRCH") throw e; }
+    for (let i = 0; i < 500 && await liveProcess(pid); i++) await delay(10);
+    assert.equal(await liveProcess(pid), false);
+    await freshRunner.reconcileInterrupted(req, async () => {});
+    assert.equal((await freshRunner.read(req)).disposition, "BLOCKED");
+    f.run = await f.rt.recordResult(m(f.run), "item", req.id, freshRunner);
+    f.run = await f.rt.retryCheck(m(f.run), "item", 1, req.id); assert.equal(f.run.nodes.item.retries[0].dimension, "infrastructure");
+  } finally {
+    owner?.kill("SIGKILL"); if (journal) try { process.kill(-journal.identity.pid, "SIGKILL"); } catch {}
+    if (pid && await liveProcess(pid)) try { process.kill(pid, "SIGKILL"); } catch {}
+    await completion; if (req) await retainedCleanup(f, req); await f.cleanup(); await rm(root, { recursive: true, force: true });
+  }
+});
+
 let failed = 0;
 for (const [name, fn] of tests) { const at = performance.now(); try { await fn(); console.log(`PASS ${name} (${((performance.now() - at) / 1000).toFixed(2)}s)`); } catch (error) { failed++; console.error(`FAIL ${name}`, error); } }
 console.log(`${tests.length - failed}/${tests.length} passed`); process.exitCode = failed ? 1 : 0;
