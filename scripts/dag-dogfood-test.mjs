@@ -18,11 +18,14 @@ import {
   canonicalStringify,
   dagRunStoreLockIdentityFromOwner,
   readRepositoryBindingIdentityV1,
+  integrationValidationEffectRequestV1,
   ownershipChainHashV1,
   scheduleDagRunV1,
   sealCanonicalDagPlanV1,
   sealDagRunStateV1,
 } from "../extensions/dag-workflow/dag-runtime/index.ts";
+
+import { registerCanonicalDagRuntime } from "../extensions/dag-workflow/dag-runtime/integration.ts";
 
 const execFileAsync = promisify(execFile);
 const realGitExecutable = (await execFileAsync("sh", ["-c", "command -v git"], { encoding: "utf8" })).stdout.trim();
@@ -51,6 +54,8 @@ function integrationProfilesFixture(options = {}) {
 const lifecycleCrashPoints = ["after_procedure_intent", "after_procedure_dispatch", "after_procedure_result", "after_procedure_reconcile"];
 export const DOGFOOD_SCENARIOS = Object.freeze([
   { id: "happy", group: "baseline", name: "happy", options: () => ({ items: 1 }) },
+  { id: "semanticIntegrationRecovery", group: "validation", name: "semantic-integration-recovery", options: () => ({ items: 1, semanticIntegrationRecovery: true }) },
+  { id: "semanticIntegrationFailure", group: "validation", name: "semantic-integration-failure", options: () => ({ items: 1, semanticIntegrationRecovery: true, validationFailurePhase: "final" }) },
   { id: "f4PassCrashMatrix", group: "lifecycle", name: "f4-pass-crash-matrix", options: () => ({ items: 1, lifecycleCrashAt: lifecycleCrashPoints, lifecycleCrashStage: "F4" }) },
   { id: "f7FailCrashMatrix", group: "lifecycle", name: "f7-fail-crash-matrix", options: () => ({ items: 1, lifecycleCrashAt: lifecycleCrashPoints, lifecycleCrashStage: "F7", procedureFailureStage: "F7" }) },
   { id: "compositionBeforeDispatchReplay", group: "composition", name: "composition-before-dispatch", options: () => ({ items: 1, crashAt: "after_integration_reserve" }) },
@@ -89,7 +94,7 @@ export async function runCurrentDogfoodManifest({ groups = [], scenarios = [] } 
 
 export async function scenario(parent, name, options) {
   const repo = join(parent, name);
-  if (options.crashAt?.includes("_validation_") || options.validationCrashPoints?.length || options.validationFailurePhase) options.validationCounterPath = join(parent, `${name}-validation-count.log`);
+  if (options.crashAt?.includes("_validation_") || options.validationCrashPoints?.length || options.validationFailurePhase || options.semanticIntegrationRecovery) options.validationCounterPath = join(parent, `${name}-validation-count.log`);
   const originalPath = process.env.PATH;
   const gitWrapperRoot = join(parent, `${name}-git-wrapper`); const gitNoopMarker = join(gitWrapperRoot, "noop-next-merge");
   if (options.provenAbsentLanding) {
@@ -215,6 +220,10 @@ export async function scenario(parent, name, options) {
     if (terminalForScenario(state, options)) break;
     const before = state;
     try {
+      if (options.semanticIntegrationRecovery && Object.values(state.integrationAttempts).some((attempt) => attempt.composedTree)) {
+        state = await recoverIntegrationThroughRegisteredTools(ctx, store, state);
+        break;
+      }
       const lifecycle = new DagLifecycleRuntimeV1(store, plan, context, dagRunStoreLockIdentityFromOwner(state.owner), repo, lifecycleOptions);
       const reconciled = await lifecycle.reconcileOne(AT);
       state = await store.read(context);
@@ -255,7 +264,8 @@ export async function scenario(parent, name, options) {
     assert.equal(validationFailureObserved, true, `${options.validationFailurePhase} non-PASS validation fails closed only after durable effect reconciliation`);
     assert.equal(itemStates[0].current, "integrating");
     const effect = Object.values(state.effects).find((candidate) => candidate.kind === "verify_prefix" && candidate.executionRequest?.phase === options.validationFailurePhase);
-    assert.equal(effect.state, "reconciled"); assert.equal(effect.reconciliation, "applied_exact"); assert.equal(context.facts[effect.executionObservationHash].disposition, "FAIL");
+    assert.equal(effect.state, "reconciled"); assert.equal(effect.reconciliation, "applied_exact"); assert.equal((await store.readImmutableFact(effect.executionObservationHash)).disposition, "FAIL");
+    assert.equal(target.commit, baseline.commit, "non-PASS validation never lands the target");
   } else if (options.validationObservationConflict) {
     assert.equal(validationConflictObserved, true, "conflicting durable validation observations fail closed before proposal verification or landing");
     assert.equal(itemStates[0].current, "integrating");
@@ -283,6 +293,20 @@ export async function scenario(parent, name, options) {
   }
   for (const targetRoot of new Set(Object.values(targetRoots))) assert.equal(await git(targetRoot, ["status", "--porcelain=v2", "--untracked-files=all"]), "", "bound target worktree remains exact and clean");
   const onlyAttempt = Object.values(state.integrationAttempts)[0];
+  if (options.semanticIntegrationRecovery) {
+    const lines = (await readFile(options.validationCounterPath, "utf8")).trim().split("\n");
+    assert.deepEqual(lines, ["prefix", "final"], "fresh semantic continuation executes each validation exactly once");
+    assert.equal(Object.keys(state.integrationAttempts).length, 1, "recovery keeps the admitted integration attempt");
+    assert.equal(state.effects[onlyAttempt.compositionEffectId].dispatchCount, 1, "recovery does not recompose");
+    for (const phase of ["prefix", "final"]) {
+      const effect = Object.values(state.effects).find((effect) => effect.executionRequest?.phase === phase);
+      assert.equal(effect.dispatchCount, 1); assert.equal(effect.state, "reconciled");
+      assert.equal(effect.requestHash, canonicalHash(effect.executionRequest));
+      const execution = await store.readImmutableFact(effect.executionObservationHash);
+      const reconciliation = await store.readImmutableFact(effect.observationHash);
+      assert.equal(execution.requestHash, effect.requestHash); assert.equal(reconciliation.executionObservationHash, execution.hash);
+    }
+  }
   if (options.lifecycleCrashAt) {
     const stage = options.lifecycleCrashStage;
     for (const point of Array.isArray(options.lifecycleCrashAt) ? options.lifecycleCrashAt : [options.lifecycleCrashAt]) assert(firedPoints.has(point), `${stage} crosses ${point}`);
@@ -364,6 +388,55 @@ function committedSnapshotProjection(state) {
     reservedOperationHashes: reservations.filter(({ state: reservationState }) => ["reserved", "dispatch_intent"].includes(reservationState)).map(operationHash).sort(),
     activeOperationHashes: reservations.filter(({ state: reservationState }) => reservationState === "active").map(operationHash).sort(),
   };
+}
+
+async function recoverIntegrationThroughRegisteredTools(ctx, store, checkpoint) {
+  const diskContext = JSON.parse(await readFile(join(store.runDirectory, "authority", "context.json"), "utf8"));
+  const attempt = Object.values(checkpoint.integrationAttempts)[0];
+  assert(attempt.composedTree);
+  assert.equal(diskContext.facts[attempt.repositoryBindingFactHash], undefined, "start context does not contain later repository binding facts");
+  const binding = await store.readImmutableFact(attempt.repositoryBindingFactHash);
+  assert.equal(binding.kind, "git_transaction"); assert.equal(binding.factType, "repository_binding");
+  assert.equal(binding.integrationAttemptId, null, "repository preflight precedes attempt reservation");
+  assert.equal((await store.read(diskContext)).snapshotHash, checkpoint.snapshotHash, "fresh store validation can hydrate the persisted state");
+  const authorityError = /Integration validation request requires exact attempt\/profile\/tree\/repository authority/;
+  assert.throws(() => integrationValidationEffectRequestV1(checkpoint, diskContext, attempt.integrationAttemptId, "prefix"), authorityError);
+  const hydrated = { ...diskContext, facts: { ...diskContext.facts, [binding.hash]: binding } };
+  const request = integrationValidationEffectRequestV1(checkpoint, hydrated, attempt.integrationAttemptId, "prefix");
+  assert.equal(canonicalHash(request.tree), canonicalHash(attempt.composedTree), "adding only the exact repository binding repairs the missing authority");
+  assert.equal(request.commonDirIdentityHash, binding.commonDirIdentityHash);
+  assert.throws(() => integrationValidationEffectRequestV1(checkpoint, { ...hydrated, integrationValidationProfiles: {} }, attempt.integrationAttemptId, "prefix"), authorityError);
+  assert.throws(() => integrationValidationEffectRequestV1(checkpoint, { ...hydrated, facts: { [binding.hash]: { ...binding, kind: "repository_observation" } } }, attempt.integrationAttemptId, "prefix"), authorityError);
+  const tools = new Map();
+  const service = new DagConductorServiceV1();
+  registerCanonicalDagRuntime({ on() {}, registerTool(tool) { tools.set(tool.name, tool); } }, service);
+  const call = async (name, params) => (await tools.get(name).execute(`recovery-${name}`, params, undefined, undefined, ctx)).details;
+  const first = (await call("dag_next_action", { runId: checkpoint.runId })).frontier.find(({ operation }) => operation === "integrate");
+  assert(first);
+  const params = { runId: checkpoint.runId, actionId: first.actionId, workItemId: first.workItemId, stage: first.stage };
+  await assert.rejects(() => call("dag_integrate", { ...params, workItemId: "wrong-item" }), /does not bind the requested workItemId/);
+  await assert.rejects(() => tools.get("dag_integrate").execute("wrong-session", params, undefined, undefined, { ...ctx, sessionManager: { ...ctx.sessionManager, getSessionId: () => "wrong-session" } }), /binding/i);
+  const factPath = join(store.factsDirectory, `${binding.hash.slice(7)}.json`);
+  const factBytes = await readFile(factPath);
+  try {
+    await rm(factPath);
+    await assert.rejects(() => call("dag_integrate", params), /Invalid DAG run state/, "missing durable binding cannot be replaced by a cached fact");
+    await writeFile(factPath, canonicalStringify({ ...binding, repositoryId: "wrong-repository" }));
+    await assert.rejects(() => call("dag_integrate", params), /Invalid DAG run state/, "corrupt durable binding fails closed");
+  } finally { await writeFile(factPath, factBytes); }
+  assert.equal((await store.read(diskContext)).snapshotHash, checkpoint.snapshotHash, "authority failures never advance the snapshot");
+  let state = checkpoint;
+  for (let step = 0; step < 16 && state.completion.state !== "plan_complete"; step += 1) {
+    const next = await call("dag_next_action", { runId: state.runId });
+    const action = next.frontier.find(({ operation }) => operation === "integrate" || operation === "finalize");
+    assert(action, "fresh registered tools expose exact integration/finalization continuation");
+    const result = await call(action.operation === "integrate" ? "dag_integrate" : "dag_finalize", { runId: state.runId, actionId: action.actionId, workItemId: action.workItemId, stage: action.stage, stageAttemptId: action.stageAttemptId });
+    state = result.state;
+  }
+  assert.equal(state.completion.state, "plan_complete");
+  await assert.rejects(() => call("dag_integrate", params), /stale|consumed/, "completed continuation cannot replay its old semantic action");
+  assert.equal(canonicalHash(state.stageAttempts), canonicalHash(checkpoint.stageAttempts), "integration recovery never replaces completed F0-F8 attempts");
+  return state;
 }
 
 function terminalForScenario(state, options) {

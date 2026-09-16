@@ -278,7 +278,10 @@ export class DagReducerGitIntegrationDriverV1 implements DagIntegrationReconcili
     if (!profile || canonicalHash(profile) !== profileHash || profile.profileId !== profileId) throw new GitIntegrationBlockedError("VALIDATION_PROFILE_UNAVAILABLE", `Exact ${phase} validation mapping is absent or does not match the plan profile hash`);
     const effectId = `${attemptId}-verify-${phase}`;
     let effect = Object.values(state.effects).find((candidate: any) => candidate.kind === "verify_prefix" && candidate.boundIntegrationAttemptId === attemptId && candidate.executionRequest?.phase === phase) as any;
-    let executionRequest = integrationValidationEffectRequestV1(state, this.context, attemptId, phase);
+    // Store reads hydrate facts for validation, not into the caller's start-time context.
+    const bindingFact = await this.store.readImmutableFact(attempt.repositoryBindingFactHash);
+    const requestContext = { ...this.context, facts: { ...this.context.facts, [attempt.repositoryBindingFactHash]: bindingFact as DagRunValidationContextV1["facts"][string] } };
+    let executionRequest = integrationValidationEffectRequestV1(state, requestContext, attemptId, phase);
     if (effect) executionRequest = { ...executionRequest, ownerEpoch: effect.boundOwnerEpoch, authorizationSetHash: effect.boundAuthorizationSetHash, freshnessReceiptHash: effect.boundFreshnessReceiptHash };
     const requestHash = canonicalHash(executionRequest);
     if (!effect) {
