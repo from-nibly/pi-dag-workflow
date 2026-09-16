@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { link, mkdtemp, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn, execFileSync } from "node:child_process";
@@ -64,6 +64,54 @@ test("save/show/revise are inert; current explicit run has no extra plan transit
     await f.runtime.save(input("plan-other"), 3);
     await assert.rejects(f.runtime.show(), /PLAN_SELECTION_REQUIRED/);
     await assert.rejects(f.runtime.start(request(p2), 3), /STALE_REVISION/);
+  } finally { await f.cleanup(); }
+});
+test("closed plan inputs reject invalid record keys, values and envelope fields without publication", async () => {
+  const f = await fixture(); try {
+    const original = await readFile(f.store.statePath, "utf8");
+    for (const key of ["bad/key", "constructor", "prototype", "__proto__"]) {
+      for (const value of [1, "not-a-count"]) for (const resource of [p => p.constraints.resources, p => p.workItems[0].resources]) {
+        const data = input(); Object.defineProperty(resource(data), key, { value, enumerable: true });
+        assert.throws(() => createPlanV2(data, 2), /INVALID_V2/);
+        await assert.rejects(f.runtime.save(data, 1), /INVALID_V2/);
+        assert.equal(await readFile(f.store.statePath, "utf8"), original);
+      }
+    }
+    for (const [key, value] of [["kind", "dag_plan_v1"], ["kind", "dag_plan_v2"], ["schemaVersion", 1], ["schemaVersion", 2], ["revision", 99], ["planHash", "garbage"]]) {
+      const data = { ...input(), [key]: value };
+      assert.throws(() => createPlanV2(data, 2), /INVALID_V2/);
+      await assert.rejects(f.runtime.save(data, 1), /INVALID_V2/);
+      assert.equal(await readFile(f.store.statePath, "utf8"), original);
+    }
+    const invalid = input(); invalid.constraints.resources.cpu = "not-a-count";
+    await assert.rejects(f.runtime.save(invalid, 1), /INVALID_V2/);
+    assert.equal(await readFile(f.store.statePath, "utf8"), original);
+    assert.equal((await f.store.read()).revision, 1);
+    // Rejected poison cannot make the next otherwise-valid start unreloadable.
+    const r = await start(f); assert.equal((await f.store.read()).runs[r.runId].status, "active");
+  } finally { await f.cleanup(); }
+});
+test("every snapshot record is closed and semantic output failures preserve bytes and revision", async () => {
+  const f = await fixture(); try {
+    const r = await start(f), before = await f.store.read();
+    const original = await readFile(f.store.statePath, "utf8");
+    const records = [s => s.plans, s => s.runs, s => s.bindings, s => s.runs[r.runId].nodes];
+    for (const record of records) for (const key of ["bad/key", "constructor", "prototype", "__proto__"]) {
+      const bad = structuredClone(before); Object.defineProperty(record(bad), key, { value: "unvalidated", enumerable: true });
+      assert.throws(() => auditSnapshotV2(bad), /INVALID_V2/);
+      await assert.rejects(f.store.transaction(async (s, publish) => {
+        Object.defineProperty(record(s), key, { value: "unvalidated", enumerable: true }); await publish();
+      }), /INVALID_V2/);
+      assert.equal(await readFile(f.store.statePath, "utf8"), original);
+    }
+    await assert.rejects(f.store.transaction(async (s, publish) => {
+      s.bindings.session = "missing-run"; await publish();
+    }), /BINDING_MISMATCH/);
+    await assert.rejects(f.store.transaction(async (s, publish) => {
+      s.runs[r.runId].nodes.a.status = "active"; await publish();
+    }), /ACTIVE_WITHOUT_RESERVATION/);
+    assert.equal(await readFile(f.store.statePath, "utf8"), original);
+    assert.equal((await f.store.read()).revision, before.revision);
   } finally { await f.cleanup(); }
 });
 test("freshness, closed scope and restricted effects fail before creation", async () => {
@@ -151,6 +199,86 @@ test("launch acknowledgement loss uses same durable natural identity after recov
     assert.equal(launches, 1); assert.equal(r.nodes.a.reservation.workerId, "worker-1");
   } finally { await f.cleanup(); }
 });
+test("absent store inspection is inert; static symlinks and nonregular files fail closed", async () => {
+  const unsafe = /ELOOP|ENOTDIR|UNSAFE_STORE_FILE/;
+  for (const target of [".ai", ".ai/dag-workflow-v2", ".ai/dag-workflow-v2/state.json", ".ai/dag-workflow-v2/writer.lock"]) {
+    const root = await mkdtemp(join(tmpdir(), "dag-v2-link-")), outside = await mkdtemp(join(tmpdir(), "dag-v2-outside-"));
+    try {
+      const store = new StoreV2(root), rt = new RuntimeV2(store, fresh, () => NOW);
+      assert.equal((await store.read()).revision, 0); assert.deepEqual(await readdir(root), []);
+      const isFile = /json$|lock$/.test(target), victim = join(outside, "victim");
+      await writeFile(victim, "untouched\n");
+      const parts = target.split("/"); await mkdir(join(root, ...parts.slice(0, -1)), { recursive: true });
+      await symlink(isFile ? victim : outside, join(root, target));
+      const before = await readdir(outside);
+      await assert.rejects(store.read(), unsafe);
+      await assert.rejects(rt.save(input(), 0), unsafe);
+      assert.equal(await readFile(victim, "utf8"), "untouched\n");
+      assert.deepEqual(await readdir(outside), before);
+    } finally { await rm(root, { recursive: true, force: true }); await rm(outside, { recursive: true, force: true }); }
+  }
+  for (const name of ["state.json", "writer.lock"]) for (const kind of ["directory", "fifo", "hardlink"]) {
+    const root = await mkdtemp(join(tmpdir(), "dag-v2-special-"));
+    try {
+      const store = new StoreV2(root); await mkdir(store.directory, { recursive: true });
+      const path = join(store.directory, name);
+      if (kind === "directory") await mkdir(path);
+      if (kind === "fifo") execFileSync("mkfifo", [path]);
+      if (kind === "hardlink") { await writeFile(join(root, "victim"), "untouched"); await link(join(root, "victim"), path); }
+      await assert.rejects(store.read(), /UNSAFE_STORE_FILE/);
+      await assert.rejects(new RuntimeV2(store, fresh).save(input(), 0), /UNSAFE_STORE_FILE|EISDIR/);
+      if (kind === "hardlink") assert.equal(await readFile(join(root, "victim"), "utf8"), "untouched");
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
+});
+test("ancestor replacement cannot redirect a locked transaction or publication", async () => {
+  for (const level of ["repository", ".ai", "store"]) for (const point of ["locked", "temp_synced"]) for (const replacement of ["directory", "symlink"]) {
+    const f = await fixture(), outside = await mkdtemp(join(tmpdir(), "dag-v2-swap-"));
+    const path = level === "repository" ? f.dir : level === ".ai" ? join(f.dir, ".ai") : f.store.directory;
+    const detached = `${path}-detached`;
+    const suffix = level === "repository" ? ".ai/dag-workflow-v2" : level === ".ai" ? "dag-workflow-v2" : "";
+    const original = await readFile(f.store.statePath, "utf8");
+    let swapped = false;
+    try {
+      await writeFile(join(outside, "sentinel"), "unrelated");
+      const store = new StoreV2(f.dir, { failpoint: async p => {
+        if (p !== point || swapped) return; swapped = true;
+        await rename(path, detached);
+        if (replacement === "symlink") await symlink(outside, path); else await mkdir(path);
+      } });
+      await assert.rejects(new RuntimeV2(store, fresh).save({ ...input(), title: "must not publish" }, 1), /STORE_DIRECTORY_REPLACED/);
+      assert(swapped);
+      assert.equal(await readFile(join(detached, suffix, "state.json"), "utf8"), original);
+      assert.deepEqual((await readdir(join(detached, suffix))).sort(), ["state.json", "writer.lock"]);
+      assert.deepEqual(await readdir(outside), ["sentinel"]);
+      assert.equal(await readFile(join(outside, "sentinel"), "utf8"), "unrelated");
+      if (replacement === "directory") {
+        assert.equal((await store.read()).revision, 0);
+        assert.deepEqual(await readdir(path), []); // No repair/creation by views.
+      } else await assert.rejects(store.read(), /ELOOP|ENOTDIR/);
+    } finally { await rm(detached, { recursive: true, force: true }); await f.cleanup(); await rm(outside, { recursive: true, force: true }); }
+  }
+});
+test("state and lock replacement before publication preserve original and replacement bytes", async () => {
+  for (const name of ["state.json", "writer.lock"]) for (const replacement of ["file", "symlink"]) {
+    const f = await fixture();
+    try {
+      const path = join(f.store.directory, name), original = await readFile(path, "utf8");
+      const before = await readFile(f.store.statePath, "utf8"), victim = join(f.dir, "victim");
+      await writeFile(victim, "unrelated");
+      const store = new StoreV2(f.dir, { failpoint: async point => {
+        if (point !== "temp_synced") return;
+        await rename(path, `${path}.original`);
+        if (replacement === "file") await writeFile(path, "replacement"); else await symlink(victim, path);
+      } });
+      await assert.rejects(new RuntimeV2(store, fresh).save({ ...input(), title: "rejected" }, 1), /STORE_STATE_REPLACED|STORE_LOCK_REPLACED|UNSAFE_STORE_FILE/);
+      assert.equal(await readFile(`${path}.original`, "utf8"), original);
+      assert.equal(await readFile(path, "utf8"), replacement === "file" ? "replacement" : "unrelated");
+      assert.equal(await readFile(victim, "utf8"), "unrelated");
+      if (name === "writer.lock") assert.equal(await readFile(f.store.statePath, "utf8"), before);
+    } finally { await f.cleanup(); }
+  }
+});
 test("process-shared OS lock blocks concurrent writers and releases after SIGKILL", async () => {
   const f = await fixture(); try {
     const signal = join(f.dir, "locked");
@@ -226,6 +354,50 @@ test("real Git producer landing and fresh persisted reload release dependent suc
     const conflict = await f.runtime.save({ ...input("conflict"), predecessor: selectorV2(next) }, (await f.store.read()).revision);
     await assert.rejects(f.runtime.start(request(conflict), (await f.store.read()).revision), /ACTIVE_BINDING_CONFLICT/);
     auditSnapshotV2(await f.store.read());
+  } finally { await f.cleanup(); }
+});
+test("serial admission protects the prefix from later independent sticky lanes", async () => {
+  for (const capacity of [1, 2]) {
+    const f = await fixture(); try {
+      const data = input(); data.integration.strategy = "serial"; data.constraints.maxConcurrency = capacity;
+      f.plan = await f.runtime.save(data, 1);
+      const req = request(f.plan); req.authority.maxConcurrency = capacity;
+      let r = await f.runtime.start(req, 2); r = await f.runtime.acquireLease(r.runId, "session", r.revision);
+      const before = await readFile(f.store.statePath, "utf8");
+      await assert.rejects(f.runtime.reserve(mutation(r), "c", 1, "later independent"), /ITEM_NOT_ADMISSIBLE/);
+      assert.equal(await readFile(f.store.statePath, "utf8"), before);
+      for (const id of ["a", "b", "c", "d"]) {
+        const rt = new RuntimeV2(new StoreV2(f.dir), fresh, () => NOW);
+        r = (await rt.store.read()).runs[r.runId];
+        assert.deepEqual(await rt.frontier(r.runId), [id]);
+        r = await rt.reserve(mutation(r), id, 1, id);
+        assert.deepEqual(await rt.frontier(r.runId), []);
+        r = await rt.dispatch(mutation(r), id, 1, echoWorkers);
+        r = await rt.integrate(mutation(r), evidence(r, id), { verify: async () => {} });
+        auditSnapshotV2(await rt.store.read());
+      }
+      assert.equal(r.status, "complete");
+    } finally { await f.cleanup(); }
+  }
+});
+test("serial ordering rejects later dependencies and audits out-of-prefix state before publication", async () => {
+  const f = await fixture(); try {
+    const original = await readFile(f.store.statePath, "utf8");
+    const invalid = input(); invalid.integration.strategy = "serial"; invalid.workItems[0].dependsOn = ["c"];
+    assert.throws(() => createPlanV2(invalid, 2), /SERIAL_DEPENDENCY_ORDER/);
+    await assert.rejects(f.runtime.save(invalid, 1), /SERIAL_DEPENDENCY_ORDER/);
+    assert.equal(await readFile(f.store.statePath, "utf8"), original);
+    assert.equal((await f.store.read()).revision, 1);
+    // The same acyclic topology is legal when integration is dependency-ordered.
+    invalid.integration.strategy = "dependency_order"; createPlanV2(invalid, 2);
+    const data = input(); data.integration.strategy = "serial"; f.plan = await f.runtime.save(data, 1);
+    const r = await start(f), before = await readFile(f.store.statePath, "utf8");
+    await assert.rejects(f.store.transaction(async (s, publish) => {
+      const n = s.runs[r.runId].nodes.c;
+      n.status = "active"; n.reservation = { operationId: `${r.runId}/c/1`, runId: r.runId, itemId: "c", generation: 1, request: "later", state: "reserved" };
+      await publish();
+    }), /SERIAL_PREFIX_NOT_COMPLETE/);
+    assert.equal(await readFile(f.store.statePath, "utf8"), before);
   } finally { await f.cleanup(); }
 });
 test("serial safe prefix, pause and replan hold; explicit disposition resumes unchanged plan", async () => {

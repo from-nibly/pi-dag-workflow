@@ -9,23 +9,26 @@ const ids = Type.Array(IdV2, { maxItems: 512, uniqueItems: true });
 export const PlanSelectorV2Schema = StrictObject({ planId: IdV2, revision: CountV2, planHash: HashSchema });
 export const RepositoryV2Schema = StrictObject({ repositoryId: IdV2, baselineCommit: GitOidSchema, baselineTree: GitOidSchema, targetBranch: TextV2 });
 const command = StrictObject({ id: IdV2, argv: Type.Array(TextV2, { minItems: 1, maxItems: 128 }) });
-export const PlanV2Schema = StrictObject({
-  kind: Type.Literal("dag_plan_v2"), schemaVersion: Type.Literal(2),
-  planId: IdV2, revision: CountV2, planHash: HashSchema,
+export const PlanInputV2Schema = StrictObject({
+  planId: IdV2,
   predecessor: Type.Optional(PlanSelectorV2Schema), title: TextV2,
   repository: RepositoryV2Schema,
   source: StrictObject({ governingClosure: HashSchema, refs: Type.Array(StrictObject({ ref: TextV2, digest: HashSchema }), { maxItems: 512 }), scopeSummary: TextV2 }),
   architecture: StrictObject({ outcomes: Type.Array(StrictObject({ id: IdV2, description: TextV2 }), { minItems: 1, maxItems: 512 }), nonGoals: strings, notes: strings, risks: strings }),
   workItems: Type.Array(StrictObject({ id: IdV2, title: TextV2, objective: TextV2, outcomeIds: ids, context: strings, checks: Type.Array(TextV2, { minItems: 1, maxItems: 512 }), dependsOn: ids,
     risk: Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")]), riskNotes: strings,
-    resources: Type.Record(IdV2, CountV2), gates: ids,
+    resources: Type.Record(IdV2, CountV2, { additionalProperties: false }), gates: ids,
   }), { minItems: 1, maxItems: 512 }),
-  constraints: StrictObject({ maxConcurrency: CountV2, resources: Type.Record(IdV2, CountV2), mutexGroups: Type.Array(StrictObject({ id: IdV2, workItemIds: ids, reason: TextV2 }), { maxItems: 512 }), gates: ids }),
+  constraints: StrictObject({ maxConcurrency: CountV2, resources: Type.Record(IdV2, CountV2, { additionalProperties: false }), mutexGroups: Type.Array(StrictObject({ id: IdV2, workItemIds: ids, reason: TextV2 }), { maxItems: 512 }), gates: ids }),
   integration: StrictObject({ strategy: Type.Union([Type.Literal("dependency_order"), Type.Literal("serial")]), checks: Type.Array(TextV2, { minItems: 1, maxItems: 512 }), finalChecks: Type.Array(TextV2, { minItems: 1, maxItems: 512 }), prefixCommands: Type.Array(command, { minItems: 1, maxItems: 512 }), finalCommands: Type.Array(command, { minItems: 1, maxItems: 512 }) }),
+});
+export const PlanV2Schema = StrictObject({
+  ...PlanInputV2Schema.properties,
+  kind: Type.Literal("dag_plan_v2"), schemaVersion: Type.Literal(2), revision: CountV2, planHash: HashSchema,
 });
 export type PlanV2 = Static<typeof PlanV2Schema>;
 export type PlanSelectorV2 = Static<typeof PlanSelectorV2Schema>;
-export type PlanInputV2 = Omit<PlanV2, "kind" | "schemaVersion" | "revision" | "planHash">;
+export type PlanInputV2 = Static<typeof PlanInputV2Schema>;
 export function requireV2(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 export function validateShapeV2(schema: Parameters<typeof schemaIssues>[0], value: unknown): void {
   const issues = schemaIssues(schema, value); requireV2(!issues.length, `INVALID_V2: ${issues.slice(0, 8).map(i => `${i.path}: ${i.message}`).join("; ")}`);
@@ -51,9 +54,17 @@ export function parsePlanV2(value: unknown): PlanV2 {
   const visiting = new Set<string>(), visited = new Set<string>();
   const visit = (id: string) => { requireV2(!visiting.has(id), "DEPENDENCY_CYCLE"); if (visited.has(id)) return; visiting.add(id); for (const dep of nodes.get(id)!.dependsOn) visit(dep); visiting.delete(id); visited.add(id); };
   for (const id of nodes.keys()) visit(id);
+  if (plan.integration.strategy === "serial") {
+    const earlier = new Set<string>();
+    for (const n of plan.workItems) {
+      requireV2(n.dependsOn.every(id => earlier.has(id)), "SERIAL_DEPENDENCY_ORDER");
+      earlier.add(n.id);
+    }
+  }
   return plan;
 }
 export function createPlanV2(input: PlanInputV2, revision: number): PlanV2 {
+  validateShapeV2(PlanInputV2Schema, input);
   const value = { ...structuredClone(input), kind: "dag_plan_v2" as const, schemaVersion: 2 as const, revision };
   return parsePlanV2({ ...value, planHash: planHashV2(value) });
 }

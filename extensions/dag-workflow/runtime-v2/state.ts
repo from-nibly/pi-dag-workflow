@@ -18,10 +18,10 @@ export const RunV2Schema = StrictObject({ kind: Type.Literal("dag_run_v2"), sche
   start: StartV2Schema, predecessorRunId: Type.Optional(IdV2), lease: Type.Optional(LeaseV2Schema),
   status: Type.Union([Type.Literal("active"), Type.Literal("paused"), Type.Literal("needs_replan"), Type.Literal("complete"), Type.Literal("cancelling"), Type.Literal("cancelled")]),
   replanDisposition: Type.Optional(TextV2),
-  nodes: Type.Record(IdV2, node), releasedGates: Type.Array(IdV2, { uniqueItems: true, maxItems: 512 }),
+  nodes: Type.Record(IdV2, node, { additionalProperties: false }), releasedGates: Type.Array(IdV2, { uniqueItems: true, maxItems: 512 }),
 });
 export const SnapshotV2Schema = StrictObject({ kind: Type.Literal("dag_store_v2"), schemaVersion: Type.Literal(2), revision: nonnegative,
-  plans: Type.Record(IdV2, Type.Array(PlanV2Schema, { minItems: 1 })), runs: Type.Record(IdV2, RunV2Schema), bindings: Type.Record(IdV2, IdV2) });
+  plans: Type.Record(IdV2, Type.Array(PlanV2Schema, { minItems: 1 }), { additionalProperties: false }), runs: Type.Record(IdV2, RunV2Schema, { additionalProperties: false }), bindings: Type.Record(IdV2, IdV2, { additionalProperties: false }) });
 export type AuthorityV2 = Static<typeof AuthorityV2Schema>;
 export type StartV2 = Static<typeof StartV2Schema>;
 export type LeaseV2 = Static<typeof LeaseV2Schema>;
@@ -48,7 +48,7 @@ export function runPlanV2(snapshot: SnapshotV2, run: RunV2): PlanV2 {
   const plan = snapshot.plans[run.start.selection.planId]?.find(p => p.revision === run.start.selection.revision);
   requireV2(plan && plan.planHash === run.start.selection.planHash, "RUN_PLAN_MISMATCH"); return plan;
 }
-/** Full audit is for ingress/reload and tests, not a hash-chain replay on every transition. */
+/** Audit ingress, reload and every publication before any authoritative bytes change. */
 export function auditSnapshotV2(value: unknown): SnapshotV2 {
   validateShapeV2(SnapshotV2Schema, value); const s = value as SnapshotV2;
   for (const [id, revisions] of Object.entries(s.plans)) revisions.forEach((p, i) => { parsePlanV2(p); requireV2(p.planId === id && p.revision === i + 1, "PLAN_REVISION_GAP"); });
@@ -71,6 +71,14 @@ export function auditSnapshotV2(value: unknown): SnapshotV2 {
     requireV2((r.status === "complete") === Object.values(r.nodes).every(n => ["excluded", "complete"].includes(n.status)), "TERMINAL_MISMATCH");
     requireV2(Object.values(r.nodes).every(n => n.status !== "cancelled" || ["cancelling", "cancelled"].includes(r.status)), "CANCELLATION_MISMATCH");
     if (["cancelling", "cancelled"].includes(r.status)) requireV2(Object.values(r.nodes).every(n => ["excluded", "complete", "cancelled"].includes(n.status)), "CANCELLATION_NOT_FENCED");
+    if (p.integration.strategy === "serial") {
+      let prefixComplete = true;
+      for (const n of p.workItems) {
+        const status = r.nodes[n.id].status;
+        if (status === "active" || status === "complete") requireV2(prefixComplete, "SERIAL_PREFIX_NOT_COMPLETE");
+        prefixComplete &&= status === "complete";
+      }
+    }
     const active = p.workItems.filter(n => r.nodes[n.id].status === "active");
     requireV2(active.length <= r.start.authority.maxConcurrency, "LANE_OVERCOMMIT");
     for (const [resource, capacity] of Object.entries(p.constraints.resources)) requireV2(active.reduce((sum, n) => sum + (n.resources[resource] ?? 0), 0) <= capacity, "RESOURCE_OVERCOMMIT");
@@ -84,7 +92,12 @@ export function admissibleV2(plan: PlanV2, run: RunV2): string[] {
   if (run.status !== "active") return [];
   const active = plan.workItems.filter(n => run.nodes[n.id].status === "active");
   if (active.length >= run.start.authority.maxConcurrency) return [];
+  // A later serial item cannot release its sticky lane until the prefix lands.
+  // Admit only the next unfinished item, even when spare lanes are available.
+  const nextSerial = plan.integration.strategy === "serial"
+    ? plan.workItems.find(n => !["complete", "excluded"].includes(run.nodes[n.id].status))?.id : undefined;
   return plan.workItems.filter(n => run.nodes[n.id].status === "pending"
+    && (plan.integration.strategy !== "serial" || n.id === nextSerial)
     && n.dependsOn.every(d => run.nodes[d].status === "complete") && n.gates.every(g => run.releasedGates.includes(g))
     && !plan.constraints.mutexGroups.some(m => m.workItemIds.includes(n.id) && active.some(a => m.workItemIds.includes(a.id)))
     && Object.entries(n.resources).every(([id, demand]) => demand + active.reduce((sum, a) => sum + (a.resources[id] ?? 0), 0) <= plan.constraints.resources[id])

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createPlanV2, parsePlanV2, PlanSelectorV2Schema, requireV2, sameV2, validateShapeV2, type PlanInputV2, type PlanSelectorV2, type PlanV2 } from "../planning/v2.ts";
+import { createPlanV2, parsePlanV2, PlanInputV2Schema, PlanSelectorV2Schema, requireV2, sameV2, validateShapeV2, type PlanInputV2, type PlanSelectorV2, type PlanV2 } from "../planning/v2.ts";
 import { admissibleV2, assertScopeV2, IntegrationV2Schema, StartV2Schema, runPlanV2, type IntegrationV2, type LeaseV2, type ReservationV2, type RunV2, type SnapshotV2, type StartV2 } from "./state.ts";
 import { processIdentityV2, StoreV2 } from "./store.ts";
 
@@ -21,6 +21,7 @@ export class RuntimeV2 {
   constructor(store: StoreV2, freshness: FreshnessV2, now: () => number = Date.now) { this.store = store; this.freshness = freshness; this.now = now; }
 
   async save(input: PlanInputV2, expectedStoreRevision: number): Promise<PlanV2> {
+    validateShapeV2(PlanInputV2Schema, input);
     return this.store.transaction(async (s, publish) => {
       this.cas(s.revision, expectedStoreRevision);
       const previous = s.plans[input.planId]?.at(-1);

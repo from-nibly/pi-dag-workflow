@@ -22,13 +22,35 @@ lock timeout/deletion races. Snapshot writes use unique temp + file fsync + rena
 directories before acknowledging replay after a rename/fsync interruption.
 Unreferenced temp files left by process death are harmless, not authoritative.
 
+Every ancestor from `/` through the repository, `.ai` and store is opened with
+`O_DIRECTORY | O_NOFOLLOW` and retained for the operation. Reads, lock creation,
+temp creation, rename, cleanup and directory fsync use those descriptors
+(`/proc/self/fd`), not a newly resolved repository path. State/lock files must be
+regular, non-symlink, single-link files; nonblocking opens reject FIFOs without
+hanging. Directory, lock and state identities are rechecked before publication
+and before acknowledgement. A detected replacement fails closed; views never
+create or repair directories. Symlinked repository ancestors are unsupported.
+
+Identity checks alone are not atomic namespace guards. Descriptor anchoring is
+what prevents a concurrent ancestor swap from redirecting I/O into its replacement.
+A swap after the final check can still leave a publication in the originally
+opened (now detached) directory and produce an uncertain result; do not interpret
+that error as proof no write occurred. This is not a sandbox against a same-UID
+actor rewriting store inodes in place, manipulating mounts, or repeatedly moving
+entries between checks. Such actors require filesystem/OS isolation. Cooperative
+writers must never replace directories or unlink/replace the lock inode.
+
 Plan saves and starts compare the store integer revision. Run mutations compare
 run integer revision and the current process-bound lease. Lease acquisition
 increments a generation; same-manager acquisition fences old in-memory callers.
 Another process can acquire only after absence, PID reuse or zombie state proves
 the old process cannot act. There is no heartbeat-expiry takeover. Public inputs
-are closed schemas, semantic plan validation happens on ingress, and transition
-guards enforce local invariants. Reload audits the stored snapshot; there are no
+are closed schemas, including all ID-keyed records. Plan inputs reject generated
+envelope fields (`kind`, `schemaVersion`, `revision`, `planHash`) instead of
+silently overwriting them. Semantic plan validation happens on ingress, and
+transition guards enforce local invariants. Both reload and every publication
+audit the complete snapshot semantically; rejected validation leaves existing
+snapshot bytes and durable revisions unchanged. There are no
 nested hashes or snapshot history chains. The only content hash is the plan hash.
 
 ## APIs and downstream boundaries
@@ -44,7 +66,10 @@ nested hashes or snapshot history chains. The only content hash is the plan hash
   It must recompute governing closure/source equality and inspect actual baseline
   and repository eligibility, never echo unvalidated caller input.
 - `reserve` checks dependencies **after integration**, gates, resources, mutexes
-  and sticky node concurrency. Its natural identity is `run/item/generation`.
+  and sticky node concurrency. Serial plans admit only the next unfinished prefix
+  node, so a later independent node cannot monopolize the lane needed by its
+  prefix. Serial work-item order must also be topological. Its natural identity
+  is `run/item/generation`.
   An identical reservation request resumes; changed request fails.
 - `dispatch` persists `dispatching` before calling `WorkersV2.ensure`, and binds
   its worker ID afterwards. The adapter MUST durably create-or-get by natural
@@ -91,4 +116,7 @@ Run `node scripts/dag-v2-state-test.mjs`. Tests cover direct acceptance, inert
 save/show/revision, scope/effects, real dependent Git landing and reload,
 resource/mutex/gate/concurrency, process locks and owner death, integer CAS,
 stale generations, acknowledgement loss, process death at publication boundaries,
-terminal successor binding and V1 byte/path-preserving inspection.
+terminal successor binding and V1 byte/path-preserving inspection. Regressions
+also cover closed records/envelopes, rejected-write byte/revision preservation,
+semantic output audit, serial lane deadlock/order, static symlinks, nonregular
+files, and repository/.ai/store/lock/state replacement during transactions.
