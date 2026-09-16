@@ -1,4 +1,4 @@
-# V2 state and admission (N02)
+# V2 state, admission and direct lifecycle evidence (N02–N03)
 
 This is a working local state service, not the product cutover. Import from
 `runtime-v2/index.ts`. N05 must wire this service instead of the V1 writer; no V1
@@ -77,15 +77,16 @@ nested hashes or snapshot history chains. The only content hash is the plan hash
   state/workerId). Lost acknowledgement repeats ensure, not unkeyed spawn. Hold
   the transaction lock across this short operation. A raw spawn-only adapter is
   invalid. N05 must connect this to the durable generic worker manager.
-- `integrate` accepts only the current bound attempt and native commit/tree
-  identities. `IntegrationsV2.verify` is the mandatory N03/N04 trusted adapter:
-  hydrate applicable actual F0–F8 evidence and exact reconciled Git landing, and
-  reject missing/mismatched evidence. A worker's completion report is insufficient.
-  The N02 real-Git test exercises dependency release after actual fast-forward and
-  fresh persisted reload, not full N03 lifecycle or N04 transaction certification.
-- `replace` retains the sticky lane and increments the generation only after a
-  settlement verifier succeeds. N03 must enforce finite retry/no-progress policy
-  and invalidate lifecycle evidence before exposing replacement in product tools.
+- `integrate` first enforces **internal computed lifecycle readiness**, including
+  exact current candidate and F0–F8 evidence. Even a permissive integration adapter
+  cannot bypass this guard. `IntegrationsV2.verify` must additionally verify the
+  reconciled native Git landing (N04). The dependent-node fixture now executes
+  actual lifecycle commands before fast-forward and persisted successor reload;
+  it does not claim N04 transactional Git certification.
+- `replace` retains the sticky lane, requires all lifecycle executions reconciled
+  and the prior worker verified settled, consumes the replacement retry dimension,
+  and invalidates lifecycle evidence before exposing a new generation. It never
+  resets repair counters, finding dispositions, retained results or a retry stop.
 - `pause`, `needs_replan`, and explicit disposition-based resume stop dispatch.
   Pausing a `needs_replan` run cannot bypass its required disposition.
 - `cancel` durably fences unfinished generations before callers signal workers.
@@ -95,6 +96,108 @@ nested hashes or snapshot history chains. The only content hash is the plan hash
   plan with predecessor selector; old runs remain unchanged and addressable.
 - `releaseGate` accepts only declared runtime gates and a trusted verification
   callback. Model/semantic gates must instead require a successor plan.
+
+## Direct lifecycle API
+
+Each V2 work item now has a required `lifecycle` containing a grounded oracle
+(statement, independent source references and F2 check IDs) and concrete checks.
+The old human-readable `checks` strings remain review text, **not PASS evidence**.
+Oracle/check grounding and non-applicability evidence must resolve to the plan's
+hash-bound source references (hydrated by the N05 freshness adapter).
+Every check binds its fixed F1–F7 stage, expectation, source references, required
+or positively evidenced `not_applicable` applicability, command argv or registered
+producer ID, environment profile and replay class. Every checkpoint has at least
+one applicable check; every oracle reference names an applicable F2 check.
+Unknown fields, custom stages and required non-repeatable procedures reject.
+This intentionally small profile has no conditional-expression language, waivers,
+non-replayable validity windows or executable-byte consent. Missing tools are
+BLOCKED, never NOT_APPLICABLE. Unsupported cases need a plan/profile extension,
+not a fabricated result. Existing pre-lifecycle experimental N02 V2 snapshots
+without these required plan fields fail closed; they are not silently migrated.
+
+1. `reserve` computes F0 **before implementation dispatch**, binding the frozen
+   oracle, independently hydrated start baseline, risk, applicability and authority.
+   Dispatch requires this frame. `setCandidate(mutation, item, generation, candidate,
+   inspector)` then binds the natively inspected worker-authored F1 candidate;
+   checks cannot execute until it is bound. The initial candidate is not a retry.
+   The implementation worker stays generic; its completion claim advances nothing.
+   `CommandRunnerV2` implements the candidate inspector. F1 checks observe the
+   committed candidate; this service does not edit code on the worker's behalf.
+2. `prepareCheck` persists an exact natural stage/check slot and execution request:
+   whole-plan selector, run/item, worker reservation, generation, stage attempt,
+   round, candidate commit/tree, procedure, environment and local effect scope.
+   Exact prepare replay returns the same request, never a new invocation.
+3. Outside the runtime transaction, `ResultsV2.ensure(request, signal?)` invokes
+   the actual command/producer. `recordResult(..., executionId, results)` hydrates
+   its durable result, checks the complete request, and records it once. There is
+   no raw worker-report-to-PASS operation. Paused runs may ingest current results;
+   obsolete results are retained as quarantined, never promoted or landed.
+4. `advanceLifecycle(..., stage)` derives passage from every applicable individual
+   result; missing/failing checks name their command and diagnostic. F2 and F5
+   require fresh independent context identities, distinct from implementation and
+   all prior contexts, with no predecessor reasoning lineage. F3 codification can
+   use the implementation thread; any new candidate conservatively returns to F1
+   and fresh F2 (no unproven evidence-only-delta optimization). F4 is no-edit.
+   F5/F6 producers can report typed findings. F7 replays **every** applicable check
+   on newly materialized clean exact-candidate worktrees. F8 is computed only after
+   F0–F7, no unresolved blocking findings and no ambiguous execution remain.
+5. `retryCheck` names an actual failed execution and derives the dimension/back-edge:
+   product defects → F1; test gaps → F3; architecture issues → F5; infrastructure
+   → same checkpoint; other hardening failures → F1. Unchanged earlier evidence
+   survives a local typed back-edge; affected/later evidence is quarantined.
+   Candidate changes invalidate all F1–F8 evidence. `dispositionFinding` retains an
+   explicit immutable disposition. Plan-affecting findings atomically hold the
+   whole run in `needs_replan`; resume requires disposition, not just a pause toggle.
+
+Retry ceilings are product/test/review/hardening/integration 3, infrastructure 1,
+replacement 2. Detailed keys retain stage/procedure/fingerprint, with a conservative
+per-item/dimension ceiling as well, so renaming a check or cycling fingerprints
+cannot reset budgets. Same-tree retries, recurring trees, persistent fingerprints
+across repair trees and failure oscillation stop earlier. A stop is durable and
+cannot be cleared by candidate changes or worker replacement. No lifecycle-wide
+wall-time, token, launch or compute budget is introduced. N04 may use the exported
+integration retry dimension; its Git-specific operations remain N04's work.
+
+### Concrete execution and crash reconciliation
+
+`new CommandRunnerV2(store, repository, producers?, environment = "node-local")`
+provides argv-only `spawn` (no implicit shell), private detached Git worktrees,
+native commit/tree and before/after cleanliness verification, fresh process
+contexts for commands, bounded stdout/stderr (16,384 characters each), exact argv,
+exit/signal/disposition, monotonic duration, wall timestamps, measured platform/
+Node runtime and configured environment profile. The plan profile must match.
+This is a local trusted execution profile, not an OS sandbox: approved procedures
+must honor no-edit/local-effect contracts. It neither grants publication authority
+nor installs dependencies or credentials. Commands must provision any required
+local test dependencies explicitly; there is no hidden setup executable attestation.
+Dirty/ambiguous worktrees are retained with actionable paths, never force-cleaned.
+
+Registered `TrustedProducerV2.run` implementations are actually invoked in the
+isolated workspace and must return a concrete observation and typed findings;
+unused registry entries produce no evidence. F2/F5 worker-backed producers must
+return the **actual independently hydrated context ID/lineage** from their durable
+worker manager, not a generated label for this callback. Missing context or an
+invalid protocol result settles BLOCKED. Generic worker identity stays DAG-agnostic;
+N05 supplies its durable manager adapter and authenticates/hydrates its own local
+producer results. The concrete command path already works without that adapter.
+
+The same protected snapshot stores executor jobs separately from lifecycle result
+application. A job is published before invocation; a result is published before
+acknowledgement. The exact workspace is persisted and the generation rechecked
+under the launch lock immediately before actual invocation, so cancellation
+between job creation and start cannot launch an obsolete producer. Repeated ensure of an existing job never blindly spawns again:
+settled jobs return stored results, unresolved jobs remain ambiguous. Result
+publication retries only transient store-lock contention, not the command. If
+publication fails without a durable result, do not infer success or retry the
+procedure: after executor death, establish process-tree/effect settlement and call
+`reconcileInterrupted`. Its settlement adapter receives the exact durable job,
+including owner identity and workspace, and must establish process/effect settlement.
+It records BLOCKED infrastructure evidence, enabling an explicit bounded retry. Parent death alone is not child/effect settlement.
+`reconcileUnlaunched` proves under the launch lock that an obsolete intent never
+had a job; it records non-execution so cancellation can terminate. Cancellation
+fences first, then the caller signals workers/commands (an AbortSignal can terminate
+command process groups), then ingests/quarantines results and reconciles settlement.
+A still-current host with an unresolved job is deliberately not presumed dead.
 
 Trusted callbacks receive cloned inputs. These interfaces are local trusted
 components, not human-consent proofs or security capabilities. They deliberately
@@ -112,7 +215,12 @@ must return promptly; long worker execution must happen outside the lock. Native
 Git effects still need N04's separate repository lock/CAS and reconciliation.
 No installed package, historical real run, project model or V1 writer is changed.
 
-Run `node scripts/dag-v2-state-test.mjs`. Tests cover direct acceptance, inert
+Run `node scripts/dag-v2-state-test.mjs` and
+`node scripts/dag-v2-lifecycle-test.mjs`. The latter exercises actual commands and
+invoked producers, complete F0–F8, missing/mismatched/stale results, failed argv,
+independence, clean F7, candidate invalidation, typed findings/back-edges, retry
+stops, cancellation, non-execution reconciliation and process death on either
+side of durable result publication. State tests cover direct acceptance, inert
 save/show/revision, scope/effects, real dependent Git landing and reload,
 resource/mutex/gate/concurrency, process locks and owner death, integer CAS,
 stale generations, acknowledgement loss, process death at publication boundaries,

@@ -9,6 +9,23 @@ const ids = Type.Array(IdV2, { maxItems: 512, uniqueItems: true });
 export const PlanSelectorV2Schema = StrictObject({ planId: IdV2, revision: CountV2, planHash: HashSchema });
 export const RepositoryV2Schema = StrictObject({ repositoryId: IdV2, baselineCommit: GitOidSchema, baselineTree: GitOidSchema, targetBranch: TextV2 });
 const command = StrictObject({ id: IdV2, argv: Type.Array(TextV2, { minItems: 1, maxItems: 128 }) });
+export const StageV2Schema = Type.Union(([1, 2, 3, 4, 5, 6, 7] as const).map(n => Type.Literal(n)));
+export const ProcedureV2Schema = Type.Union([
+  StrictObject({ kind: Type.Literal("command"), argv: Type.Array(TextV2, { minItems: 1, maxItems: 128 }) }),
+  StrictObject({ kind: Type.Literal("producer"), producerId: IdV2 }),
+]);
+export const LifecycleCheckV2Schema = StrictObject({ id: IdV2, stage: StageV2Schema, expectation: TextV2,
+  sourceRefs: Type.Array(TextV2, { minItems: 1, maxItems: 32 }),
+  applicability: Type.Union([StrictObject({ kind: Type.Literal("required") }),
+    StrictObject({ kind: Type.Literal("not_applicable"), reason: TextV2, evidence: Type.Array(TextV2, { minItems: 1, maxItems: 32 }) })]),
+  procedure: ProcedureV2Schema, environment: TextV2,
+  replay: Type.Union([Type.Literal("pure"), Type.Literal("idempotent"), Type.Literal("non_repeatable")]),
+});
+export const LifecyclePlanV2Schema = StrictObject({
+  oracle: StrictObject({ statement: TextV2, sourceRefs: Type.Array(TextV2, { minItems: 1, maxItems: 32 }), checkIds: Type.Array(IdV2, { minItems: 1, maxItems: 128, uniqueItems: true }) }),
+  checks: Type.Array(LifecycleCheckV2Schema, { minItems: 7, maxItems: 128 }),
+});
+export type LifecycleCheckV2 = Static<typeof LifecycleCheckV2Schema>;
 export const PlanInputV2Schema = StrictObject({
   planId: IdV2,
   predecessor: Type.Optional(PlanSelectorV2Schema), title: TextV2,
@@ -17,7 +34,7 @@ export const PlanInputV2Schema = StrictObject({
   architecture: StrictObject({ outcomes: Type.Array(StrictObject({ id: IdV2, description: TextV2 }), { minItems: 1, maxItems: 512 }), nonGoals: strings, notes: strings, risks: strings }),
   workItems: Type.Array(StrictObject({ id: IdV2, title: TextV2, objective: TextV2, outcomeIds: ids, context: strings, checks: Type.Array(TextV2, { minItems: 1, maxItems: 512 }), dependsOn: ids,
     risk: Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")]), riskNotes: strings,
-    resources: Type.Record(IdV2, CountV2, { additionalProperties: false }), gates: ids,
+    resources: Type.Record(IdV2, CountV2, { additionalProperties: false }), gates: ids, lifecycle: LifecyclePlanV2Schema,
   }), { minItems: 1, maxItems: 512 }),
   constraints: StrictObject({ maxConcurrency: CountV2, resources: Type.Record(IdV2, CountV2, { additionalProperties: false }), mutexGroups: Type.Array(StrictObject({ id: IdV2, workItemIds: ids, reason: TextV2 }), { maxItems: 512 }), gates: ids }),
   integration: StrictObject({ strategy: Type.Union([Type.Literal("dependency_order"), Type.Literal("serial")]), checks: Type.Array(TextV2, { minItems: 1, maxItems: 512 }), finalChecks: Type.Array(TextV2, { minItems: 1, maxItems: 512 }), prefixCommands: Type.Array(command, { minItems: 1, maxItems: 512 }), finalCommands: Type.Array(command, { minItems: 1, maxItems: 512 }) }),
@@ -44,7 +61,18 @@ export function parsePlanV2(value: unknown): PlanV2 {
   unique(plan.workItems.map(n => n.id)); unique(plan.architecture.outcomes.map(o => o.id)); unique(plan.constraints.mutexGroups.map(m => m.id));
   const nodes = new Map(plan.workItems.map(n => [n.id, n]));
   const outcomes = new Set(plan.architecture.outcomes.map(o => o.id));
+  const sourceRefs = new Set(plan.source.refs.map(r => r.ref));
+  unique(plan.source.refs.map(r => r.ref));
   for (const n of nodes.values()) {
+    unique(n.lifecycle.checks.map(c => c.id));
+    requireV2(n.lifecycle.oracle.sourceRefs.every(ref => sourceRefs.has(ref))
+      && n.lifecycle.checks.every(c => c.sourceRefs.every(ref => sourceRefs.has(ref))
+        && (c.applicability.kind !== "not_applicable" || c.applicability.evidence.every(ref => sourceRefs.has(ref)))), "UNGROUNDED_LIFECYCLE_REFERENCE");
+    for (let stage = 1; stage <= 7; stage++) requireV2(n.lifecycle.checks.some(c => c.stage === stage && c.applicability.kind === "required"), "MISSING_LIFECYCLE_STAGE_CHECK");
+    requireV2(n.lifecycle.oracle.checkIds.every(id => n.lifecycle.checks.some(c => c.id === id && c.stage === 2 && c.applicability.kind === "required")), "ORACLE_NOT_EVALUATED_AT_F2");
+    // This initial profile replays every applicable check at F7. Non-repeatable
+    // checks need a validity-window/waiver design before they can be supported.
+    requireV2(n.lifecycle.checks.every(c => c.applicability.kind !== "required" || c.replay !== "non_repeatable"), "NON_REPLAYABLE_LIFECYCLE_CHECK");
     requireV2(n.outcomeIds.length && n.outcomeIds.every(id => outcomes.has(id)), "UNKNOWN_OUTCOME");
     requireV2(n.dependsOn.every(id => nodes.has(id) && id !== n.id), "UNKNOWN_DEPENDENCY");
     requireV2(n.gates.every(id => plan.constraints.gates.includes(id)), "UNKNOWN_GATE");

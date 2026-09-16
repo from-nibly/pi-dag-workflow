@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import { createPlanV2, parsePlanV2, PlanInputV2Schema, PlanSelectorV2Schema, requireV2, sameV2, validateShapeV2, type PlanInputV2, type PlanSelectorV2, type PlanV2 } from "../planning/v2.ts";
 import { admissibleV2, assertScopeV2, IntegrationV2Schema, StartV2Schema, runPlanV2, type IntegrationV2, type LeaseV2, type ReservationV2, type RunV2, type SnapshotV2, type StartV2 } from "./state.ts";
 import { processIdentityV2, StoreV2 } from "./store.ts";
+import { CandidateV2Schema, ExecutionResultV2Schema, type CandidateV2, type RetryDimensionV2 } from "./lifecycle-schema.ts";
+import { assertReadyV2, assertStageV2, auditResultV2, consumeRetryV2, currentExecutionV2, executionRequestV2, frameV2, invalidateLifecycleV2, stageChecksV2 } from "./lifecycle.ts";
+import type { CandidateInspectorV2, ResultsV2 } from "./command-runner.ts";
 
 /** Hydrate from the repository/model, not from the submitted plan. Called inside
  * the start consistency guard; N05 owns concrete product adapters. */
@@ -10,8 +13,8 @@ export interface FreshnessV2 { current(plan: Readonly<PlanV2>): Promise<Pick<Pla
  * the entire request. Repeated ensure after acknowledgement loss must return the
  * same worker, never create a second process. No caller-generated action ID. */
 export interface WorkersV2 { ensure(reservation: Readonly<ReservationV2>): Promise<{ workerId: string }> }
-/** N03/N04 boundary: independently hydrate actual lifecycle and reconciled landing
- * evidence. A worker's completion assertion is NOT an implementation of this. */
+/** Native Git boundary (N04): independently hydrate the reconciled landing.
+ * Internal lifecycle checks run first; a worker claim is not landing evidence. */
 export interface IntegrationsV2 { verify(run: Readonly<RunV2>, plan: Readonly<PlanV2>, integration: Readonly<IntegrationV2>): Promise<void> }
 export interface MutationV2 { runId: string; expectedRevision: number; lease: LeaseV2 }
 export class RuntimeV2 {
@@ -89,6 +92,9 @@ export class RuntimeV2 {
       requireV2(admissibleV2(plan, run).includes(itemId), "ITEM_NOT_ADMISSIBLE");
       node.status = "active";
       node.reservation = { operationId: `${run.runId}/${itemId}/${generation}`, runId: run.runId, itemId, generation, request, state: "reserved" };
+      // F0 precedes implementation dispatch. Start already hydrated the immutable
+      // baseline/source; a worker may author only after this computed frame exists.
+      node.lifecycle = frameV2(run, plan, itemId, { commit: plan.repository.baselineCommit, tree: plan.repository.baselineTree }, this.now(), false);
       return true;
     });
   }
@@ -99,6 +105,7 @@ export class RuntimeV2 {
       const run = await this.guard(s, m), plan = runPlanV2(s, run); this.dispatchGuard(run, plan);
       const node = this.node(run, itemId, generation), reservation = node.reservation;
       requireV2(node.status === "active" && reservation, "RESERVATION_REQUIRED");
+      requireV2(node.lifecycle?.passed.includes(0) && !node.lifecycle.stop, "F0_PREFLIGHT_REQUIRED");
       if (reservation.state === "bound") return run;
       if (reservation.state === "reserved") { reservation.state = "dispatching"; run.revision++; await publish(); }
       const worker = await workers.ensure(structuredClone(reservation));
@@ -120,6 +127,7 @@ export class RuntimeV2 {
         const index = plan.workItems.findIndex(n => n.id === evidence.itemId);
         requireV2(plan.workItems.slice(0, index).every(n => run.nodes[n.id].status === "complete"), "INTEGRATION_PREFIX_NOT_COMPLETE");
       }
+      assertReadyV2(run, plan, evidence.itemId, evidence.candidate);
       await integrations.verify(structuredClone(run), structuredClone(plan), structuredClone(evidence));
       node.integration = structuredClone(evidence); node.status = "complete";
       if (Object.values(run.nodes).every(n => ["complete", "excluded"].includes(n.status))) run.status = "complete";
@@ -133,7 +141,10 @@ export class RuntimeV2 {
     return this.change(m, async run => {
       requireV2(!["complete", "cancelling", "cancelled"].includes(run.status), "RUN_TERMINAL_OR_CANCELLING");
       if (run.status === "needs_replan" && action === "pause") return false;
-      if (run.status === "needs_replan" && action === "resume") requireV2(disposition?.trim(), "REPLAN_DISPOSITION_REQUIRED");
+      if (run.status === "needs_replan" && action === "resume") {
+        requireV2(disposition?.trim(), "REPLAN_DISPOSITION_REQUIRED");
+        requireV2(Object.values(run.nodes).every(n => !n.lifecycle?.findings.some(f => f.finding.severity === "blocking" && f.finding.materiality === "plan_affecting" && !f.disposition)), "PLAN_FINDING_DISPOSITION_REQUIRED");
+      }
       const status = action === "pause" ? "paused" : action === "resume" ? "active" : "needs_replan";
       if (status === run.status) return false;
       if (run.status === "needs_replan" && action === "resume") run.replanDisposition = disposition!;
@@ -141,13 +152,17 @@ export class RuntimeV2 {
     });
   }
   /** Generation replacement only after the worker adapter proves the old natural
-   * operation settled; N03 owns retry budgets and evidence invalidation. */
+   * operation settled, within retained retry limits and evidence invalidation. */
   async replace(m: MutationV2, itemId: string, generation: number, settled: (reservation: Readonly<ReservationV2>) => Promise<void>): Promise<RunV2> {
     return this.change(m, async run => {
       requireV2(!["complete", "cancelling", "cancelled"].includes(run.status), "RUN_TERMINAL_OR_CANCELLING");
       const node = this.node(run, itemId, generation);
       requireV2(node.status === "active" && node.reservation, "ACTIVE_RESERVATION_REQUIRED");
+      requireV2(!node.lifecycle?.executions.some(e => !e.result), "EXECUTION_RECONCILIATION_REQUIRED");
       await settled(structuredClone(node.reservation));
+      consumeRetryV2(run, itemId, "replacement", 0, "worker", "replacement");
+      invalidateLifecycleV2(run, itemId, "worker replacement");
+      if (node.lifecycle) node.lifecycle.candidateReady = false;
       node.generation++;
       node.reservation = { ...node.reservation, operationId: `${run.runId}/${itemId}/${node.generation}`, generation: node.generation, state: "reserved" };
       delete node.reservation.workerId;
@@ -160,7 +175,9 @@ export class RuntimeV2 {
     return this.change(m, async run => {
       if (["cancelling", "cancelled"].includes(run.status)) return false;
       requireV2(run.status !== "complete", "RUN_TERMINAL");
-      for (const node of Object.values(run.nodes)) if (["pending", "active"].includes(node.status)) { node.generation++; node.status = "cancelled"; }
+      for (const [itemId, node] of Object.entries(run.nodes)) if (["pending", "active"].includes(node.status)) {
+        invalidateLifecycleV2(run, itemId, "cancelled generation"); node.generation++; node.status = "cancelled";
+      }
       run.status = "cancelling"; return true;
     });
   }
@@ -168,6 +185,7 @@ export class RuntimeV2 {
     return this.change(m, async run => {
       if (run.status === "cancelled") return false;
       requireV2(run.status === "cancelling", "CANCELLATION_REQUIRED");
+      requireV2(Object.values(run.nodes).every(n => !n.lifecycle?.executions.some(e => !e.result)), "EXECUTION_RECONCILIATION_REQUIRED");
       await settled(structuredClone(run)); run.status = "cancelled"; return true;
     });
   }
@@ -176,6 +194,106 @@ export class RuntimeV2 {
       this.dispatchGuard(run, plan); requireV2(plan.constraints.gates.includes(gate), "UNKNOWN_GATE");
       if (run.releasedGates.includes(gate)) return false;
       await verify(); run.releasedGates.push(gate); return true;
+    });
+  }
+  /** Bind the actual F1 candidate after the pre-dispatch F0 frame. Subsequent
+   * candidate changes require fresh affected evidence, never a worker PASS. */
+  async setCandidate(m: MutationV2, itemId: string, generation: number, candidate: CandidateV2, inspector: CandidateInspectorV2): Promise<RunV2> {
+    validateShapeV2(CandidateV2Schema, candidate);
+    return this.change(m, async (run, plan) => {
+      this.dispatchGuard(run, plan); const node = this.node(run, itemId, generation);
+      requireV2(node.status === "active" && node.reservation?.state === "bound", "BOUND_WORKER_REQUIRED");
+      requireV2(!node.lifecycle?.stop, "LIFECYCLE_RETRY_STOP");
+      if (node.lifecycle?.candidateReady && sameV2(node.lifecycle.candidate, candidate)) return false;
+      await inspector.inspect(structuredClone(candidate));
+      if (node.lifecycle && candidate.tree !== node.lifecycle.candidate.tree && node.lifecycle.candidates.some(c => c.tree === candidate.tree)) {
+        node.lifecycle.stop = "NO_PROGRESS: recurring candidate tree";
+        node.lifecycle.ready = false; node.lifecycle.passed = node.lifecycle.passed.filter(s => s < 8); return true;
+      }
+      if (node.lifecycle?.candidateReady) {
+        consumeRetryV2(run, itemId, "product", 1, "candidate", "candidate-change");
+        invalidateLifecycleV2(run, itemId, "candidate changed");
+      }
+      node.lifecycle = frameV2(run, plan, itemId, candidate, this.now()); return true;
+    });
+  }
+  async prepareCheck(m: MutationV2, itemId: string, generation: number, checkId: string): Promise<RunV2> {
+    return this.change(m, async (run, plan) => {
+      this.dispatchGuard(run, plan); const node = this.node(run, itemId, generation), l = node.lifecycle;
+      requireV2(node.status === "active" && l?.candidateReady && !l.stop, "LIFECYCLE_NOT_EXECUTABLE");
+      const check = stageChecksV2(plan, itemId, l.stage).find(c => c.id === checkId);
+      requireV2(check, "CHECK_NOT_APPLICABLE_TO_STAGE");
+      if (l.executions.some(e => e.request.stage === l.stage && e.request.check.id === checkId && e.status !== "quarantined" && currentExecutionV2(run, e.request))) return false;
+      l.executions.push({ request: executionRequestV2(run, itemId, check), status: "intent" }); return true;
+    });
+  }
+  /** Hydrate only a durable execution result from a trusted executor. There is no
+   * public method accepting a worker completion string or aggregate PASS. */
+  async recordResult(m: MutationV2, itemId: string, executionId: string, results: ResultsV2): Promise<RunV2> {
+    return this.change(m, async run => {
+      const l = run.nodes[itemId]?.lifecycle, execution = l?.executions.find(e => e.request.id === executionId);
+      requireV2(l && execution, "EXECUTION_NOT_FOUND");
+      const result = await results.read(structuredClone(execution.request));
+      requireV2(result, "EXECUTION_RESULT_NOT_DURABLE"); validateShapeV2(ExecutionResultV2Schema, result); auditResultV2(execution.request, result);
+      if (execution.result) { requireV2(sameV2(execution.result, result), "EXECUTION_RESULT_CONFLICT"); return false; }
+      execution.result = structuredClone(result);
+      if (!currentExecutionV2(run, execution.request) || execution.status === "quarantined") {
+        execution.status = "quarantined"; execution.quarantineReason ??= "stale generation, candidate or attempt"; return true;
+      }
+      execution.status = "observed";
+      for (const [index, finding] of result.findings.entries()) {
+        // The original producer ID remains in the result; a bounded natural slot
+        // avoids truncation collisions when promoting it into the finding ledger.
+        const retained = { ...finding, id: `${execution.request.id}.${index}` };
+        l.findings.push({ finding: retained });
+        if (finding.severity === "blocking" && finding.materiality === "plan_affecting") run.status = "needs_replan";
+      }
+      return true;
+    });
+  }
+  async advanceLifecycle(m: MutationV2, itemId: string, generation: number, stage: number): Promise<RunV2> {
+    return this.change(m, async (run, plan) => {
+      this.dispatchGuard(run, plan); const l = this.node(run, itemId, generation).lifecycle;
+      requireV2(l && !l.stop, "LIFECYCLE_NOT_EXECUTABLE");
+      if (l.passed.includes(stage)) return false;
+      requireV2(l.stage === stage, "STAGE_OUT_OF_ORDER");
+      requireV2(!l.findings.some(f => f.finding.severity === "blocking" && !f.disposition), "UNRESOLVED_FINDINGS");
+      if (stage < 8) { assertStageV2(run, plan, itemId, stage); l.passed.push(stage); l.stage++; }
+      else { l.ready = true; l.passed.push(8); assertReadyV2(run, plan, itemId, l.candidate); }
+      return true;
+    });
+  }
+  async dispositionFinding(m: MutationV2, itemId: string, findingId: string, disposition: string): Promise<RunV2> {
+    requireV2(typeof disposition === "string" && disposition.trim().length > 0 && disposition.length <= 65536, "FINDING_DISPOSITION_REQUIRED");
+    return this.change(m, async run => {
+      requireV2(!["complete", "cancelled"].includes(run.status), "RUN_TERMINAL");
+      const finding = run.nodes[itemId]?.lifecycle?.findings.find(f => f.finding.id === findingId);
+      requireV2(finding, "FINDING_NOT_FOUND");
+      if (finding.disposition) { requireV2(finding.disposition === disposition, "FINDING_DISPOSITION_CONFLICT"); return false; }
+      finding.disposition = disposition; return true;
+    });
+  }
+  async retryCheck(m: MutationV2, itemId: string, generation: number, executionId: string): Promise<RunV2> {
+    return this.change(m, async (run, plan) => {
+      this.dispatchGuard(run, plan); const node = this.node(run, itemId, generation), l = node.lifecycle;
+      const e = l?.executions.find(e => e.request.id === executionId);
+      requireV2(l && e?.result && e.status === "observed" && currentExecutionV2(run, e.request) && e.result.disposition !== "PASS", "CURRENT_FAILED_EXECUTION_REQUIRED");
+      requireV2(l.executions.every(e => e.result), "EXECUTION_RECONCILIATION_REQUIRED");
+      const finding = e.result.findings.find(f => f.severity === "blocking");
+      const kind = finding?.kind;
+      const dimension: RetryDimensionV2 = kind === "infrastructure_failure" || kind === "capability_absent" || kind === "external_precondition_failure" ? "infrastructure"
+        : kind === "product_defect" ? "product" : kind === "test_evidence_gap" ? "test" : kind === "architecture_issue" ? "review"
+        : e.request.stage === 3 ? "test" : e.request.stage === 5 ? "review" : e.request.stage === 6 ? "hardening" : "product";
+      const target = dimension === "test" ? 3 : dimension === "review" ? 5 : dimension === "infrastructure" ? e.request.stage : 1;
+      const procedure = JSON.stringify(e.request.check.procedure);
+      const fingerprint = finding?.fingerprint ?? `${procedure}:exit=${e.result.exitCode}:signal=${e.result.signal}`;
+      try { consumeRetryV2(run, itemId, dimension, e.request.check.stage, procedure, fingerprint); }
+      catch (error) { l.stop = String(error); return true; }
+      l.ready = false; l.round++; l.stage = Math.min(target, l.stage); l.passed = l.passed.filter(s => s < l.stage);
+      for (const previous of l.executions) if (previous.request.stage >= l.stage && previous.status !== "quarantined") {
+        previous.status = "quarantined"; previous.quarantineReason = `typed ${dimension} retry`;
+      }
+      return true;
     });
   }
   private async change(m: MutationV2, update: (run: RunV2, plan: PlanV2) => Promise<boolean>): Promise<RunV2> {

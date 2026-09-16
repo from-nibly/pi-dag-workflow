@@ -7,21 +7,22 @@ import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { RuntimeV2, StoreV2, selectorV2, createPlanV2, renderPlanV2, inspectPlanFileV2, auditSnapshotV2 } from "../extensions/dag-workflow/runtime-v2/index.ts";
 
+import { fixtureLifecycleV2, fixtureSourceV2, fixtureGitV2, finishLifecycleV2 } from "./fixtures/dag-v2-lifecycle.mjs";
 import { createDagPlanningPlanV1 } from "../extensions/dag-workflow/planning/artifact.ts";
 
 const tests = [], test = (name, fn) => tests.push([name, fn]);
-const NOW = 1000;
+const NOW = 1000, EXPIRES = Date.now() + 86400000;
 const moduleUrl = pathToFileURL(resolve("extensions/dag-workflow/runtime-v2/index.ts")).href;
 function input(planId = "plan-a") {
-  const node = (id, dependsOn = []) => ({ id, title: id, objective: `Implement ${id}`, outcomeIds: ["outcome"], context: [], checks: ["actual check"], dependsOn, risk: "low", riskNotes: [], resources: { cpu: 1 }, gates: [] });
+  const node = (id, dependsOn = []) => ({ id, title: id, objective: `Implement ${id}`, outcomeIds: ["outcome"], context: [], checks: ["actual check"], dependsOn, risk: "low", riskNotes: [], resources: { cpu: 1 }, gates: [], lifecycle: fixtureLifecycleV2() });
   return { planId, title: "V2 test plan", repository: { repositoryId: "repo", baselineCommit: "1".repeat(40), baselineTree: "2".repeat(40), targetBranch: "refs/heads/main" },
-    source: { governingClosure: `sha256:${"3".repeat(64)}`, refs: [], scopeSummary: "local changes only" }, architecture: { outcomes: [{ id: "outcome", description: "working changes" }], nonGoals: ["publication"], notes: [], risks: [] },
+    source: { governingClosure: `sha256:${"3".repeat(64)}`, refs: [fixtureSourceV2], scopeSummary: "local changes only" }, architecture: { outcomes: [{ id: "outcome", description: "working changes" }], nonGoals: ["publication"], notes: [], risks: [] },
     workItems: [node("a"), node("b", ["a"]), node("c"), node("d")], constraints: { maxConcurrency: 2, resources: { cpu: 2 }, mutexGroups: [], gates: [] },
     integration: { strategy: "dependency_order", checks: ["Verify native Git identity"], finalChecks: ["Verify landed identity"], prefixCommands: [{ id: "prefix", argv: ["git", "rev-parse", "--verify", "HEAD"] }], finalCommands: [{ id: "final", argv: ["git", "rev-parse", "--verify", "HEAD"] }] } };
 }
 const fresh = { current: async p => ({ repository: p.repository, source: p.source }) };
 const mutation = r => ({ runId: r.runId, expectedRevision: r.revision, lease: r.lease });
-const request = (p, scope = p.workItems.map(n => n.id), sessionId = "session") => ({ intent: "run", sessionId, selection: selectorV2(p), authority: { scope, maxConcurrency: 2, effects: ["repository_local"], expiresAt: 100000 } });
+const request = (p, scope = p.workItems.map(n => n.id), sessionId = "session") => ({ intent: "run", sessionId, selection: selectorV2(p), authority: { scope, maxConcurrency: 2, effects: ["repository_local"], expiresAt: EXPIRES } });
 async function fixture(options = {}) {
   const dir = await mkdtemp(join(tmpdir(), "dag-v2-"));
   const store = new StoreV2(dir, options), runtime = new RuntimeV2(store, fresh, () => NOW);
@@ -43,8 +44,8 @@ async function waitFile(path) { for (let i = 0; i < 500; i++) { try { await read
 const echoWorkers = { ensure: async r => ({ workerId: `worker-${r.itemId}-${r.generation}` }) };
 const evidence = (r, id) => ({ operationId: `${r.nodes[id].reservation.operationId}/integration`, runId: r.runId, itemId: id, generation: r.nodes[id].generation, candidate: { commit: "4".repeat(40), tree: "5".repeat(40) }, target: { commit: "6".repeat(40), tree: "5".repeat(40) } });
 
-// These fixtures implement the trusted boundary explicitly; production evidence/Git
-// adapters belong to N03/N04, not to worker completion claims.
+// Integration fixtures execute actual lifecycle commands. Native transactional
+// landing belongs to N04; a permissive Git adapter cannot bypass lifecycle checks.
 test("save/show/revise are inert; current explicit run has no extra plan transition", async () => {
   const f = await fixture(); try {
     const original = JSON.stringify(f.plan);
@@ -333,7 +334,8 @@ test("real Git producer landing and fresh persisted reload release dependent suc
       const candidate = { commit: git("rev-parse", "HEAD"), tree: git("rev-parse", "HEAD^{tree}") };
       git("checkout", "main"); const expectedOld = git("rev-parse", "HEAD");
       const e = { ...evidence(r, id), candidate, target: candidate };
-      await assert.rejects(reloaded.integrate(mutation(r), e, { verify: async () => { throw new Error("missing checks"); } }), /missing checks/);
+      await assert.rejects(reloaded.integrate(mutation(r), e, { verify: async () => {} }), /LIFECYCLE_NOT_READY/);
+      r = await finishLifecycleV2(reloaded, f.plan, r, id, candidate, repo);
       r = await reloaded.integrate(mutation(r), e, { verify: async (_run, _plan, exact) => {
         assert.equal(git("rev-parse", "HEAD"), expectedOld);
         assert.equal(git("rev-parse", `${exact.candidate.commit}^{tree}`), exact.candidate.tree);
@@ -361,6 +363,7 @@ test("serial admission protects the prefix from later independent sticky lanes",
     const f = await fixture(); try {
       const data = input(); data.integration.strategy = "serial"; data.constraints.maxConcurrency = capacity;
       f.plan = await f.runtime.save(data, 1);
+      const actual = await fixtureGitV2(f.dir);
       const req = request(f.plan); req.authority.maxConcurrency = capacity;
       let r = await f.runtime.start(req, 2); r = await f.runtime.acquireLease(r.runId, "session", r.revision);
       const before = await readFile(f.store.statePath, "utf8");
@@ -373,7 +376,11 @@ test("serial admission protects the prefix from later independent sticky lanes",
         r = await rt.reserve(mutation(r), id, 1, id);
         assert.deepEqual(await rt.frontier(r.runId), []);
         r = await rt.dispatch(mutation(r), id, 1, echoWorkers);
-        r = await rt.integrate(mutation(r), evidence(r, id), { verify: async () => {} });
+        r = await finishLifecycleV2(rt, f.plan, r, id, actual.candidate, actual.repository);
+        r = await rt.integrate(mutation(r), { ...evidence(r, id), candidate: actual.candidate, target: actual.candidate }, { verify: async (_run, _plan, exact) => {
+          assert.equal(actual.git("rev-parse", "HEAD"), exact.target.commit);
+          assert.equal(actual.git("rev-parse", "HEAD^{tree}"), exact.target.tree);
+        } });
         auditSnapshotV2(await rt.store.read());
       }
       assert.equal(r.status, "complete");
@@ -424,7 +431,7 @@ test("unsupported historical input stays byte/path preserving and cannot start V
     const base = input("old-plan");
     const legacy = createDagPlanningPlanV1({ ...base, status: "draft", focusId: null,
       source: { refs: [{ kind: "external", ref: "fixture:source" }], scopeSummary: base.source.scopeSummary },
-      workItems: base.workItems.map(({ resources, gates, ...n }) => n),
+      workItems: base.workItems.map(({ resources, gates, lifecycle, ...n }) => n),
       constraints: { maxConcurrency: 2, mutexGroups: [] },
       approval: { status: "pending", by: null, at: null, note: null },
       authorization: { status: "not_authorized", by: null, at: null, scope: [], maxConcurrency: null, note: null },
