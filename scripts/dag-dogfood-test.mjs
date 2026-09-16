@@ -21,6 +21,8 @@ import {
   integrationValidationEffectRequestV1,
   ownershipChainHashV1,
   scheduleDagRunV1,
+  reduceDagRunV1,
+  dagRunSnapshotHash,
   sealCanonicalDagPlanV1,
   sealDagRunStateV1,
 } from "../extensions/dag-workflow/dag-runtime/index.ts";
@@ -54,6 +56,8 @@ function integrationProfilesFixture(options = {}) {
 const lifecycleCrashPoints = ["after_procedure_intent", "after_procedure_dispatch", "after_procedure_result", "after_procedure_reconcile"];
 export const DOGFOOD_SCENARIOS = Object.freeze([
   { id: "happy", group: "baseline", name: "happy", options: () => ({ items: 1 }) },
+  { id: "successorIntegrationRecovery", group: "validation", name: "successor-integration-recovery", options: () => ({ items: 2, successorRecovery: true, semanticMutex: false, independentCandidatePaths: true }) },
+  { id: "strandedSuccessorRecovery", group: "validation", name: "stranded-successor-recovery", options: () => ({ items: 2, successorRecovery: true, strandedInitializing: true, semanticMutex: false, independentCandidatePaths: true }) },
   { id: "semanticIntegrationRecovery", group: "validation", name: "semantic-integration-recovery", options: () => ({ items: 1, semanticIntegrationRecovery: true }) },
   { id: "semanticIntegrationFailure", group: "validation", name: "semantic-integration-failure", options: () => ({ items: 1, semanticIntegrationRecovery: true, validationFailurePhase: "final" }) },
   { id: "f4PassCrashMatrix", group: "lifecycle", name: "f4-pass-crash-matrix", options: () => ({ items: 1, lifecycleCrashAt: lifecycleCrashPoints, lifecycleCrashStage: "F4" }) },
@@ -119,6 +123,7 @@ export async function scenario(parent, name, options) {
     await git(repo, ["worktree", "add", workspace, branch]);
     targetRoots[`repo-${index + 1}`] = workspace;
   }
+  if (options.successorRecovery) options.precedence = [content({ precedenceId: "edge-successor", predecessorWorkItemId: "item-1", successorWorkItemId: "item-2", subjectIds: ["subject-api"], reason: "Successor consumes the accepted predecessor integration.", releaseDisposition: "integrated", evidenceRefs: [] })];
   const plan = planFixture(baseline, options.items, options);
   const { genesis, context, seedFacts } = runFixture(plan, options.items, options);
   const artifacts = join(repo, ".ai", "dogfood-input");
@@ -151,7 +156,7 @@ export async function scenario(parent, name, options) {
         store,
         context,
         lock: dagRunStoreLockIdentityFromOwner(input.state.owner),
-        now: () => AT,
+        now: () => input.state.updatedAt,
         failpoint: async (point) => {
           if (options.provenAbsentLanding && point === "before_landing" && !landingNoopArmed) {
             landingNoopArmed = true; await writeFile(gitNoopMarker, "one exact no-op landing acknowledgement\n"); process.env.PATH = `${gitWrapperRoot}:${originalPath}`;
@@ -204,6 +209,7 @@ export async function scenario(parent, name, options) {
   let restartCount = 0;
   let validationConflictObserved = false;
   let validationFailureObserved = false;
+  let successorRecoveryObserved = false;
   try {
     state = (await conductor.start(ctx, { runId: genesis.runId, runNonce: genesis.runNonce, planHash: plan.planHash, planPath: ".ai/dogfood-input/plan.json", genesisPath: ".ai/dogfood-input/genesis.json", contextPath: ".ai/dogfood-input/context.json", maxActiveNodes: options.maxActiveNodes ?? 1, occurredAt: AT })).state;
     if (options.onCommittedSnapshot) recordCommitted(state);
@@ -220,18 +226,28 @@ export async function scenario(parent, name, options) {
     if (terminalForScenario(state, options)) break;
     const before = state;
     try {
+      if (options.successorRecovery && !successorRecoveryObserved) {
+        if (state.workItems["item-1"].current !== "complete") {
+          assert.equal(state.workItems["item-2"].current, "pending", "successor stays pending until real predecessor landing");
+          assert(!scheduleDagRunV1(plan, state).selected.some(({ workItemId }) => workItemId === "item-2"));
+        } else {
+          state = await recoverSuccessorThroughFreshService(ctx, store, state, lifecycleOptions, options);
+          successorRecoveryObserved = true;
+          continue;
+        }
+      }
       if (options.semanticIntegrationRecovery && Object.values(state.integrationAttempts).some((attempt) => attempt.composedTree)) {
         state = await recoverIntegrationThroughRegisteredTools(ctx, store, state);
         break;
       }
       const lifecycle = new DagLifecycleRuntimeV1(store, plan, context, dagRunStoreLockIdentityFromOwner(state.owner), repo, lifecycleOptions);
-      const reconciled = await lifecycle.reconcileOne(AT);
+      const reconciled = await lifecycle.reconcileOne(state.updatedAt);
       state = await store.read(context);
       if (state.revision !== before.revision || state.snapshotHash !== before.snapshotHash || reconciled.progressed) continue;
       if (reconciled.waiting) {
         const readyPackets = await lifecycle.readyPackets(state);
         if (readyPackets.length) {
-          await lifecycle.dispatch(readyPackets[0], null, AT);
+          await lifecycle.dispatch(readyPackets[0], null, state.updatedAt);
           state = await store.read(context);
           continue;
         }
@@ -252,6 +268,14 @@ export async function scenario(parent, name, options) {
     }
   }
 
+  if (options.successorRecovery) {
+    assert(successorRecoveryObserved, "actual predecessor integration reaches fresh successor recovery");
+    assert.equal(state.completion.state, "plan_complete");
+    assert.equal(state.integrationTrains["repo-main"].acceptedPrefixOrdinal, 2);
+    assert.equal(Object.keys(state.integrationAttempts).length, 2, "each node lands exactly once");
+    assert.equal(await readFile(join(repo, "candidate-item-1.txt"), "utf8"), "dogfood-item-1\n");
+    assert.equal(await readFile(join(repo, "candidate-item-2.txt"), "utf8"), "dogfood-item-2\n");
+  }
   if (options.onCommittedSnapshot) {
     const snapshotsDirectory = join(runStoreRoot, genesis.runId, "snapshots");
     for (const name of await readdir(snapshotsDirectory)) if (/^[0-9a-f]{64}\.json$/.test(name)) recordCommitted(JSON.parse(await readFile(join(snapshotsDirectory, name), "utf8")));
@@ -390,6 +414,63 @@ function committedSnapshotProjection(state) {
   };
 }
 
+async function recoverSuccessorThroughFreshService(ctx, store, checkpoint, lifecycle, options) {
+  assert.equal(checkpoint.current.run, "active", "landing must not strand a pending successor initializing");
+  assert.equal(checkpoint.workItems["item-2"].current, "pending");
+  assert.deepEqual(checkpoint.current.readyWorkItemIds, []);
+  assert.deepEqual(checkpoint.current.activeWorkItemIds, []);
+  assert.equal(checkpoint.precedence["edge-successor"].state, "satisfied");
+  assert.equal(checkpoint.precedence["edge-successor"].satisfyingReceipt, checkpoint.workItems["item-1"].integrationReceipt);
+  const train = checkpoint.integrationTrains["repo-main"];
+  assert.equal((await gitTree(ctx.cwd, "HEAD")).commit, train.acceptedPrefix.commit, "dependency release follows actual Git landing");
+  const evidenceHash = canonicalHash({ attempts: checkpoint.stageAttempts, effects: checkpoint.effects, receipt: checkpoint.workItems["item-1"].integrationReceipt });
+  const context = JSON.parse(await readFile(join(store.runDirectory, "authority", "context.json"), "utf8"));
+  if (options.strandedInitializing) {
+    // Only this disposable fixture emulates the old reducer's persisted output.
+    // Keep the real integration/evidence, revision, and predecessor chain intact.
+    const { snapshotHash: _oldHash, ...snapshot } = checkpoint;
+    checkpoint = sealDagRunStateV1({ ...snapshot, current: { ...checkpoint.current, run: "initializing" } }, await store.contextWithReferencedFacts(checkpoint, context));
+    await writeFile(join(store.snapshotsDirectory, `${checkpoint.snapshotHash.slice(7)}.json`), canonicalStringify(checkpoint));
+    await writeFile(store.statePath, canonicalStringify(checkpoint));
+  }
+  const freshStore = new DagRunSnapshotStoreV1(join(ctx.cwd, ".ai", "dag-runs-v1"), checkpoint.runId);
+  assert.equal((await freshStore.read(context)).snapshotHash, checkpoint.snapshotHash);
+  const bytes = await readFile(store.statePath, "utf8");
+  const fresh = new DagConductorServiceV1({ lifecycle });
+  const next = await fresh.nextAction(ctx, checkpoint.runId);
+  assert.equal(await readFile(store.statePath, "utf8"), bytes, "discovery is read-only, including stranded V1 recovery");
+  const choice = next.frontier.find((action) => action.operation === "run_checks" && action.workItemId === "item-2" && action.stage === "F0");
+  assert(choice, JSON.stringify(next));
+  const decision = scheduleDagRunV1(context.plan, checkpoint);
+  assert.equal(decision.selected.length, 1);
+  assert.equal(decision.selected[0].workItemId, "item-2");
+  const payload = { decisionHash: decision.decisionHash, decisionSequence: decision.decisionSequence, policyHash: decision.policyHash, normalizedIndexHash: decision.normalizedIndexHash, inputSnapshotHash: checkpoint.snapshotHash, reservations: decision.selected, bypassSlotIds: decision.bypassIncrements };
+  const input = reducerInput(checkpoint, "reserve_scheduler_batch", "command", payload, "successor-cas-probe");
+  const hydrated = await freshStore.contextWithReferencedFacts(checkpoint, context);
+  for (const stale of [{ expectedRevision: checkpoint.revision - 1 }, { expectedSnapshotHash: H("0") }, { ownerEpoch: checkpoint.owner.ownerEpoch + 1 }]) assert.equal(reduceDagRunV1(checkpoint, { ...input, ...stale }, hydrated).accepted, false, "recovery retains CAS and owner fencing");
+  for (const [label, alter] of [
+    ["paused", (state) => { state.desired.run = "paused"; }],
+    ["cancelled", (state) => { state.desired.run = "cancelled"; }],
+    ["needs_replan", (state) => { state.desired.run = "needs_replan"; }],
+    ["unattached", (state) => { state.owner.lockIdentity = null; }],
+    ["precedence", (state) => { state.precedence["edge-successor"].state = "waiting"; }],
+    ["authorization", (state) => { state.workItems["item-2"].authorizedStages = []; }],
+    ["item paused", (state) => { state.workItems["item-2"].desired = "pause"; }],
+    ["freshness", (state) => { state.freshness.blocksNewLaunches = true; }],
+    ["effects", (state) => { const effect = structuredClone(Object.values(state.effects)[0]); effect.subject = { kind: "work_item", id: "item-2" }; effect.reconciliation = "unknown"; state.effects.probe = effect; }],
+  ]) {
+    const variant = structuredClone(checkpoint); alter(variant); variant.snapshotHash = dagRunSnapshotHash(variant);
+    assert.equal(scheduleDagRunV1(context.plan, variant).selected.length, 0, `${label} still blocks initializing/active recovery`);
+  }
+  const result = await fresh.runChecks(ctx, checkpoint.runId, choice.actionId, choice.workItemId, choice.stage);
+  assert.equal(result.state.current.run, "active");
+  assert.equal(result.state.workItems["item-2"].stages.F0.attemptIds.length, 1, "fresh semantic action actually admits the successor");
+  await assert.rejects(() => fresh.runChecks(ctx, checkpoint.runId, choice.actionId, choice.workItemId, choice.stage), /stale|consumed/);
+  const retained = { attempts: Object.fromEntries(Object.keys(checkpoint.stageAttempts).map((id) => [id, result.state.stageAttempts[id]])), effects: Object.fromEntries(Object.keys(checkpoint.effects).map((id) => [id, result.state.effects[id]])), receipt: result.state.workItems["item-1"].integrationReceipt };
+  assert.equal(canonicalHash(retained), evidenceHash, "recovery preserves predecessor failure/success and effect evidence");
+  return result.state;
+}
+
 async function recoverIntegrationThroughRegisteredTools(ctx, store, checkpoint) {
   const diskContext = JSON.parse(await readFile(join(store.runDirectory, "authority", "context.json"), "utf8"));
   const attempt = Object.values(checkpoint.integrationAttempts)[0];
@@ -481,7 +562,7 @@ function scriptedLifecycle(repo, options) {
           const config = { storageId: `scripted-storage-${state.runId}`, ownerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, launchKey: request.launchKey, requestHash: request.configRequestHash, task: request.task, launchOwner: { sessionId: state.owner.sessionId, pid: state.owner.pid, processStartIdentity: state.owner.processStartIdentity }, fixtureIdentity };
           const configHash = canonicalHash(config);
           const configCore = { kind: "worker_config", configHash, config };
-          const observation = { workerStorageId: config.storageId, launchOwnerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, configHash, configFact: withHash(configCore), supervisorPid: process.pid, supervisorStartIdentity: processStartIdentity, childPid: null, childStartIdentity: null, mailboxHash: null, heartbeatAt: AT };
+          const observation = { workerStorageId: config.storageId, launchOwnerSessionId: state.owner.sessionId, workerId: request.workerId, attemptNumber: request.expectedAttemptNumber, attemptNonce, configHash, configFact: withHash(configCore), supervisorPid: process.pid, supervisorStartIdentity: processStartIdentity, childPid: null, childStartIdentity: null, mailboxHash: null, heartbeatAt: state.updatedAt };
           launches.set(request.launchKey, { observation, candidate, workspace });
           return observation;
         },
@@ -489,7 +570,7 @@ function scriptedLifecycle(repo, options) {
           const launch = [...launches.values()].find(({ observation }) => observation.workerId === binding.workerId);
           const attempt = state.stageAttempts[binding.stageAttemptId]; if (!launch || !attempt) return null;
           const output = launch.candidate ?? await gitTree(launch.workspace, "HEAD"); const item = state.workItems[attempt.workItemId]; const sourceBase = attempt.stage === "F1" ? state.repositories[item.writeRepositoryId].baseline : item.candidate?.git ?? state.repositories[item.writeRepositoryId].baseline;
-          return { completionId: `completion-${binding.workerId}`, terminalStatus: "succeeded", workerOutput: { outputRepositoryId: item.writeRepositoryId, outputCommonDirIdentityHash: canonicalHash({ repo, common: await git(repo, ["rev-parse", "--git-common-dir"]) }), outputWorktreeIdentityHash: canonicalHash({ workspace: launch.workspace }), outputSourceBase: sourceBase, outputCommit: output.commit, outputTree: output.tree, outputObjectFormat: output.commit.length === 40 ? "sha1" : "sha256", candidateObservedAt: AT } };
+          return { completionId: `completion-${binding.workerId}`, terminalStatus: "succeeded", workerOutput: { outputRepositoryId: item.writeRepositoryId, outputCommonDirIdentityHash: canonicalHash({ repo, common: await git(repo, ["rev-parse", "--git-common-dir"]) }), outputWorktreeIdentityHash: canonicalHash({ workspace: launch.workspace }), outputSourceBase: sourceBase, outputCommit: output.commit, outputTree: output.tree, outputObjectFormat: output.commit.length === 40 ? "sha1" : "sha256", candidateObservedAt: state.updatedAt } };
         },
         async cleanupExact(binding) {
           const launch = [...launches.values()].find(({ observation }) => observation.workerId === binding.workerId);
@@ -512,7 +593,7 @@ function scriptedLifecycle(repo, options) {
           const base = attempt.stage === "F1" ? state.repositories[repositoryId].baseline : item.candidate.git;
           const gitIdentity = { repositoryId, ...launch.candidate };
           const candidate = withHash({ kind: "candidate", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: item.workItemId, generation: item.candidateGeneration + 1, candidateId: `candidate-${attempt.stageAttemptId}`, base, git: gitIdentity, patchIdentityHash: canonicalHash({ base, git: gitIdentity }), producedByStageAttemptId: attempt.stageAttemptId, lineageHash: item.implementationLineageHash });
-          return { candidate, workerOutput: { outputRepositoryId: repositoryId, outputCommonDirIdentityHash: canonicalHash({ repo, common: await git(repo, ["rev-parse", "--git-common-dir"]) }), outputWorktreeIdentityHash: canonicalHash({ workspace: launch.workspace }), outputSourceBase: base, outputCommit: gitIdentity.commit, outputTree: gitIdentity.tree, outputObjectFormat: gitIdentity.commit.length === 40 ? "sha1" : "sha256", candidateObservedAt: AT } };
+          return { candidate, workerOutput: { outputRepositoryId: repositoryId, outputCommonDirIdentityHash: canonicalHash({ repo, common: await git(repo, ["rev-parse", "--git-common-dir"]) }), outputWorktreeIdentityHash: canonicalHash({ workspace: launch.workspace }), outputSourceBase: base, outputCommit: gitIdentity.commit, outputTree: gitIdentity.tree, outputObjectFormat: gitIdentity.commit.length === 40 ? "sha1" : "sha256", candidateObservedAt: state.updatedAt } };
         },
       },
       procedure: {
@@ -544,12 +625,12 @@ function scriptedLifecycle(repo, options) {
             const worktreeIdentityHash = launch
               ? canonicalHash({ workspace: launch.workspace })
               : repositoryBinding.worktreeIdentityHash;
-            workspaceMaterialization = withHash({ kind: "workspace_materialization", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stageAttemptId: attempt.stageAttemptId, repositoryId: item.writeRepositoryId, candidateGeneration, candidateHash: item.candidate.candidateHash, candidateTree: item.candidate.git, commonDirIdentityHash, worktreeIdentityHash, materializedAt: AT });
-            environmentObservation = withHash({ kind: "environment_observation", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, repositoryId: item.writeRepositoryId, candidateGeneration, candidateHash: item.candidate.candidateHash, candidateTree: item.candidate.git, environmentProfileHash: procedure.environmentProfileHash, workspaceMaterializationHash: workspaceMaterialization.hash, commonDirIdentityHash, worktreeIdentityHash, cleanliness: options.procedureFailureStage === attempt.stage && attempt.stage === "F7" ? "dirty" : "clean", observedAt: AT });
+            workspaceMaterialization = withHash({ kind: "workspace_materialization", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stageAttemptId: attempt.stageAttemptId, repositoryId: item.writeRepositoryId, candidateGeneration, candidateHash: item.candidate.candidateHash, candidateTree: item.candidate.git, commonDirIdentityHash, worktreeIdentityHash, materializedAt: state.updatedAt });
+            environmentObservation = withHash({ kind: "environment_observation", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, repositoryId: item.writeRepositoryId, candidateGeneration, candidateHash: item.candidate.candidateHash, candidateTree: item.candidate.git, environmentProfileHash: procedure.environmentProfileHash, workspaceMaterializationHash: workspaceMaterialization.hash, commonDirIdentityHash, worktreeIdentityHash, cleanliness: options.procedureFailureStage === attempt.stage && attempt.stage === "F7" ? "dirty" : "clean", observedAt: state.updatedAt });
           }
           const procedureDisposition = options.procedureFailureStage === attempt.stage ? "FAIL" : "PASS";
           const applicableChecks = plan.workItems.find(({ workItemId }) => workItemId === item.workItemId).checks.filter(({ phases }) => phases.includes(attempt.stage));
-          const checkExecutions = applicableChecks.map((check) => withHash({ kind: "check_execution", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, authorizationSetHash: state.identity.authorizationSet.hash, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, candidateGeneration, candidateHash: attempt.stage === "F0" ? null : item.candidate.candidateHash, checkId: check.checkId, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, environmentObservationHash: environmentObservation?.hash ?? null, executionId: `execution-${attempt.stageAttemptId}-${check.checkId}`, disposition: procedureDisposition, startedAt: AT, completedAt: AT }));
+          const checkExecutions = applicableChecks.map((check) => withHash({ kind: "check_execution", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, authorizationSetHash: state.identity.authorizationSet.hash, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, candidateGeneration, candidateHash: attempt.stage === "F0" ? null : item.candidate.candidateHash, checkId: check.checkId, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, environmentObservationHash: environmentObservation?.hash ?? null, executionId: `execution-${attempt.stageAttemptId}-${check.checkId}`, disposition: procedureDisposition, startedAt: state.updatedAt, completedAt: state.updatedAt }));
           const aggregateCore = { kind: "check_aggregate", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, authorizationSetHash: state.identity.authorizationSet.hash, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, disposition: procedureDisposition, oracleIds: plan.workItems.find(({ workItemId }) => workItemId === item.workItemId).oracleIds, assertions: oracleAssertions.map((fact) => ({ oracleId: fact.oracleId, assertionId: fact.assertionId, evidenceHash: fact.hash })), checks: applicableChecks.map((check, index) => ({ checkId: check.checkId, disposition: procedureDisposition, executionEvidenceHash: checkExecutions[index].hash, applicabilityEvidenceHashes: [] })) };
           const checkAggregate = withHash(aggregateCore);
           const evidence = withHash({ kind: "stage_evidence", planHash: state.identity.planHash, runId: state.runId, runNonce: state.runNonce, workItemId: attempt.workItemId, stage: attempt.stage, stageAttemptId: attempt.stageAttemptId, attemptInputHash: attempt.attemptInput.hash, authorizationSetHash: state.identity.authorizationSet.hash, procedureHash: procedure.hash, environmentProfileHash: procedure.environmentProfileHash, checkAggregateHash: checkAggregate.hash, findingHashes: [], effectReconciliationHashes: [], candidateGeneration, candidateHash: attempt.stage === "F0" ? null : item.candidate.candidateHash, producerKind: attempt.producerKind, producerResultHash: attempt.workerResult?.hash ?? null, disposition: procedureDisposition, environmentObservationHash: environmentObservation?.hash ?? null, producedAt: state.updatedAt, readOnly: procedure.readOnly });
@@ -601,11 +682,16 @@ export function runFixture(plan, itemCount, options = {}) {
   const authSet = ref("authorization_set", "authorization-set", authorization.hash);
   const repositories = Object.fromEntries(plan.repositories.map((planned) => [planned.repositoryId, { repositoryId: planned.repositoryId, planEntityHash: planned.contentHash, role: "write", baseline: planned.baseline, targetRef: planned.targetRef, observedTarget: planned.baseline, observedTargetAt: AT, observationReceipt: repositoryObservation.hash, workspace: { state: "unmaterialized", locator: null, gitCommonDirIdentityHash: null, gitWorktreeIdentityHash: null, branchRef: null, base: null, expectedHead: null, ownerLeaseId: null, processDisposition: "not_applicable", observationReceipt: null }, integrationLockLeaseId: null, blockerIds: [] }]));
   const workItems = Object.fromEntries(plan.workItems.map((item) => [item.workItemId, { workItemId: item.workItemId, planEntityHash: item.contentHash, writeRepositoryId: item.writeRepositoryId, desired: "run", current: "ready", authorizedStages: [...PLAN_STAGE_IDS], currentStage: null, implementationLineageHash: canonicalHash({ item: item.workItemId, fixture: true }), candidateGeneration: 0, candidate: null, stages: Object.fromEntries(PLAN_STAGE_IDS.map((stage) => [stage, { stage, state: "pending", attemptIds: [], currentAttemptId: null, currentEvidence: null, adoptionReceipt: null, invalidationIds: [], lastDisposition: null, blockerIds: [] }])), precedenceIds: [], gateIds: [], laneAdmissionSequence: null, admittedAt: null, activeLeaseIds: [], blockerIds: [], openFindingIds: [], integrationReadyReceipt: null, integrationEntryId: null, integrationReceipt: null, completedAt: null }]));
+  const precedence = Object.fromEntries(plan.constraints.precedence.map((edge) => [edge.precedenceId, { precedenceId: edge.precedenceId, planEntityHash: edge.contentHash, predecessorWorkItemId: edge.predecessorWorkItemId, successorWorkItemId: edge.successorWorkItemId, releaseDisposition: "integrated", state: "waiting", satisfyingReceipt: null }]));
+  for (const item of Object.values(workItems)) {
+    item.precedenceIds = Object.values(precedence).filter(({ successorWorkItemId }) => successorWorkItemId === item.workItemId).map(({ precedenceId }) => precedenceId).sort();
+    if (item.precedenceIds.length) item.current = "pending";
+  }
   const index = buildSchedulerPlanIndexV1(plan);
   const catalog = { lifecycleProfileHash: plan.lifecycleBinding.profileHash, checkCatalogHash: plan.lifecycleBinding.checkCatalogHash, procedures: procedureCatalogFixture(), checkAggregates: {} };
   const context = { plan, authorization, historicalAuthorizations: {}, catalog, normalizedSchedulerIndexHash: index.indexHash, facts: {}, integrationValidationProfiles: integrationProfilesFixture(options) };
   const runLabel = options.runLabel ?? String(itemCount);
-  const genesis = sealDagRunStateV1({ schemaVersion: 1, kind: "DagRunStateV1", canonicalization: "jcs-v1", runId: `run-dogfood-${runLabel}`, runNonce: `dogfood-nonce-${runLabel}-0123456789`, revision: 0, previousSnapshotHash: null, createdAt: AT, updatedAt: AT, identity: { projectId: "project-dogfood", planId: plan.planId, planRevision: plan.revision, planHash: plan.planHash, planSchemaHash: CANONICAL_DAG_PLAN_SCHEMA_HASH, lifecycleProfileHash: plan.lifecycleBinding.profileHash, checkCatalogHash: plan.lifecycleBinding.checkCatalogHash, artifactPolicyHash: plan.artifactPolicy.profileHash, reviewReceipt: ref("plan_review", "review-dogfood", reviewFact.hash), authorizationReceipts: [ref("plan_authorization", "authorization-dogfood", authorizationFact.hash)], authorizationSet: authSet, previousRunId: null, supersededByRunId: null }, owner: { ownerEpoch: 0, ownerTokenHash: null, sessionId: null, pid: 0, processStartIdentity: null, lockIdentity: null, attachedAt: null, lastHeartbeatAt: null, ownershipReceipt: null, lastReleaseCommandId: null, lastReleasePayloadHash: null }, desired: { run: "running", reason: null, requestedAt: AT, requestedBy: "user" }, current: { run: "active", readyWorkItemIds: Object.keys(workItems).sort(), activeWorkItemIds: [], blockedWorkItemIds: [], integrationReadyWorkItemIds: [], updatedByCommandId: "create-run" }, repositories, workItems, gates: {}, precedence: {}, resourcePools: {}, mutexes: Object.fromEntries(plan.constraints.semanticMutexes.map((mutex) => [mutex.mutexGroupId, { mutexGroupId: mutex.mutexGroupId, planEntityHash: mutex.contentHash, activeLeaseId: null, waitingStageAttemptIds: [] }])), leases: {}, stageAttempts: {}, launchIntents: {}, workerBindings: {}, evidenceIndex: { stageAttemptInputs: {}, workerResults: {}, candidates: {}, stageEvidence: {}, checkAggregates: {}, checkDispositions: {}, verifications: {}, oracleAssertions: {}, findings: {}, findingResolutions: {}, waivers: {}, invalidations: {}, adoptions: {}, effectReconciliations: {}, integrationReady: {}, integrationReceipts: {}, stalenessReceipts: { [freshnessFact.hash]: ref("staleness", "freshness-dogfood", freshnessFact.hash) }, gateReceipts: {} }, findingClosures: {}, retryLedger: {}, blockers: {}, effects: {}, cancellations: {}, quarantine: {}, idempotencySlots: {}, integrationTrains: Object.fromEntries(plan.constraints.integrationTrains.map((train) => { const planned = plan.repositories.find(({ repositoryId }) => repositoryId === train.repositoryId); return [train.repositoryId, { repositoryId: train.repositoryId, planTrainHash: train.contentHash, strategy: "merge_tree_one_parent", targetRef: planned.targetRef, expectedTarget: planned.baseline, acceptedPrefix: planned.baseline, acceptedPrefixOrdinal: 0, acceptedPrefixReceipt: null, entryOrder: [], entries: {}, activeIntegrationAttemptId: null, lockLeaseId: null, blockerIds: [] }]; })),
+  const genesis = sealDagRunStateV1({ schemaVersion: 1, kind: "DagRunStateV1", canonicalization: "jcs-v1", runId: `run-dogfood-${runLabel}`, runNonce: `dogfood-nonce-${runLabel}-0123456789`, revision: 0, previousSnapshotHash: null, createdAt: AT, updatedAt: AT, identity: { projectId: "project-dogfood", planId: plan.planId, planRevision: plan.revision, planHash: plan.planHash, planSchemaHash: CANONICAL_DAG_PLAN_SCHEMA_HASH, lifecycleProfileHash: plan.lifecycleBinding.profileHash, checkCatalogHash: plan.lifecycleBinding.checkCatalogHash, artifactPolicyHash: plan.artifactPolicy.profileHash, reviewReceipt: ref("plan_review", "review-dogfood", reviewFact.hash), authorizationReceipts: [ref("plan_authorization", "authorization-dogfood", authorizationFact.hash)], authorizationSet: authSet, previousRunId: null, supersededByRunId: null }, owner: { ownerEpoch: 0, ownerTokenHash: null, sessionId: null, pid: 0, processStartIdentity: null, lockIdentity: null, attachedAt: null, lastHeartbeatAt: null, ownershipReceipt: null, lastReleaseCommandId: null, lastReleasePayloadHash: null }, desired: { run: "running", reason: null, requestedAt: AT, requestedBy: "user" }, current: { run: "active", readyWorkItemIds: Object.values(workItems).filter(({ current }) => current === "ready").map(({ workItemId }) => workItemId).sort(), activeWorkItemIds: [], blockedWorkItemIds: [], integrationReadyWorkItemIds: [], updatedByCommandId: "create-run" }, repositories, workItems, gates: {}, precedence, resourcePools: {}, mutexes: Object.fromEntries(plan.constraints.semanticMutexes.map((mutex) => [mutex.mutexGroupId, { mutexGroupId: mutex.mutexGroupId, planEntityHash: mutex.contentHash, activeLeaseId: null, waitingStageAttemptIds: [] }])), leases: {}, stageAttempts: {}, launchIntents: {}, workerBindings: {}, evidenceIndex: { stageAttemptInputs: {}, workerResults: {}, candidates: {}, stageEvidence: {}, checkAggregates: {}, checkDispositions: {}, verifications: {}, oracleAssertions: {}, findings: {}, findingResolutions: {}, waivers: {}, invalidations: {}, adoptions: {}, effectReconciliations: {}, integrationReady: {}, integrationReceipts: {}, stalenessReceipts: { [freshnessFact.hash]: ref("staleness", "freshness-dogfood", freshnessFact.hash) }, gateReceipts: {} }, findingClosures: {}, retryLedger: {}, blockers: {}, effects: {}, cancellations: {}, quarantine: {}, idempotencySlots: {}, integrationTrains: Object.fromEntries(plan.constraints.integrationTrains.map((train) => { const planned = plan.repositories.find(({ repositoryId }) => repositoryId === train.repositoryId); return [train.repositoryId, { repositoryId: train.repositoryId, planTrainHash: train.contentHash, strategy: "merge_tree_one_parent", targetRef: planned.targetRef, expectedTarget: planned.baseline, acceptedPrefix: planned.baseline, acceptedPrefixOrdinal: 0, acceptedPrefixReceipt: null, entryOrder: [], entries: {}, activeIntegrationAttemptId: null, lockLeaseId: null, blockerIds: [] }]; })),
    integrationAttempts: {}, scheduler: { policyVersion: "sticky-lanes-v1", policyHash: DAG_SCHEDULER_POLICY_HASH_V1, normalizedIndexHash: index.indexHash, maxActiveNodes: options.maxActiveNodes ?? 1, decisionSequence: 0, nextReservationSequence: 1, lastDecisionCommandId: null, activeNodeLanes: {}, reservations: {}, bypassCounters: {}, fairnessCounters: {}, dynamicExclusions: {}, providerHoldIds: [], operationalCapacities: Object.fromEntries(["worker.process", "role:implementation", "role:evaluation", "role:review", "role:check", ...plan.repositories.flatMap(({ repositoryId }) => [`repository-worktree:${repositoryId}`, `repository-integration:${repositoryId}`])].map((namespace) => [namespace, { namespace, observedCapacity: namespace.startsWith("repository-integration") ? 1 : 4, allocatedUnits: 0, reservationIds: [], observationHash: H("4") }])) }, freshness: { class: "valid_exact", receipt: ref("staleness", "freshness-dogfood", freshnessFact.hash), evaluatedPlanHash: plan.planHash, modelClosureHash: plan.modelBinding.closure.closureHash, repositoryObservationHashes: Object.fromEntries(plan.repositories.map(({ repositoryId }) => [repositoryId, repositoryObservation.hash])), affectedWorkItemIds: [], blocksNewLaunches: false, blocksIntegration: false, evaluatedAt: AT }, completion: { state: "open", authorizedScopeHash: authSet.hash, completeWorkItemIds: [], remainingAuthorizedWorkItemIds: Object.keys(workItems).sort(), unauthorizedWorkItemIds: [], completedRepositoryIds: [], completedAt: null } }, context);
   return { genesis, context, seedFacts: [reviewFact, authorizationFact, freshnessFact, repositoryObservation, authorization] };
 }
@@ -619,7 +705,7 @@ function content(value) { return { ...value, contentHash: canonicalHash(value) }
 function simpleFact(kind, id) { return withHash({ kind, id, schemaVersion: 1, issuedAt: AT }); }
 function ref(kind, id, hash) { return { kind, schemaVersion: 1, id, hash, bytes: 1, mediaType: "application/json", sensitivity: "internal", retention: "run", locator: null }; }
 function withHash(core) { return { ...core, hash: canonicalHash(core) }; }
-function reducerInput(state, type, kind, payload, slot) { return { schemaVersion: 1, kind, type, commandId: slot, idempotencyKey: `${state.runNonce}:${slot}`, payloadHash: canonicalHash(payload), runId: state.runId, runNonce: state.runNonce, expectedRevision: state.revision, expectedSnapshotHash: state.snapshotHash, ownerEpoch: state.owner.ownerEpoch, occurredAt: AT, payload }; }
+function reducerInput(state, type, kind, payload, slot) { return { schemaVersion: 1, kind, type, commandId: slot, idempotencyKey: `${state.runNonce}:${slot}`, payloadHash: canonicalHash(payload), runId: state.runId, runNonce: state.runNonce, expectedRevision: state.revision, expectedSnapshotHash: state.snapshotHash, ownerEpoch: state.owner.ownerEpoch, occurredAt: state.updatedAt, payload }; }
 async function gitTree(repo, refName) { return { commit: await git(repo, ["rev-parse", refName]), tree: await git(repo, ["rev-parse", `${refName}^{tree}`]) }; }
 async function git(cwd, args, env) { const result = await execFileAsync("git", args, { cwd, encoding: "utf8", maxBuffer: 4 * 1024 * 1024, env: env ? { ...process.env, ...env } : process.env }); return result.stdout.trim(); }
 export function commitEnvironment() { return { GIT_AUTHOR_NAME: "Scripted DAG Fixture", GIT_AUTHOR_EMAIL: "dag-fixture@example.invalid", GIT_COMMITTER_NAME: "Scripted DAG Fixture", GIT_COMMITTER_EMAIL: "dag-fixture@example.invalid", GIT_AUTHOR_DATE: AT, GIT_COMMITTER_DATE: AT, TZ: "UTC", LC_ALL: "C", LANG: "C" }; }

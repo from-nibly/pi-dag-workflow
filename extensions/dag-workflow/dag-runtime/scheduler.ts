@@ -324,7 +324,9 @@ function deriveSlot(plan: CanonicalDagPlanV1, state: DagRunStateV1, workItemId: 
   if (!state.owner.sessionId || !state.owner.lockIdentity) blockers.push({ code: "OWNER_UNATTACHED", id: "run-owner" });
   const needsReplan = dagRunNeedsReplanV1(state) || state.desired.run === "needs_replan" || state.current.run === "needs_replan";
   if (needsReplan) blockers.push({ code: "NEEDS_REPLAN", id: "run-needs-replan" });
-  else if (state.desired.run !== "running" || !["active", "integration"].includes(state.current.run)) blockers.push({ code: "RUN_NOT_RUNNING", id: state.current.run });
+  // Retained V1 snapshots can be stranded initializing after a predecessor lands.
+  // Admission still requires exact ownership, authority, dependencies and effects.
+  else if (state.desired.run !== "running" || !["initializing", "active", "integration"].includes(state.current.run)) blockers.push({ code: "RUN_NOT_RUNNING", id: state.current.run });
   if (state.freshness.blocksNewLaunches || !["valid_exact", "valid_revalidated"].includes(state.freshness.class)) blockers.push({ code: state.freshness.class === "integration_drift" ? "INTEGRATION_DRIFT" : "FRESHNESS_BLOCK", id: state.freshness.receipt.hash });
   if (item.desired !== "run" || ["cancelled", "superseded"].includes(item.current)) blockers.push({ code: "ITEM_NOT_RUNNABLE", id: workItemId });
   if (!item.authorizedStages.includes(stage)) blockers.push({ code: "AUTHORIZATION", id: stage });

@@ -509,7 +509,7 @@ export class DagConductorServiceV1 {
         } else if (attempt.state === "result_observed" && ["F1", "F3"].includes(attempt.stage) && state.workItems[attempt.workItemId].candidate?.producedByStageAttemptId !== attempt.stageAttemptId) action(actions, "finalize", { reservation, stageAttemptId: attempt.stageAttemptId, finalizationKind: "worker_result", explanation: `Finalize already-observed paused work ${attempt.stageAttemptId} without starting another attempt.` });
       }
 
-      if (!runTerminal && state.desired.run === "running" && ["active", "integration"].includes(state.current.run)) {
+      if (!runTerminal && state.desired.run === "running" && ["initializing", "active", "integration"].includes(state.current.run)) {
         const outstandingKeys = new Set(outstanding.map(({ workItemId, stage }) => `${workItemId}\u0000${stage}`));
         for (const proposal of decision.selected) {
           if (outstandingKeys.has(`${proposal.workItemId}\u0000${proposal.stage}`)) continue;

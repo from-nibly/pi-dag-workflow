@@ -397,7 +397,7 @@ function applyInput(
       const exactDecision = scheduleDagRunV1(context.plan, state);
       if (payload.decisionHash !== exactDecision.decisionHash || payload.decisionSequence !== exactDecision.decisionSequence || payload.policyHash !== exactDecision.policyHash || payload.normalizedIndexHash !== exactDecision.normalizedIndexHash || payload.inputSnapshotHash !== exactDecision.inputSnapshotHash || canonicalHash(payload.reservations) !== canonicalHash(exactDecision.selected) || canonicalHash([...payload.bypassSlotIds].sort()) !== canonicalHash([...exactDecision.bypassIncrements].sort())) return precondition("scheduler reservation must exactly reproduce the deterministic bound plan/run/policy decision");
       if (!state.owner.sessionId || !state.owner.lockIdentity) return precondition("scheduler reservation requires one exact attached owner");
-      if (state.desired.run !== "running" || !["active", "integration"].includes(state.current.run)) return precondition("only an active running run may reserve scheduler work");
+      if (state.desired.run !== "running" || !["initializing", "active", "integration"].includes(state.current.run)) return precondition("only an initializing or active running run may reserve scheduler work");
       if (payload.policyHash !== state.scheduler.policyHash || payload.normalizedIndexHash !== state.scheduler.normalizedIndexHash || payload.inputSnapshotHash !== input.expectedSnapshotHash) return precondition("scheduler decision bindings differ from the current run snapshot");
       if (payload.decisionSequence !== state.scheduler.decisionSequence + 1) return precondition("scheduler decision sequence is not the exact successor");
       const activeLanes = Object.values(state.scheduler.activeNodeLanes).filter(({ releaseDisposition }) => releaseDisposition === null).length;
@@ -1564,7 +1564,8 @@ function rederiveCurrent(state: DagRunStateV1, commandId: string): void {
   else if (state.desired.run === "cancelled") {
     state.current.run = ids.every((id) => ["complete", "cancelled", "superseded"].includes(state.workItems[id].current)) ? "cancelled" : "cancelling";
   } else if (state.current.integrationReadyWorkItemIds.length || ids.some((id) => state.workItems[id].current === "integrating")) state.current.run = "integration";
-  else if (state.current.activeWorkItemIds.length || state.current.readyWorkItemIds.length) state.current.run = "active";
+  // Pending successors are evaluated by the scheduler, not promoted to ready here.
+  else if (state.current.activeWorkItemIds.length || state.current.readyWorkItemIds.length || ids.some((id) => state.workItems[id].desired === "run" && state.workItems[id].current === "pending")) state.current.run = "active";
   else if (state.current.blockedWorkItemIds.length) state.current.run = "blocked";
   else state.current.run = "initializing";
   state.current.updatedByCommandId = commandId;
