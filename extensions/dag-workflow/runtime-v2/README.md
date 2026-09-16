@@ -237,6 +237,33 @@ an unverified callback. Product tools should derive revision/lease internals and
 call these closed operations, never expose `StoreV2.transaction` as a state-patch
 tool.
 
+## N04 landing capability blocker (not implemented)
+
+`IntegrationsV2.verify` is still an interface, **not a shipped native V2 Git
+transaction driver**. N05 must not connect it to an ordinary `git merge --ff-only`
+adapter and describe a caller's precheck as expected-old CAS. The disposable
+real-Git characterization in `node scripts/dag-v2-git-test.mjs` demonstrates on
+Git 2.54.0 that:
+
+- A backward ref move after a caller's precheck can be silently incorporated by
+  an ordinary fast-forward, rather than rejecting the caller's stale expected old.
+- An existing target ref lock or a ref move during merge makes Git's own ref
+  transaction fail **after** proposal files/index have been installed.
+- A `reference-transaction` hook rejecting the prepared update is also too late
+  to prevent those worktree/index effects.
+
+The common-dir cooperative lock, intent journal, or a post-command observation
+cannot remove these windows for nonparticipating Git writers. A reference hook
+alone is not a safe remedy. Do not recover by reset/stash/forced checkout or assume
+an unsuccessful command was effect-free. The accepted ordinary-fast-forward
+contract also excludes raw checked-branch `update-ref`; replacing it with a new
+multi-step checkout/ref protocol would need its own design, crash recovery and
+real-Git validation. No such replacement or enforceable exclusive-worktree
+capability has been implemented here. Fail closed at product wiring until that
+boundary is resolved. Existing V1 behavior and N03 lifecycle readiness are
+unchanged. Passing this characterization suite proves the blocker, **not N04
+completion**, native binding, combined validation, or exactly-once landing.
+
 ## Limitations and verification
 
 One project snapshot and project-wide short lock simplify cross-record atomicity;

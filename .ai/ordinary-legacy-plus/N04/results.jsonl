@@ -1,0 +1,11 @@
+{"command": ["node", "scripts/dag-v2-git-test.mjs"], "exit": 0, "durationSeconds": 1.178, "timeoutSeconds": 3600, "log": ".ai/ordinary-legacy-plus/N04/git-capability.log"}
+{"command": ["node", "scripts/dag-v2-context-test.mjs"], "exit": 0, "timedOut": false, "durationSeconds": 44.367, "timeoutSeconds": 3600, "log": ".ai/ordinary-legacy-plus/N04/dag-v2-context-test.log"}
+{"command": ["node", "scripts/dag-v2-lifecycle-test.mjs"], "exit": 0, "timedOut": false, "durationSeconds": 150.035, "timeoutSeconds": 3600, "log": ".ai/ordinary-legacy-plus/N04/dag-v2-lifecycle-test.log"}
+{"command": ["node", "scripts/dag-v2-state-test.mjs"], "exit": 0, "timedOut": false, "durationSeconds": 247.049, "timeoutSeconds": 3600, "log": ".ai/ordinary-legacy-plus/N04/dag-v2-state-test.log"}
+{"command": ["node", "scripts/git-integration-test.mjs"], "exit": 0, "timedOut": false, "durationSeconds": 126.097, "timeoutSeconds": 3600, "log": ".ai/ordinary-legacy-plus/N04/git-integration-test.log"}
+{"command": ["node", "scripts/dag-runtime-test.mjs"], "exit": 0, "timedOut": false, "durationSeconds": 304.912, "timeoutSeconds": 3600, "log": ".ai/ordinary-legacy-plus/N04/dag-runtime-test.log"}
+{"command": ["node", "scripts/dag-v2-git-test.mjs"], "exit": 1, "durationSeconds": 1.383, "timeoutSeconds": 3600, "log": ".ai/ordinary-legacy-plus/N04/git-capability-final.log"}
+{"command": ["node", "scripts/dag-v2-git-test.mjs"], "exit": 0, "durationSeconds": 1.326, "timeoutSeconds": 3600, "log": ".ai/ordinary-legacy-plus/N04/git-capability-final-retry.log"}
+{"command": ["git", "diff", "--check"], "exit": 0, "durationSeconds": 0.004, "timeoutSeconds": 3600, "log": ".ai/ordinary-legacy-plus/N04/diff-check.log"}
+{"command": ["node", "scripts/dag-v2-git-test.mjs"], "exit": 0, "durationSeconds": 1.226, "timeoutSeconds": 3600, "log": ".ai/ordinary-legacy-plus/N04/git-capability-committed.log"}
+{"command": ["git", "diff", "--check"], "exit": 0, "durationSeconds": 0.008, "timeoutSeconds": 3600, "log": ".ai/ordinary-legacy-plus/N04/diff-check-final.log"}

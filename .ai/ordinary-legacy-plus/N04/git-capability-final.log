@@ -1,0 +1,26 @@
+N04 capability characterization: git version 2.54.0
+{"commandExit":128,"before":{"target":"8305c0f7fe59c16d09077708600bae638cbf7809","index":"6e4510c462fbdaac74adce45599129bd442c126e","file":"old\n","status":""},"after":{"target":"8305c0f7fe59c16d09077708600bae638cbf7809","index":"dfee79561ee4d4314cf592a80403416bbeee3a92","file":"proposal\n","status":"M  file"},"stderr":"fatal: update_ref failed for ref 'HEAD': cannot lock ref 'HEAD': Unable to create '/tmp/dag-v2-git-capability-6DbVCA/.git/refs/heads/main.lock': File exists.\n\nAnother git process seems to be running in this repository, or the lock file may be stale"}
+PASS (unsafe primitive characterized): ref lock failure does not prevent ordinary merge from changing index/files
+{"expectedOld":"bccf45b590b8ed4aedec8b2f8ba6287927265d17","actualOld":"fee00ccef06d4ef23fa917f544f01e4a9bf5f676","commandExit":0,"after":{"target":"053bae2bb16e4aabcab01729fa76b09db6e37fae","index":"dfee79561ee4d4314cf592a80403416bbeee3a92","file":"proposal\n","status":""}}
+PASS (unsafe primitive characterized): a precheck is not expected-old CAS: backward third target is silently accepted
+{"commandExit":128,"after":{"target":"fee00ccef06d4ef23fa917f544f01e4a9bf5f676","index":"dfee79561ee4d4314cf592a80403416bbeee3a92","file":"proposal\n","status":"M  file"},"stdout":"Updating bccf45b..053bae2\nFast-forward","stderr":"fatal: update_ref failed for ref 'HEAD': cannot lock ref 'HEAD': is at fee00ccef06d4ef23fa917f544f01e4a9bf5f676 but expected bccf45b590b8ed4aedec8b2f8ba6287927265d17"}
+PASS (unsafe primitive characterized): during-command ref drift is detected only after proposal files/index are installed
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: The input did not match the regular expression /ref updates aborted by hook/. Input:
+
+"fatal: in 'prepared' phase, update aborted by the reference-transaction hook\n"
+
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-test.mjs:94:80
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-test.mjs:103:9 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: "fatal: in 'prepared' phase, update aborted by the reference-transaction hook\n",
+  expected: /ref updates aborted by hook/,
+  operator: 'match',
+  diff: 'simple'
+}
+
+Node.js v24.19.0
