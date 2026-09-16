@@ -3,7 +3,7 @@ import { createPlanV2, parsePlanV2, PlanInputV2Schema, PlanSelectorV2Schema, req
 import { admissibleV2, assertScopeV2, IntegrationV2Schema, StartV2Schema, runPlanV2, type IntegrationV2, type LeaseV2, type ReservationV2, type RunV2, type SnapshotV2, type StartV2 } from "./state.ts";
 import { processIdentityV2, StoreV2 } from "./store.ts";
 import { CandidateV2Schema, ExecutionResultV2Schema, type CandidateV2, type RetryDimensionV2 } from "./lifecycle-schema.ts";
-import { assertReadyV2, assertStageV2, auditResultV2, consumeRetryV2, currentExecutionV2, executionRequestV2, frameV2, invalidateLifecycleV2, stageChecksV2 } from "./lifecycle.ts";
+import { assertReadyV2, assertStageV2, auditResultV2, consumeRetryV2, contextReusedV2, rejectedContextResultV2, currentExecutionV2, executionRequestV2, frameV2, invalidateLifecycleV2, stageChecksV2 } from "./lifecycle.ts";
 import type { CandidateInspectorV2, ResultsV2 } from "./command-runner.ts";
 
 /** Hydrate from the repository/model, not from the submitted plan. Called inside
@@ -230,18 +230,27 @@ export class RuntimeV2 {
   /** Hydrate only a durable execution result from a trusted executor. There is no
    * public method accepting a worker completion string or aggregate PASS. */
   async recordResult(m: MutationV2, itemId: string, executionId: string, results: ResultsV2): Promise<RunV2> {
-    return this.change(m, async run => {
+    return this.change(m, async (run, _plan, snapshot) => {
       const l = run.nodes[itemId]?.lifecycle, execution = l?.executions.find(e => e.request.id === executionId);
       requireV2(l && execution, "EXECUTION_NOT_FOUND");
       const result = await results.read(structuredClone(execution.request));
       requireV2(result, "EXECUTION_RESULT_NOT_DURABLE"); validateShapeV2(ExecutionResultV2Schema, result); auditResultV2(execution.request, result);
-      if (execution.result) { requireV2(sameV2(execution.result, result), "EXECUTION_RESULT_CONFLICT"); return false; }
-      execution.result = structuredClone(result);
+      if (execution.result) { requireV2(sameV2(execution.contextRejection?.observed ?? execution.result, result), "EXECUTION_RESULT_CONFLICT"); return false; }
+      const reused = contextReusedV2(run, result), job = snapshot.executions?.[executionId];
+      // A reader cannot replace the concrete executor's durable observation.
+      requireV2(!job || (job.status === "settled" && sameV2(job.result, result)), `EXECUTOR_RESULT_MISMATCH${reused ? ": EVALUATOR_CONTEXT_REUSED_ACROSS_ITEMS" : ""}`);
+      // Cross-execution acceptance is atomic with publication, not the earlier
+      // executor settlement. Preserve its exact observation without accepting
+      // an invalid identity or wedging cancellation on a physically settled job.
+      if (reused) {
+        execution.contextRejection = { reason: "EVALUATOR_CONTEXT_REUSED", observed: structuredClone(result) };
+        execution.result = rejectedContextResultV2(result);
+      } else execution.result = structuredClone(result);
       if (!currentExecutionV2(run, execution.request) || execution.status === "quarantined") {
         execution.status = "quarantined"; execution.quarantineReason ??= "stale generation, candidate or attempt"; return true;
       }
       execution.status = "observed";
-      for (const [index, finding] of result.findings.entries()) {
+      for (const [index, finding] of execution.result.findings.entries()) {
         // The original producer ID remains in the result; a bounded natural slot
         // avoids truncation collisions when promoting it into the finding ledger.
         const retained = { ...finding, id: `${execution.request.id}.${index}` };
@@ -281,12 +290,12 @@ export class RuntimeV2 {
       requireV2(l.executions.every(e => e.result), "EXECUTION_RECONCILIATION_REQUIRED");
       const finding = e.result.findings.find(f => f.severity === "blocking");
       const kind = finding?.kind;
-      const dimension: RetryDimensionV2 = kind === "infrastructure_failure" || kind === "capability_absent" || kind === "external_precondition_failure" ? "infrastructure"
+      const dimension: RetryDimensionV2 = e.contextRejection || kind === "infrastructure_failure" || kind === "capability_absent" || kind === "external_precondition_failure" ? "infrastructure"
         : kind === "product_defect" ? "product" : kind === "test_evidence_gap" ? "test" : kind === "architecture_issue" ? "review"
         : e.request.stage === 3 ? "test" : e.request.stage === 5 ? "review" : e.request.stage === 6 ? "hardening" : "product";
       const target = dimension === "test" ? 3 : dimension === "review" ? 5 : dimension === "infrastructure" ? e.request.stage : 1;
       const procedure = JSON.stringify(e.request.check.procedure);
-      const fingerprint = finding?.fingerprint ?? `${procedure}:exit=${e.result.exitCode}:signal=${e.result.signal}`;
+      const fingerprint = e.contextRejection?.reason ?? finding?.fingerprint ?? `${procedure}:exit=${e.result.exitCode}:signal=${e.result.signal}`;
       try { consumeRetryV2(run, itemId, dimension, e.request.check.stage, procedure, fingerprint); }
       catch (error) { l.stop = String(error); return true; }
       l.ready = false; l.round++; l.stage = Math.min(target, l.stage); l.passed = l.passed.filter(s => s < l.stage);
@@ -296,10 +305,10 @@ export class RuntimeV2 {
       return true;
     });
   }
-  private async change(m: MutationV2, update: (run: RunV2, plan: PlanV2) => Promise<boolean>): Promise<RunV2> {
+  private async change(m: MutationV2, update: (run: RunV2, plan: PlanV2, snapshot: SnapshotV2) => Promise<boolean>): Promise<RunV2> {
     return this.store.transaction(async (s, publish) => {
       const run = await this.guard(s, m);
-      if (await update(run, runPlanV2(s, run))) { run.revision++; await publish(); }
+      if (await update(run, runPlanV2(s, run), s)) { run.revision++; await publish(); }
       return run;
     });
   }

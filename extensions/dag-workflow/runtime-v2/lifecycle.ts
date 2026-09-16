@@ -46,6 +46,25 @@ export function auditResultV2(request: ExecutionRequestV2, result: ExecutionResu
     requireV2(result.executor.contextId !== request.implementationWorkerId && result.executor.lineage.length === 0, "INDEPENDENT_CONTEXT_REQUIRED");
   }
 }
+/** Rejected observations never attest freshness, but their identities remain used
+ * when accepting a later result. Quarantine does not erase context history. */
+export function contextReusedV2(run: RunV2, result: ExecutionResultV2, includeRejected = true): boolean {
+  const independent = (stage: number) => [2, 5, 7].includes(stage);
+  const executions = Object.values(run.nodes).flatMap(n => n.lifecycle?.executions ?? []);
+  if (independent(result.request.stage) && (Object.values(run.nodes).some(n => n.reservation?.workerId === result.executor.contextId)
+    || executions.some(e => e.request.implementationWorkerId === result.executor.contextId))) return true;
+  return executions.some(e => {
+    if ((e.request.id === result.request.id && e.request.itemId === result.request.itemId) || (!includeRejected && e.contextRejection)) return false;
+    const prior = e.contextRejection?.observed ?? e.result;
+    return prior && prior.executor.contextId === result.executor.contextId && (independent(prior.request.stage) || independent(result.request.stage));
+  });
+}
+export function rejectedContextResultV2(observed: ExecutionResultV2): ExecutionResultV2 {
+  const result = structuredClone(observed);
+  result.disposition = "BLOCKED";
+  result.diagnostic = "EVALUATOR_CONTEXT_REUSED: execution settled but its context is inadmissible; use a fresh independent context on bounded infrastructure retry.";
+  return result;
+}
 export function auditLifecycleV2(run: RunV2, plan: PlanV2, itemId: string): void {
   const n = run.nodes[itemId], l = n.lifecycle!, item = plan.workItems.find(n => n.id === itemId)!;
   requireV2(sameV2(l.frame.plan, run.start.selection) && l.frame.oracle === item.lifecycle.oracle.statement && l.frame.risk === item.risk
@@ -53,20 +72,18 @@ export function auditLifecycleV2(run: RunV2, plan: PlanV2, itemId: string): void
     && sameV2(l.frame.checks, item.lifecycle.checks.filter(c => c.applicability.kind === "required").map(c => c.id)), "FRAME_MISMATCH");
   requireV2(!l.candidateReady || sameV2(l.candidates.at(-1), l.candidate), "CANDIDATE_HISTORY_MISMATCH");
   requireV2(l.passed.includes(0) && l.passed.every((s, i) => s === i) && l.passed.length === l.stage + (l.ready ? 1 : 0), "STAGE_SEQUENCE_MISMATCH");
-  const ids = new Set<string>(), contexts = new Set<string>();
+  const ids = new Set<string>();
   for (const e of l.executions) {
     requireV2(!ids.has(e.request.id), "DUPLICATE_EXECUTION"); ids.add(e.request.id);
     requireV2(e.request.runId === run.runId && e.request.itemId === itemId && sameV2(e.request.plan, run.start.selection), "EXECUTION_BINDING_MISMATCH");
     requireV2(item.lifecycle.checks.some(c => sameV2(c, e.request.check)) && (e.request.stage === 7 || e.request.stage === e.request.check.stage), "EXECUTION_CHECK_MISMATCH");
     requireV2(e.request.attempt === `${run.runId}/${itemId}/${e.request.generation}/F${e.request.stage}/${e.request.round}`, "EXECUTION_ATTEMPT_MISMATCH");
     requireV2(e.status !== "observed" || e.result, "OBSERVATION_MISSING");
-    if (e.result) {
-      auditResultV2(e.request, e.result);
-      if (e.request.stage === 2 || e.request.stage === 5 || e.request.stage === 7) {
-        requireV2(!contexts.has(e.result.executor.contextId), "EVALUATOR_CONTEXT_REUSED");
-      }
-      contexts.add(e.result.executor.contextId);
+    if (e.contextRejection) {
+      auditResultV2(e.request, e.contextRejection.observed);
+      requireV2(e.result && sameV2(e.result, rejectedContextResultV2(e.contextRejection.observed)), "CONTEXT_REJECTION_RESULT_MISMATCH");
     }
+    if (e.result) auditResultV2(e.request, e.result);
   }
   for (const stage of l.passed.filter(s => s > 0 && s < 8)) assertStageV2(run, plan, itemId, stage);
   if (l.ready) assertReadyV2(run, plan, itemId, l.candidate);

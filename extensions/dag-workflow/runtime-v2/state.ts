@@ -3,7 +3,7 @@ import { StrictObject } from "../dag-runtime/common.ts";
 import { CountV2, IdV2, TextV2, sameV2, PlanV2Schema, PlanSelectorV2Schema, parsePlanV2, requireV2, validateShapeV2, type PlanV2 } from "../planning/v2.ts";
 
 import { CandidateV2Schema, LifecycleV2Schema, RetryV2Schema, RetryDimensionV2Schema, CommandJobV2Schema } from "./lifecycle-schema.ts";
-import { auditLifecycleV2, assertReadyV2, auditResultV2, retryLimitsV2 } from "./lifecycle.ts";
+import { auditLifecycleV2, assertReadyV2, auditResultV2, contextReusedV2, retryLimitsV2 } from "./lifecycle.ts";
 export { CandidateV2Schema } from "./lifecycle-schema.ts";
 
 const nonnegative = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
@@ -60,6 +60,7 @@ export function auditSnapshotV2(value: unknown): SnapshotV2 {
     const execution = s.runs[job.request.runId]?.nodes[job.request.itemId]?.lifecycle?.executions.find(e => e.request.id === id);
     requireV2(execution && sameV2(execution.request, job.request), "EXECUTOR_WITHOUT_LIFECYCLE_INTENT");
     if (job.result) auditResultV2(job.request, job.result);
+    if (execution.contextRejection) requireV2(sameV2(job.result, execution.contextRejection.observed), "REJECTED_EXECUTOR_RESULT_MISMATCH");
   }
   for (const [id, revisions] of Object.entries(s.plans)) revisions.forEach((p, i) => { parsePlanV2(p); requireV2(p.planId === id && p.revision === i + 1, "PLAN_REVISION_GAP"); });
   for (const [id, r] of Object.entries(s.runs)) {
@@ -86,13 +87,10 @@ export function auditSnapshotV2(value: unknown): SnapshotV2 {
       if (state.status === "active") requireV2(state.reservation, "ACTIVE_WITHOUT_RESERVATION");
       if (state.status === "complete") requireV2(state.integration && state.integration.runId === id && state.integration.itemId === n.id && state.integration.generation === state.generation, "COMPLETION_WITHOUT_INTEGRATION");
     }
-    const results = Object.values(r.nodes).flatMap(n => n.lifecycle?.executions.flatMap(e => e.result ? [e.result] : []) ?? []);
-    const implementationContexts = new Set(Object.values(r.nodes).flatMap(n => n.reservation?.workerId ? [n.reservation.workerId] : []));
-    const contextCounts = new Map<string, number>();
-    for (const result of results) contextCounts.set(result.executor.contextId, (contextCounts.get(result.executor.contextId) ?? 0) + 1);
-    for (const result of results) if ([2, 5, 7].includes(result.request.stage)) {
-      requireV2(!implementationContexts.has(result.executor.contextId)
-        && contextCounts.get(result.executor.contextId) === 1, "EVALUATOR_CONTEXT_REUSED_ACROSS_ITEMS");
+    // Rejected later observations do not retroactively invalidate accepted
+    // identities. New acceptance still consults the full retained history.
+    for (const n of Object.values(r.nodes)) for (const e of n.lifecycle?.executions ?? []) {
+      if (e.result && !e.contextRejection) requireV2(!contextReusedV2(r, e.result, false), "EVALUATOR_CONTEXT_REUSED_ACROSS_ITEMS");
     }
     requireV2((r.status === "complete") === Object.values(r.nodes).every(n => ["excluded", "complete"].includes(n.status)), "TERMINAL_MISMATCH");
     requireV2(Object.values(r.nodes).every(n => n.status !== "cancelled" || ["cancelling", "cancelled"].includes(r.status)), "CANCELLATION_MISMATCH");

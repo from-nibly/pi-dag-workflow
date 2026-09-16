@@ -30,6 +30,7 @@ export const ExecutionResultV2Schema = StrictObject({ request: ExecutionRequestV
 export const ExecutionV2Schema = StrictObject({ request: ExecutionRequestV2Schema,
   status: Type.Union([Type.Literal("intent"), Type.Literal("observed"), Type.Literal("quarantined")]),
   result: Type.Optional(ExecutionResultV2Schema), quarantineReason: Type.Optional(TextV2),
+  contextRejection: Type.Optional(StrictObject({ reason: Type.Literal("EVALUATOR_CONTEXT_REUSED"), observed: ExecutionResultV2Schema })),
 });
 export const RetryDimensionV2Schema = Type.Union((["product", "test", "review", "hardening", "infrastructure", "replacement", "integration"] as const).map(x => Type.Literal(x)));
 export const RetryV2Schema = StrictObject({ dimension: RetryDimensionV2Schema, stage: nat, procedure: TextV2, fingerprint: TextV2,
