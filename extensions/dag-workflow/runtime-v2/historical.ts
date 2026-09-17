@@ -14,7 +14,9 @@ export async function historicalV1(root: string, input: { kind: "plan" | "run" |
   requireV2(input.kind === "plan" || input.revision === undefined, "REVISION_SELECTOR_ONLY_SUPPORTED_FOR_V1_PLANS");
   if (input.kind === "evaluation") {
     requireV2(/^sha256:[0-9a-f]{64}$/.test(input.id), "EXACT_EVALUATION_HASH_REQUIRED");
-    return new RunEvaluationStoreV1(root).readEnvelope(input.id);
+    const store = new RunEvaluationStoreV1(root);
+    await store.attachReadOnly();
+    return store.readEnvelope(input.id);
   }
   validateShapeV2(IdV2, input.id);
   if (input.kind === "plan") return new DagPlanningStoreV1(root).read(input.id, input.revision);

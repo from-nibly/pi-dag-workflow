@@ -192,6 +192,21 @@ export class RunEvaluationStoreV1 {
     this.options = options;
   }
 
+  /** Bind existing exact directories for reads without initialization or maintenance. */
+  async attachReadOnly(): Promise<void> {
+    if (this.bindings) { await this.assertStoreDirectories(); return; }
+    const project = await inspectExactDirectory(this.projectDirectory, "project root");
+    const ai = await inspectExactDirectory(this.aiDirectory, ".ai directory");
+    const root = await inspectExactDirectory(this.rootDirectory, "evaluation root");
+    const accumulators = await inspectExactDirectory(this.accumulatorsDirectory, "accumulator directory");
+    const envelopes = await inspectExactDirectory(this.envelopesDirectory, "envelope directory");
+    this.bindings = {
+      project, ai, root, accumulators, envelopes,
+      rootIdentityHash: canonicalHash({ canonicalProjectPathHash: canonicalHash(this.projectDirectory), project: identityHash(project), root: identityHash(root) }),
+    };
+    await this.assertStoreDirectories();
+  }
+
   async initialize(): Promise<void> {
     await this.prepareAndBindDirectories();
     if (!(await this.safeFileExists(this.indexPath, "evaluation index"))) await this.withLock(async () => {
