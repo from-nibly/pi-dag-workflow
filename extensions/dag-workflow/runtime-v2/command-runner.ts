@@ -1,7 +1,7 @@
 import { spawn, execFileSync } from "node:child_process";
-import { lstatSync, realpathSync } from "node:fs";
+import { lstatSync, realpathSync, readFileSync, readlinkSync } from "node:fs";
 import { mkdtemp, rm, readFile, open, rename } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
@@ -150,6 +150,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
         const identity = this.workspaceIdentity(cwd);
         requireV2(!job.workspaceIdentity || sameV2(job.workspaceIdentity, identity), "EXECUTION_WORKSPACE_IDENTITY_DRIFT");
         job.workspace = cwd; job.workspaceIdentity = identity; await publish();
+        requireV2(this.clean(cwd, request.candidate), "UNCLEAN_EXECUTION_WORKSPACE");
         await beforeStart?.();
         pending = start();
       });
@@ -285,8 +286,66 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
     return this.git(cwd, "rev-parse", "--abbrev-ref", "HEAD") === "HEAD"
       && resolve(this.git(cwd, "rev-parse", "--show-toplevel")) === resolve(cwd)
       && this.git(cwd, "rev-parse", "HEAD") === candidate.commit && this.git(cwd, "rev-parse", "HEAD^{tree}") === candidate.tree
+      // Inspect the persisted index first: disabling fsmonitor in Git can hide
+      // its valid bits from ls-files. Reject extensions that carry hidden state.
+      && this.ordinaryIndex(cwd, candidate)
+      && ["-v", "-f"].every(flag => this.git(cwd, "ls-files", flag, "-z").split("\0").filter(Boolean).every(row => row.startsWith("H ")))
       && this.git(cwd, "write-tree") === candidate.tree
-      && this.git(cwd, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching") === "";
+      && this.trackedBytesMatch(cwd, candidate)
+      && this.git(cwd, "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching") === "";
+  }
+  private ordinaryIndex(cwd: string, candidate: CandidateV2): boolean {
+    const index = readFileSync(resolve(cwd, this.git(cwd, "rev-parse", "--git-path", "index")));
+    const hashBytes = candidate.commit.length / 2, end = index.length - hashBytes;
+    if (end < 12 || index.toString("ascii", 0, 4) !== "DIRC") return false;
+    const version = index.readUInt32BE(4), count = index.readUInt32BE(8);
+    if (![2, 3, 4].includes(version)) return false;
+    let offset = 12;
+    for (let i = 0; i < count; i++) {
+      const start = offset, flagsAt = start + 40 + hashBytes;
+      if (flagsAt + 2 > end) return false;
+      // Only the path-length bits are ordinary: no assume-valid, extended
+      // (skip-worktree/intent-to-add), or unmerged-stage entries.
+      if (index.readUInt16BE(flagsAt) & 0xf000) return false;
+      offset = flagsAt + 2;
+      if (version === 4) {
+        let bytes = 0;
+        do { if (offset >= end || ++bytes > 5) return false; } while (index[offset++] & 0x80);
+      }
+      const nul = index.indexOf(0, offset);
+      if (nul < offset || nul >= end) return false;
+      offset = version === 4 ? nul + 1 : start + Math.ceil((nul + 1 - start) / 8) * 8;
+    }
+    while (offset < end) {
+      if (offset + 8 > end) return false;
+      const extension = index.toString("ascii", offset, offset + 4), size = index.readUInt32BE(offset + 4);
+      // Cache-tree and entry-offset accelerators do not suppress file checks.
+      // In particular FSMN, split/sparse indexes and untracked caches are not
+      // ordinary verification evidence, even if Git would silently ignore them.
+      if (!["TREE", "EOIE", "IEOT"].includes(extension)) return false;
+      offset += 8 + size;
+    }
+    return offset === end;
+  }
+  private trackedBytesMatch(cwd: string, candidate: CandidateV2): boolean {
+    // Do not trust cached stat data, core.fileMode, or clean filters as no-edit
+    // evidence. This profile requires raw checkout bytes/modes to match the tree.
+    // This is a settled-workspace check, not a sandbox against same-UID writers.
+    const tree = execFileSync("git", [...this.gitOptions, "ls-tree", "-rz", candidate.tree], { cwd, env: gitEnvironmentV2(), stdio: ["ignore", "pipe", "pipe"] });
+    const text = tree.toString("utf8");
+    if (!Buffer.from(text).equals(tree)) return false; // Ambiguous path decoding: retain.
+    return text.split("\0").filter(Boolean).every(row => {
+      const entry = /^(100644|100755|120000) blob ([0-9a-f]+)\t([\s\S]+)$/.exec(row);
+      if (!entry) return false;
+      const [, mode, oid, path] = entry, parts = path.split("/");
+      if (parts.some(part => !part || part === "." || part === "..")) return false;
+      for (let i = 1; i < parts.length; i++) if (!lstatSync(join(cwd, ...parts.slice(0, i))).isDirectory()) return false;
+      const file = join(cwd, path), stat = lstatSync(file);
+      if (mode === "120000" ? !stat.isSymbolicLink() : !stat.isFile() || Boolean(stat.mode & 0o100) !== (mode === "100755")) return false;
+      const bytes = mode === "120000" ? readlinkSync(file, { encoding: "buffer" }) : readFileSync(file);
+      const hash = createHash(candidate.commit.length === 64 ? "sha256" : "sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+      return hash === oid;
+    });
   }
 }
 
