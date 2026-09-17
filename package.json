@@ -16,6 +16,7 @@
     "test:dag-v2-state": "node scripts/dag-v2-state-test.mjs",
     "test:dag-v2-lifecycle": "node scripts/dag-v2-lifecycle-test.mjs",
     "test:dag-v2-context": "node scripts/dag-v2-context-test.mjs",
+    "test:dag-v2-historical-evaluation": "node scripts/dag-v2-historical-evaluation-test.mjs",
     "test:dag-v2-git-acceptance": "node scripts/dag-v2-git-acceptance-test.mjs",
     "test:dag-v2-git-attributes": "node scripts/dag-v2-git-attributes-test.mjs",
     "test:dag-v2-git-hooks": "node scripts/dag-v2-git-hooks-test.mjs",

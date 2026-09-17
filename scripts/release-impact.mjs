@@ -11,7 +11,7 @@ export const PORTFOLIO_TEMPLATES = ["fanout-alpha", "fanout-beta", "constraint-c
 export const RECOVERY_DRILLS = ["provider_worker_loss", "conductor_crash_resume", "target_drift_conflict"];
 
 export const V2_FOCUSED_SUITES = [
-  "test:dag-v2-state", "test:dag-v2-lifecycle", "test:dag-v2-context", "test:dag-v2-git-acceptance",
+  "test:dag-v2-state", "test:dag-v2-lifecycle", "test:dag-v2-context", "test:dag-v2-historical-evaluation", "test:dag-v2-git-acceptance",
   "test:dag-v2-git-attributes", "test:dag-v2-git-hooks", "test:dag-v2-workspace", "test:dag-v2-product",
 ];
 export const RELEASE_SUITE_TIMEOUT_MS = 3_600_000;

@@ -40,7 +40,7 @@ const full = fullReleaseImpact();
 assert.deepEqual(full.focused, [
   "test:release-impact", "test:model", "test:dag-planning", "test:dag-planning-runtime", "test:dag-planning-command", "test:dag-prepared-start",
   "test:dag-runtime", "test:dag-widget", "test:dag-evaluation", "test:git-integration", "test:workers",
-  "test:dag-v2-state", "test:dag-v2-lifecycle", "test:dag-v2-context", "test:dag-v2-git-acceptance",
+  "test:dag-v2-state", "test:dag-v2-lifecycle", "test:dag-v2-context", "test:dag-v2-historical-evaluation", "test:dag-v2-git-acceptance",
   "test:dag-v2-git-attributes", "test:dag-v2-git-hooks", "test:dag-v2-workspace", "test:dag-v2-product",
 ]);
 assert.equal(new Set(full.focused).size, full.focused.length);
