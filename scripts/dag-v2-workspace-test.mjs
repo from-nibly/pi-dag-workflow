@@ -96,7 +96,7 @@ test("lifecycle fsmonitor-valid is rejected even when inspection disables fsmoni
     require('node:assert/strict').equal(cp.execFileSync('git',['-c','core.fsmonitor='+hook,'ls-files','-f'],{encoding:'utf8'}),'h file\\n');
     require('node:assert/strict').equal(cp.execFileSync('git',['-c','core.fsmonitor=false','ls-files','-f'],{encoding:'utf8'}),'H file\\n');`;
   const f = await fixture({ lifecycleBody: body }); try {
-    const runner = new CommandRunnerV2(f.store, f.root, new Map(), "node-local", ["-c", "core.fsmonitor=false"]), request = await lifecycleRequest(f, runner);
+    const runner = new CommandRunnerV2(f.store, f.root), request = await lifecycleRequest(f, runner);
     await runner.ensure(request); const result = await runner.read(request), job = (await f.store.read()).executions[request.id];
     assert.equal(result.exitCode, 0, result.stderr); assert.equal(result.disposition, "FAIL"); assert.equal(result.workspace.cleanAfter, false);
     assert.equal(await readFile(join(job.workspace, "file"), "utf8"), "integrated a\n");
@@ -149,8 +149,8 @@ for (const point of ["before-verification", "before-cleanup"]) test(`${point}: a
     // Fault injection only in this runner instance. First clean is materialization;
     // fourth is after the real argv's supervised settlement. Dirty immediately
     // after that observation to exercise the independent invocation/cleanup gate.
-    runner.clean = (cwd, candidate) => {
-      workspace = cwd; const clean = original(cwd, candidate); calls++;
+    runner.clean = async (cwd, candidate) => {
+      workspace = cwd; const clean = await original(cwd, candidate); calls++;
       if (calls === (point === "before-verification" ? 1 : 4)) {
         gitAt(cwd, "update-index", "--assume-unchanged", "file");
         execFileSync(process.execPath, ["-e", "require('node:fs').writeFileSync('file','retained between checks\\n')"], { cwd });

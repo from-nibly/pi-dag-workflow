@@ -150,7 +150,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
         const identity = this.workspaceIdentity(cwd);
         requireV2(!job.workspaceIdentity || sameV2(job.workspaceIdentity, identity), "EXECUTION_WORKSPACE_IDENTITY_DRIFT");
         job.workspace = cwd; job.workspaceIdentity = identity; await publish();
-        requireV2(this.clean(cwd, request.candidate), "UNCLEAN_EXECUTION_WORKSPACE");
+        requireV2(await this.clean(cwd, request.candidate), "UNCLEAN_EXECUTION_WORKSPACE");
         await beforeStart?.();
         pending = start();
       });
