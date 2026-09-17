@@ -386,7 +386,73 @@ test("actual failing F2 command preserves argv/exit/diagnostic and bounded retry
     assert.equal(f.git("rev-parse", "HEAD"), plan.repository.baselineCommit);
   } finally { await f.cleanup(); }
 });
-test("actual command owner death after clean workspace removal recovers BLOCKED and permits only explicit bounded retry", async () => {
+for (const boundary of ["prepare", "advance"]) test(`stage attempt fencing rejects concurrent retry at ${boundary} after a real failing command`, async () => {
+  const f = await fixture(`round-race-${boundary}`); try {
+    const input = planInput(`round-race-${boundary}`, ["a"]);
+    input.workItems[0].lifecycle.checks[0].procedure.argv = [process.execPath, "-e", "process.exit(17)"];
+    if (boundary === "prepare") {
+      const extra = structuredClone(input.workItems[0].lifecycle.checks[0]); extra.id = "extra-f1";
+      extra.procedure.argv = [process.execPath, "verify.mjs", "a", "extra-F1"]; input.workItems[0].lifecycle.checks.push(extra);
+    }
+    const plan = await f.call("dag_plan_save", input), run = await f.call("dag_run_start", { selection: selectorV2(plan), authority: authority(["a"]) });
+    await f.call("dag_start_work", { runId: run.runId, itemId: "a", generation: 1 }); const terminal = await waitTerminal(f, run.runId, "a");
+    const ready = await f.call("dag_record_completion", { runId: run.runId, itemId: "a", generation: 1, completionId: terminal.completionId });
+    const round = ready.nodes.a.lifecycle.round, runtime = f.service().runtime, record = runtime.recordResult.bind(runtime);
+    const launches = [], ensure = f.service().runner.ensure.bind(f.service().runner);
+    f.service().runner.ensure = async (...args) => { launches.push(args[0]); return ensure(...args); };
+    let retried = false;
+    runtime.recordResult = async (...args) => {
+      const saved = await record(...args);
+      if (!retried) {
+        retried = true; const failed = saved.nodes.a.lifecycle.executions.find(e => e.result?.exitCode === 17);
+        assert(failed.result.executor.invoked);
+        const retry = await f.call("dag_retry", { runId: run.runId, itemId: "a", generation: 1, executionId: failed.request.id });
+        assert.equal(retry.nodes.a.lifecycle.round, round + 1);
+      }
+      return saved;
+    };
+    const action = (await f.call("dag_next_action", {})).actions.find(a => a.tool === "dag_run_checks"), { tool, ...params } = action;
+    await assert.rejects(f.call(tool, params), /STALE_STAGE_ATTEMPT/);
+    const current = (await f.service().read()).run;
+    assert(retried); assert.equal(launches.length, 1); assert(launches.every(request => request.round === round));
+    assert.equal(current.nodes.a.lifecycle.executions.length, 1); assert.equal(current.nodes.a.lifecycle.executions[0].status, "quarantined");
+    assert.deepEqual(current.nodes.a.lifecycle.passed, [0]);
+    const before = await tree(join(f.root, ".ai/dag-workflow-v2"));
+    await assert.rejects(f.call(tool, params), /STALE_STAGE_ATTEMPT/);
+    assert.deepEqual(await tree(join(f.root, ".ai/dag-workflow-v2")), before); assert.equal(launches.length, 1);
+  } finally { await f.cleanup(); }
+});
+test("stage attempt fencing rejects a stage change inside revision refresh and preserves exact replay", async () => {
+  const f = await fixture("stage-race"); try {
+    const plan = await f.call("dag_plan_save", planInput("stage-race", ["a"])), run = await f.call("dag_run_start", { selection: selectorV2(plan), authority: authority(["a"]) });
+    await f.call("dag_start_work", { runId: run.runId, itemId: "a", generation: 1 }); const terminal = await waitTerminal(f, run.runId, "a");
+    const ready = await f.call("dag_record_completion", { runId: run.runId, itemId: "a", generation: 1, completionId: terminal.completionId });
+    const product = f.service(), runtime = product.runtime, mutation = product.mutation.bind(product), { stage, round } = ready.nodes.a.lifecycle;
+    const launches = [], ensure = product.runner.ensure.bind(product.runner);
+    product.runner.ensure = async (...args) => { launches.push(args[0]); return ensure(...args); };
+    let advanced;
+    product.mutation = async runId => {
+      if (!advanced) {
+        const prepared = await runtime.prepareCheck(await mutation(runId), "a", 1, "f1", { stage, round });
+        const replay = await runtime.prepareCheck(await mutation(runId), "a", 1, "f1", { stage, round });
+        assert.equal(canonicalStringify(replay), canonicalStringify(prepared));
+        const execution = prepared.nodes.a.lifecycle.executions[0];
+        await product.runner.ensure(execution.request); await runtime.recordResult(await mutation(runId), "a", execution.request.id, product.runner);
+        advanced = await runtime.advanceLifecycle(await mutation(runId), "a", 1, stage, round);
+        assert.equal(advanced.nodes.a.lifecycle.stage, stage + 1);
+        assert.equal(canonicalStringify(await runtime.advanceLifecycle(await mutation(runId), "a", 1, stage, round)), canonicalStringify(advanced));
+      }
+      return mutation(runId);
+    };
+    const action = (await f.call("dag_next_action", {})).actions.find(a => a.tool === "dag_run_checks"), { tool, ...params } = action;
+    await assert.rejects(f.call(tool, params), /STALE_STAGE_ATTEMPT/);
+    assert.equal(canonicalStringify((await product.read()).run), canonicalStringify(advanced)); assert.equal(launches.length, 1); assert.equal(launches[0].stage, stage);
+    await assert.rejects(runtime.prepareCheck(await mutation(run.runId), "a", 1, "f2", { stage, round }), /STALE_STAGE_ATTEMPT/);
+    await assert.rejects(runtime.advanceLifecycle(await mutation(run.runId), "a", 1, stage, round - 1), /STALE_STAGE_ATTEMPT/);
+    assert.equal(canonicalStringify((await product.read()).run), canonicalStringify(advanced));
+  } finally { await f.cleanup(); }
+});
+test("actual command owner death after clean workspace removal offers read-only recovery frontier and bounded retry", async () => {
   const f = await fixture("command-owner"); try {
     const plan = await f.call("dag_plan_save", planInput("command-owner", ["a"])), run = await f.call("dag_run_start", { selection: selectorV2(plan), authority: authority(["a"]) });
     await f.call("dag_start_work", { runId: run.runId, itemId: "a", generation: 1 }); const terminal = await waitTerminal(f, run.runId, "a");
@@ -400,7 +466,13 @@ test("actual command owner death after clean workspace removal recovers BLOCKED 
     await assert.rejects(f.call(tool, params), /actual executor owner died/); runner.ensure = ensure;
     let current = (await f.service().read()).run; const execution = current.nodes.a.lifecycle.executions[0], job = (await f.service().runtime.store.read()).executions[execution.request.id];
     assert.equal(job.status, "running"); assert.equal(job.result, undefined); await assert.rejects(readFile(join(job.workspace, "a.txt")), { code: "ENOENT" });
-    current = await f.call("dag_recover_execution", { runId: run.runId, itemId: "a", executionId: execution.request.id });
+    const before = await tree(join(f.root, ".ai/dag-workflow-v2"));
+    const frontier = await f.call("dag_next_action", {});
+    assert.deepEqual(frontier.actions, [{ tool: "dag_recover_execution", runId: run.runId, itemId: "a", executionId: execution.request.id }]);
+    assert.deepEqual(await f.call("dag_next_action", { runId: run.runId, itemId: "a" }), frontier);
+    assert.deepEqual(await tree(join(f.root, ".ai/dag-workflow-v2")), before, "frontier must not acquire a lease, ingest or settle results");
+    const { tool: recoveryTool, ...recoveryParams } = frontier.actions[0];
+    current = await f.call(recoveryTool, recoveryParams);
     const recovered = current.nodes.a.lifecycle.executions[0].result; assert.equal(recovered.disposition, "BLOCKED"); assert.equal(recovered.exitCode, 0); assert.equal(recovered.executor.invoked, true); assert.deepEqual(current.nodes.a.lifecycle.passed, [0]);
     current = await f.call("dag_retry", { runId: run.runId, itemId: "a", generation: 1, executionId: execution.request.id }); assert.equal(current.nodes.a.retries[0].dimension, "infrastructure");
     for (const finding of current.nodes.a.lifecycle.findings) await f.call("dag_disposition_finding", { runId: run.runId, itemId: "a", findingId: finding.finding.id, disposition: "Kernel extinction and native deregistration were observed; explicit bounded retry will obtain new evidence." });

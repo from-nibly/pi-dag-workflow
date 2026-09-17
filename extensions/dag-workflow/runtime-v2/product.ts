@@ -108,18 +108,18 @@ export class ProductV2 {
     let { run, plan } = await this.bound(runId); const node = this.node(run, itemId, generation), lifecycle = node.lifecycle;
     requireV2(lifecycle && node.reservation && stageAttemptId === `${node.reservation.operationId}/F${lifecycle.stage}/${lifecycle.round}`, "STALE_STAGE_ATTEMPT");
     await this.repository(plan, run);
-    const stage = lifecycle.stage;
+    const stage = lifecycle.stage, round = lifecycle.round;
     const controller = new AbortController(), abort = () => controller.abort(signal?.reason);
     requireV2(!this.aborts.has(runId), "PRODUCT_OPERATION_IN_PROGRESS");
     this.aborts.set(runId, controller); signal?.addEventListener("abort", abort, { once: true }); if (signal?.aborted) abort();
     try {
       for (const check of stageChecksV2(plan, itemId, stage)) {
-        run = await this.runtime.prepareCheck(await this.mutation(runId), itemId, generation, check.id);
+        run = await this.runtime.prepareCheck(await this.mutation(runId), itemId, generation, check.id, { stage, round });
         const execution = run.nodes[itemId].lifecycle!.executions.find(e => e.request.stage === stage && e.request.check.id === check.id && e.status !== "quarantined" && currentExecutionV2(run, e.request))!;
         await this.runner.ensure(execution.request, controller.signal);
         await this.runtime.recordResult(await this.mutation(runId), itemId, execution.request.id, this.runner);
       }
-      return this.runtime.advanceLifecycle(await this.mutation(runId), itemId, generation, stage);
+      return this.runtime.advanceLifecycle(await this.mutation(runId), itemId, generation, stage, round);
     } finally { signal?.removeEventListener("abort", abort); this.aborts.delete(runId); }
   }
   async integrate(runId: string, itemId: string, generation: number, candidate: CandidateV2, signal?: AbortSignal) {
@@ -188,8 +188,10 @@ export class ProductV2 {
           else actions.push({ tool: "dag_integrate", ...selectors, candidate: node.lifecycle.candidate });
         }
         else if (!node.lifecycle.stop) {
+          const unresolved = node.lifecycle.executions.find(e => e.status !== "quarantined" && currentExecutionV2(run, e.request) && snapshot.executions?.[e.request.id] && !snapshot.executions[e.request.id].result);
           const failed = node.lifecycle.executions.find(e => e.status === "observed" && currentExecutionV2(run, e.request) && e.result?.disposition !== "PASS");
-          if (failed) actions.push({ tool: "dag_retry", ...selectors, executionId: failed.request.id });
+          if (unresolved) actions.push({ tool: "dag_recover_execution", runId: run.runId, itemId, executionId: unresolved.request.id });
+          else if (failed) actions.push({ tool: "dag_retry", ...selectors, executionId: failed.request.id });
           else if (!node.lifecycle.findings.some(f => f.finding.severity === "blocking" && !f.disposition)) actions.push({ tool: "dag_run_checks", ...selectors, stageAttemptId: `${node.reservation.operationId}/F${node.lifecycle.stage}/${node.lifecycle.round}` });
         }
       }

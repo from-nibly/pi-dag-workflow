@@ -249,10 +249,12 @@ export class RuntimeV2 {
       node.lifecycle = frameV2(run, plan, itemId, candidate, this.now()); return true;
     });
   }
-  async prepareCheck(m: MutationV2, itemId: string, generation: number, checkId: string): Promise<RunV2> {
+  async prepareCheck(m: MutationV2, itemId: string, generation: number, checkId: string, expectedAttempt?: { stage: number; round: number }): Promise<RunV2> {
     return this.change(m, async (run, plan) => {
       this.dispatchGuard(run, plan); const node = this.node(run, itemId, generation), l = node.lifecycle;
       requireV2(node.status === "active" && l?.candidateReady && !l.stop, "LIFECYCLE_NOT_EXECUTABLE");
+      // A caller refreshing its revision must not silently adopt a newer attempt.
+      requireV2(!expectedAttempt || (l.stage === expectedAttempt.stage && l.round === expectedAttempt.round), "STALE_STAGE_ATTEMPT");
       const check = stageChecksV2(plan, itemId, l.stage).find(c => c.id === checkId);
       requireV2(check, "CHECK_NOT_APPLICABLE_TO_STAGE");
       if (l.executions.some(e => e.request.stage === l.stage && e.request.check.id === checkId && e.status !== "quarantined" && currentExecutionV2(run, e.request))) return false;
@@ -292,10 +294,12 @@ export class RuntimeV2 {
       return true;
     });
   }
-  async advanceLifecycle(m: MutationV2, itemId: string, generation: number, stage: number): Promise<RunV2> {
+  async advanceLifecycle(m: MutationV2, itemId: string, generation: number, stage: number, expectedRound?: number): Promise<RunV2> {
     return this.change(m, async (run, plan) => {
       this.dispatchGuard(run, plan); const l = this.node(run, itemId, generation).lifecycle;
       requireV2(l && !l.stop, "LIFECYCLE_NOT_EXECUTABLE");
+      requireV2(expectedRound === undefined || l.round === expectedRound, "STALE_STAGE_ATTEMPT");
+      // Exact advancement replay in this round remains a no-op after stage moves.
       if (l.passed.includes(stage)) return false;
       requireV2(l.stage === stage, "STAGE_OUT_OF_ORDER");
       requireV2(!l.findings.some(f => f.finding.severity === "blocking" && !f.disposition), "UNRESOLVED_FINDINGS");
