@@ -1,0 +1,10 @@
+N04 capability characterization: git version 2.54.0
+{"commandExit":128,"before":{"target":"13fceb1e3e0809579f36ca1b5ff6cfa465cdfac0","index":"6e4510c462fbdaac74adce45599129bd442c126e","file":"old\n","status":""},"after":{"target":"13fceb1e3e0809579f36ca1b5ff6cfa465cdfac0","index":"dfee79561ee4d4314cf592a80403416bbeee3a92","file":"proposal\n","status":"M  file"},"stderr":"fatal: update_ref failed for ref 'HEAD': cannot lock ref 'HEAD': Unable to create '/tmp/dag-v2-git-capability-2IlPqk/.git/refs/heads/main.lock': File exists.\n\nAnother git process seems to be running in this repository, or the lock file may be stale"}
+PASS (unsafe primitive characterized): ref lock failure does not prevent ordinary merge from changing index/files
+{"expectedOld":"13fceb1e3e0809579f36ca1b5ff6cfa465cdfac0","actualOld":"fffb9b82dfec6dd3ffbc74e405fca52999a70795","commandExit":0,"after":{"target":"78ec3b2422d853b3ab895470c0bb0d97b4e9607f","index":"dfee79561ee4d4314cf592a80403416bbeee3a92","file":"proposal\n","status":""}}
+PASS (unsafe primitive characterized): a precheck is not expected-old CAS: backward third target is silently accepted
+{"commandExit":128,"after":{"target":"e4852fb4cd9db4e3ec37c9b2bd8600cf2cd8d01f","index":"dfee79561ee4d4314cf592a80403416bbeee3a92","file":"proposal\n","status":"M  file"},"stdout":"Updating b58bc5d..0765da5\nFast-forward","stderr":"fatal: update_ref failed for ref 'HEAD': cannot lock ref 'HEAD': is at e4852fb4cd9db4e3ec37c9b2bd8600cf2cd8d01f but expected b58bc5d9c324ae77f90863e748200cdc1e789770"}
+PASS (unsafe primitive characterized): during-command ref drift is detected only after proposal files/index are installed
+{"commandExit":128,"after":{"target":"b58bc5d9c324ae77f90863e748200cdc1e789770","index":"dfee79561ee4d4314cf592a80403416bbeee3a92","file":"proposal\n","status":"M  file"},"stderr":"fatal: in 'prepared' phase, update aborted by the reference-transaction hook"}
+PASS (unsafe primitive characterized): reference-transaction prepared rejection is too late to protect index/files
+4 characterization tests passed; N04 implementation remains BLOCKED, not certified.

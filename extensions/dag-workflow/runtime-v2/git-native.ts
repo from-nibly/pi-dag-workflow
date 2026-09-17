@@ -8,14 +8,54 @@ import { gitEnvironmentV2 } from "./command-runner.ts";
 import type { CandidateV2 } from "./lifecycle-schema.ts";
 import type { GitBindingV2, GitOperationV2 } from "./git-schema.ts";
 
+// Base profile only: configured hooks also require per-invocation discovery via
+// safeGitOptionsV2 or runArgvV2's disableGitHooks environment (including landing).
 export const gitOptionsV2 = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.attributesFile=/dev/null",
   "-c", "core.autocrlf=false", "-c", "core.safecrlf=false", "-c", "core.excludesFile=/dev/null", "-c", "maintenance.auto=false",
   "-c", "gc.auto=0", "-c", "rerere.enabled=false", "-c", "merge.renormalize=false", "-c", "merge.renames=false",
   "-c", "merge.directoryRenames=false", "-c", "merge.default=text", "-c", "merge.autoStash=false", "-c", "commit.gpgSign=false",
   "-c", "i18n.commitEncoding=UTF-8", "-c", "i18n.logOutputEncoding=UTF-8", "-c", "core.fsync=committed"];
 export function nativeGitV2(root: string, ...args: string[]): string {
-  try { return execFileSync("git", [...gitOptionsV2, ...args], { cwd: root, env: gitEnvironmentV2(), encoding: "utf8", timeout: 60000, maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).trim(); }
+  try { return execFileSync("git", [...safeGitOptionsV2(root), ...args], { cwd: root, env: gitEnvironmentV2(), encoding: "utf8", timeout: 60000, maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).trim(); }
   catch (e: any) { throw Error(`GIT_FAILED ${args[0]}: ${String(e.stderr ?? e.message).slice(-8000)}`); }
+}
+/** Config hooks bypass core.hooksPath in Git 2.54. Discover names afresh,
+ * including dormant conditional includes: worktree-add's Git children can have
+ * a different gitdir/onbranch context. Disable names, not whole config files,
+ * so safe config, disabled hooks and unused events remain supported. */
+export function configuredGitHooksV2(root: string, options: readonly string[] = gitOptionsV2): string[] {
+  const config = (...args: string[]) => execFileSync("git", [...options, "config", ...args], {
+    cwd: root, env: gitEnvironmentV2(), encoding: "utf8", timeout: 60000, maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
+  });
+  const names = new Set<string>(), files = new Set<string>(), includes = new Set<string>();
+  const scan = (text: string) => {
+    const entries = text.split("\0");
+    for (let i = 0; i + 1 < entries.length; i += 2) {
+      const origin = entries[i], entry = entries[i + 1], split = entry.indexOf("\n");
+      const key = split < 0 ? entry : entry.slice(0, split);
+      const hook = /^hook\.([\s\S]*)\.(command|event|enabled)$/.exec(key);
+      if (hook) names.add(hook[1]);
+      if (key !== "include.path" && !/^includeif\.[\s\S]*\.path$/.test(key)) continue;
+      const source = origin.startsWith("file:") ? resolve(root, origin.slice(5)) : undefined;
+      const id = JSON.stringify([source, key]); if (includes.has(id)) continue; includes.add(id);
+      // Git parses/expands quoted, tilde and %(prefix) paths. Relative include
+      // paths are relative to the including file, not the worktree cwd.
+      const paths = config(...(source ? ["--file", source, "--no-includes"] : []), "--path", "--null", "--get-all", key);
+      for (const path of paths.split("\0").filter(Boolean)) {
+        const file = resolve(source ? dirname(source) : root, path);
+        if (files.has(file)) continue; files.add(file);
+        try { lstatSync(file); } catch (e: any) { if (e.code === "ENOENT") continue; throw e; }
+        scan(config("--file", file, "--no-includes", "--show-origin", "--null", "--list"));
+      }
+    }
+  };
+  scan(config("--includes", "--show-origin", "--null", "--list"));
+  return [...names];
+}
+export function safeGitOptionsV2(root: string, options: readonly string[] = gitOptionsV2): string[] {
+  // --config-env splits at the last '=', so legal subsection names containing
+  // '=' cannot be mistaken for the value as they would be with '-c key=value'.
+  return [...options, ...configuredGitHooksV2(root, options).map(name => `--config-env=hook.${name}.enabled=PI_DAG_V2_GIT_HOOK_ENABLED`)];
 }
 async function exists(path: string): Promise<boolean> { try { await lstat(path); return true; } catch (e: any) { if (e.code === "ENOENT") return false; throw e; } }
 async function identity(path: string) {
@@ -88,15 +128,15 @@ export function composeGitV2(op: GitOperationV2): CandidateV2 {
   const tree = nativeGitV2(root, "merge-tree", "--write-tree", "--no-messages", `--merge-base=${op.sourceBase.commit}`, op.expected.commit, op.candidate.commit);
   requireV2(new RegExp(`^[0-9a-f]{${op.expected.commit.length}}$`).test(tree), "MERGE_TREE_CONFLICT_OR_UNSUPPORTED");
   const env = { ...gitEnvironmentV2(), GIT_AUTHOR_NAME: "Pi integration", GIT_AUTHOR_EMAIL: "integration@pi.invalid", GIT_COMMITTER_NAME: "Pi integration", GIT_COMMITTER_EMAIL: "integration@pi.invalid", GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z" };
-  const commit = execFileSync("git", [...gitOptionsV2, "commit-tree", tree, "-p", op.expected.commit, "-m", `V2 integration ${op.operationId}\n\nCandidate: ${op.candidate.commit}\nProfile: ${op.profile}`], { cwd: root, env, encoding: "utf8", timeout: 60000 }).trim();
+  const commit = execFileSync("git", [...safeGitOptionsV2(root), "commit-tree", tree, "-p", op.expected.commit, "-m", `V2 integration ${op.operationId}\n\nCandidate: ${op.candidate.commit}\nProfile: ${op.profile}`], { cwd: root, env, encoding: "utf8", timeout: 60000 }).trim();
   requireV2(nativeGitV2(root, "rev-list", "--parents", "-n", "1", commit) === `${commit} ${op.expected.commit}`, "COMPOSITION_PARENT_MISMATCH");
   return { commit, tree };
 }
 export function privateRefV2(root: string, ref: string, oid: string): void {
   requireV2(/^refs\/pi-dag-v2\/[A-Za-z0-9/._-]+$/.test(ref), "INVALID_PRIVATE_REF"); nativeGitV2(root, "check-ref-format", ref);
-  const direct = spawnSync("git", [...gitOptionsV2, "symbolic-ref", "--quiet", "--no-recurse", ref], { cwd: root, env: gitEnvironmentV2() });
+  const direct = spawnSync("git", [...safeGitOptionsV2(root), "symbolic-ref", "--quiet", "--no-recurse", ref], { cwd: root, env: gitEnvironmentV2() });
   requireV2(direct.status === 1, "PRIVATE_REF_SYMBOLIC_OR_UNREADABLE");
-  const old = spawnSync("git", [...gitOptionsV2, "show-ref", "--verify", "--hash", ref], { cwd: root, env: gitEnvironmentV2(), encoding: "utf8" });
+  const old = spawnSync("git", [...safeGitOptionsV2(root), "show-ref", "--verify", "--hash", ref], { cwd: root, env: gitEnvironmentV2(), encoding: "utf8" });
   if (old.status === 0) { requireV2(old.stdout.trim() === oid, "PRIVATE_REF_CONFLICT"); return; }
   nativeGitV2(root, "update-ref", "--no-deref", ref, oid, "0".repeat(oid.length));
 }
@@ -106,7 +146,7 @@ export async function assertTargetV2(op: GitOperationV2, candidate: CandidateV2,
   await eligibleGitV2(op.binding, [candidate]); const root = op.binding.root.path;
   requireV2(op.targetRef.startsWith("refs/heads/"), "DIRECT_BRANCH_REQUIRED"); nativeGitV2(root, "check-ref-format", op.targetRef);
   requireV2(nativeGitV2(root, "symbolic-ref", "--no-recurse", "HEAD") === op.targetRef, "BOUND_BRANCH_CHANGED");
-  const direct = spawnSync("git", [...gitOptionsV2, "symbolic-ref", "--quiet", "--no-recurse", op.targetRef], { cwd: root, env: gitEnvironmentV2() });
+  const direct = spawnSync("git", [...safeGitOptionsV2(root), "symbolic-ref", "--quiet", "--no-recurse", op.targetRef], { cwd: root, env: gitEnvironmentV2() });
   requireV2(direct.status === 1, "TARGET_NOT_DIRECT");
   requireV2(nativeGitV2(root, "rev-parse", op.targetRef) === candidate.commit && nativeGitV2(root, "rev-parse", "HEAD^{tree}") === candidate.tree, "TARGET_DRIFT");
   const worktrees = nativeGitV2(root, "worktree", "list", "--porcelain", "-z").split("\0\0");

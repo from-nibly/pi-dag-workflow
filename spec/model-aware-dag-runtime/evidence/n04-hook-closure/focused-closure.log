@@ -1,0 +1,2 @@
+PASS fresh closure rejects replacement common directory before creating any lock, claim or files (17521ms)
+1/1 native acceptance tests passed

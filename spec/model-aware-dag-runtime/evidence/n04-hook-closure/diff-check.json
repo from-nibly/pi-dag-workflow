@@ -1,0 +1,11 @@
+{
+  "command": [
+    "git",
+    "diff",
+    "--check"
+  ],
+  "timeoutSeconds": 3600,
+  "exit": 0,
+  "seconds": 0.009,
+  "log": "diff-check.log"
+}

@@ -1,0 +1,42 @@
+PASS local configured hook: real raw control fires, isolated native status does not (796ms)
+PASS include configured hook: real raw control fires, isolated native status does not (1157ms)
+PASS conditional configured hook: real raw control fires, isolated native status does not (897ms)
+PASS worktree configured hook: real raw control fires, isolated native status does not (548ms)
+PASS old recovery observes without executing configured index hooks (1050ms)
+PASS new recovery observes without executing configured index hooks (1046ms)
+PASS third recovery observes without executing configured index hooks (505ms)
+PASS reference-transaction configured hook disabled during private refs and materialization (514ms)
+PASS post-checkout configured hook disabled during private refs and materialization (517ms)
+PASS post-merge configured hook disabled during private refs and materialization (513ms)
+PASS explicit disabled=false config remains eligible (931ms)
+PASS explicit disabled=no config remains eligible (1036ms)
+PASS explicit disabled=off config remains eligible (989ms)
+PASS explicit disabled=0 config remains eligible (1014ms)
+PASS unused pre-push stays eligible but is disabled in validation descendants (825ms)
+PASS dormant conditional include cannot activate in worktree-add children or argv descendants (615ms)
+FAIL hook names retain case, dots and embedded newline when disabled Error: Command failed: git -c core.hooksPath=/dev/null config --add hook.Case.sensitive
+name.command printf hook >> "/tmp/v2-hook-regression-n1w5Tp/HOOK-RAN"
+error: invalid key (newline): hook.Case.sensitive
+name.command
+
+    at genericNodeError (node:internal/errors:985:15)
+    at wrappedFn (node:internal/errors:539:14)
+    at checkExecSyncError (node:child_process:942:11)
+    at execFileSync (node:child_process:978:15)
+    at Object.git (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git-hooks/scripts/dag-v2-git-hooks-test.mjs:13:28)
+    at arm (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git-hooks/scripts/dag-v2-git-hooks-test.mjs:26:192)
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git-hooks/scripts/dag-v2-git-hooks-test.mjs:82:18
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git-hooks/scripts/dag-v2-git-hooks-test.mjs:95:67 {
+  status: 1,
+  signal: null,
+  output: [
+    null,
+    '',
+    'error: invalid key (newline): hook.Case.sensitive\nname.command\n'
+  ],
+  pid: 489828,
+  stdout: '',
+  stderr: 'error: invalid key (newline): hook.Case.sensitive\nname.command\n'
+}
+PASS a runner's cached options cannot miss configuration installed after construction (409ms)
+17/18 configured-hook regressions passed

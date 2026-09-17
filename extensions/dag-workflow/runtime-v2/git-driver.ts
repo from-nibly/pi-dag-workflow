@@ -146,7 +146,9 @@ export class GitDriverV2 implements IntegrationsV2 {
         });
         await this.options.failpoint?.("landing-intent", op);
         const observed = await runArgvV2(["git", ...gitOptionsV2, "-c", `core.hooksPath=${hooks}`, "merge", "--ff-only", "--no-autostash", "--no-overwrite-ignore", "--no-edit", op.proposal!.commit], this.repository, signal, {
-          protocolDirectory: directory, inheritedLockFd: lock.fd, timeoutMs: Math.max(1, run.start.authority.expiresAt - Date.now()),
+          // The argv hooksPath override permits only our expected-old guard;
+          // configured hooks remain disabled in the inherited Git environment.
+          disableGitHooks: true, protocolDirectory: directory, inheritedLockFd: lock.fd, timeoutMs: Math.max(1, run.start.authority.expiresAt - Date.now()),
           launch: async (identity, launch) => {
             await this.store.transaction(async (s, publish) => {
               const r = await this.current(s, m, op), current = r.gitOperations!.find(o => o.operationId === operationId)!;
@@ -193,8 +195,13 @@ export class GitDriverV2 implements IntegrationsV2 {
     requireV2(op && run.revision === m.expectedRevision && sameV2(run.lease, m.lease) && m.lease.pid === process.pid && m.lease.processStart === await processIdentityV2(), "STALE_GIT_CLOSURE");
     if (op.phase === "closed") return;
     requireV2(op.phase !== "accepted", "GIT_OPERATION_ALREADY_ACCEPTED");
+    // A stale path may now name an unrelated repository. Reject it before even
+    // creating a lock file, then recheck the binding and held lock before claim.
+    requireV2(op.binding.root.path === this.repository, "GIT_ROOT_BINDING_MISMATCH");
+    await verifyBindingV2(op.binding);
     const lock = await lockGitCommonV2(op.binding.common.path);
     try {
+      await verifyBindingV2(op.binding); await lock.verify();
       await this.claim(op, m.runId);
       const current = op.landing ? await this.reconcile(m.runId, op) : op;
       const observation = await observeGitV2(current);

@@ -1,0 +1,1 @@
+{"command": ["node", "scripts/dag-v2-git-hooks-test.mjs"], "timeoutSeconds": 3600, "exit": 1, "seconds": 14.625, "log": "/tmp/n04-hooks-fix-d73ccf116e/hooks-initial.log"}

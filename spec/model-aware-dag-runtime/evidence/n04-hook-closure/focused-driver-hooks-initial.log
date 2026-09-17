@@ -1,0 +1,30 @@
+PASS configured hooks: complete actual driver disables hooks installed at initial (26949ms)
+PASS configured hooks: complete actual driver disables hooks installed at landing-intent (26774ms)
+PASS configured hooks: initial dirty rejection runs no hook or validation command (16618ms)
+PASS configured hooks: old fresh-service recovery executes no hook (29242ms)
+PASS configured hooks: new fresh-service recovery executes no hook (28520ms)
+PASS configured hooks: fresh-service composed closure runs no hook (18346ms)
+PASS configured hooks: validation-installed local config is disabled before observation, cleanup, recovery and closure (28577ms)
+PASS configured hooks: validation-installed include config is disabled before observation, cleanup, recovery and closure (33795ms)
+FAIL configured hooks: validation-installed worktree config is disabled before observation, cleanup, recovery and closure AssertionError [ERR_ASSERTION]: The input did not match the regular expression /GIT_CHECK_NONPASS.*worktreeconfig/. Input:
+
+`Error: GIT_CHECK_NONPASS Combined prefix command prefix: argv=["/nix/store/3307vfpkpybyzf4w7mcn1pavnylsvb35-nodejs-slim-24.19.0/bin/node","-e","const cp=require('node:child_process'), fs=require('node:fs');\\n      cp.execFileSync('git',['config','extensions.worktreeConfig','true']);\\n      for (const event of ['post-index-change','reference-transaction','post-checkout','post-merge']) {\\n        cp.execFileSync('git',['config',...[\\"--worktree\\"],'hook.installed-'+event+'.command',\\"printf ran >> \\\\\\"/tmp/v2-git-acceptance-XXdRsK/CONFIG-HOOK-RAN\\\\\\"\\"]);\\n        cp.execFileSync('git',['config',...[\\"--worktree\\"],'hook.installed-'+event+'.event',event]);\\n      }\\n      \\n      require('node:assert/strict').equal(fs.existsSync(\\"/tmp/v2-git-acceptance-XXdRsK/CONFIG-HOOK-RAN\\"),false);require('node:fs').appendFileSync(\\"/tmp/v2-git-acceptance-XXdRsK/validation-count\\",\\"prefix\\\\n\\"); console.log(require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'})); setTimeout(()=>process.exit(0),0)"] exit=0 signal=none\n` +
+  'Error: UNSUPPORTED_GIT_CAPABILITY: extensions.worktreeconfig; retained workspace: /tmp/dag-v2-check-DCblgn/candidate'
+
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git-hooks/scripts/dag-v2-git-acceptance-test.mjs:241:5
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git-hooks/scripts/dag-v2-git-acceptance-test.mjs:478:72 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: Error: GIT_CHECK_NONPASS Combined prefix command prefix: argv=["/nix/store/3307vfpkpybyzf4w7mcn1pavnylsvb35-nodejs-slim-24.19.0/bin/node","-e","const cp=require('node:child_process'), fs=require('node:fs');\n      cp.execFileSync('git',['config','extensions.worktreeConfig','true']);\n      for (const event of ['post-index-change','reference-transaction','post-checkout','post-merge']) {\n        cp.execFileSync('git',['config',...[\"--worktree\"],'hook.installed-'+event+'.command',\"printf ran >> \\\"/tmp/v2-git-acceptance-XXdRsK/CONFIG-HOOK-RAN\\\"\"]);\n        cp.execFileSync('git',['config',...[\"--worktree\"],'hook.installed-'+event+'.event',event]);\n      }\n      \n      require('node:assert/strict').equal(fs.existsSync(\"/tmp/v2-git-acceptance-XXdRsK/CONFIG-HOOK-RAN\"),false);require('node:fs').appendFileSync(\"/tmp/v2-git-acceptance-XXdRsK/validation-count\",\"prefix\\n\"); console.log(require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'})); setTimeout(()=>process.exit(0),0)"] exit=0 signal=none
+  Error: UNSUPPORTED_GIT_CAPABILITY: extensions.worktreeconfig; retained workspace: /tmp/dag-v2-check-DCblgn/candidate
+      at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git-hooks/extensions/dag-workflow/planning/v2.ts:49:107)
+      at GitDriverV2.integrate (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git-hooks/extensions/dag-workflow/runtime-v2/git-driver.ts:133:11)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git-hooks/scripts/dag-v2-git-acceptance-test.mjs:241:5
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git-hooks/scripts/dag-v2-git-acceptance-test.mjs:478:72,
+  expected: /GIT_CHECK_NONPASS.*worktreeconfig/,
+  operator: 'rejects',
+  diff: 'simple'
+}
+8/9 native acceptance tests passed

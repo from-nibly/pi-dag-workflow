@@ -12,7 +12,7 @@ import { StoreV2, processIdentityV2 } from "./store.ts";
 import { ExecutionRequestV2Schema, ExecutionResultV2Schema, type CandidateV2, type ExecutionRequestV2, type ExecutionResultV2, type CommandJobV2, type FindingV2 } from "./lifecycle-schema.ts";
 import { auditResultV2 } from "./lifecycle.ts";
 import { currentGitExecutionV2 } from "./git-state.ts";
-import { bindGitV2, eligibleGitV2 } from "./git-native.ts";
+import { bindGitV2, eligibleGitV2, configuredGitHooksV2, safeGitOptionsV2 } from "./git-native.ts";
 
 /** Local trusted implementations are code, not worker-supplied attestations.
  * run is actually invoked, once, in the exact isolated candidate workspace.
@@ -49,7 +49,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
     this.store = store; this.repository = repository; this.producers = producers; this.environment = environment; this.gitOptions = gitOptions; this.inheritedLockFd = inheritedLockFd;
   }
   private git(cwd: string, ...args: string[]): string {
-    return execFileSync("git", [...this.gitOptions, ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: gitEnvironmentV2() }).trim();
+    return execFileSync("git", [...(this.gitOptions.length > 0 ? safeGitOptionsV2(cwd, this.gitOptions) : this.gitOptions), ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: gitEnvironmentV2() }).trim();
   }
   async inspect(candidate: Readonly<CandidateV2>): Promise<void> {
     requireV2(this.git(this.repository, "rev-parse", "--verify", `${candidate.commit}^{commit}`) === candidate.commit
@@ -331,7 +331,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
     // Do not trust cached stat data, core.fileMode, or clean filters as no-edit
     // evidence. This profile requires raw checkout bytes/modes to match the tree.
     // This is a settled-workspace check, not a sandbox against same-UID writers.
-    const tree = execFileSync("git", [...this.gitOptions, "ls-tree", "-rz", candidate.tree], { cwd, env: gitEnvironmentV2(), stdio: ["ignore", "pipe", "pipe"] });
+    const tree = execFileSync("git", [...(this.gitOptions.length > 0 ? safeGitOptionsV2(cwd, this.gitOptions) : this.gitOptions), "ls-tree", "-rz", candidate.tree], { cwd, env: gitEnvironmentV2(), stdio: ["ignore", "pipe", "pipe"] });
     const text = tree.toString("utf8");
     if (!Buffer.from(text).equals(tree)) return false; // Ambiguous path decoding: retain.
     return text.split("\0").filter(Boolean).every(row => {
@@ -355,7 +355,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
  * repository config remains part of the trusted repository profile. */
 export function gitEnvironmentV2(): NodeJS.ProcessEnv {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
-  return { ...env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", GIT_NO_REPLACE_OBJECTS: "1", GIT_NO_LAZY_FETCH: "1", GIT_ATTR_NOSYSTEM: "1" };
+  return { ...env, PI_DAG_V2_GIT_HOOK_ENABLED: "false", GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", GIT_NO_REPLACE_OBJECTS: "1", GIT_NO_LAZY_FETCH: "1", GIT_ATTR_NOSYSTEM: "1" };
 }
 
 export type SessionIdentityV2 = { pid: number; processStart: string; token?: string };
@@ -427,11 +427,21 @@ export async function runArgvV2(argv: readonly string[], cwd: string, signal?: A
   let stdout = "", stderr = "", truncated = false, interrupted = false, launched = false, settled = false;
   let ready = false, exited = false, closed = false, failure: unknown, readyText = "";
   let identity: SessionIdentityV2 | undefined, abortAt: number | undefined, outcome: ProcessOutcomeV2 | null = null;
+  // Directory hooks and every already-configured hook are disabled for argv's
+  // descendants, including events unused by native integration (e.g. pre-push).
+  // Commands are trusted local code, not a sandbox: new config is rechecked by
+  // the runner after settlement, before any observation/cleanup Git operation.
+  const hookConfig = options.disableGitHooks ? [
+    ["core.hooksPath", "/dev/null"], ["core.fsmonitor", "false"],
+    ...configuredGitHooksV2(cwd).map(name => [`hook.${name}.enabled`, "false"]),
+  ] : [];
+  const hookEnvironment = options.disableGitHooks ? Object.fromEntries([
+    ["GIT_CONFIG_COUNT", String(hookConfig.length)],
+    ...hookConfig.flatMap(([key, value], i) => [[`GIT_CONFIG_KEY_${i}`, key], [`GIT_CONFIG_VALUE_${i}`, value]]),
+  ]) : {};
   const child = spawn("python3", ["-I", "-B", fileURLToPath(new URL("./command-supervisor.py", import.meta.url)), JSON.stringify({
     argv, token, outcome: outcomePathV2(directory, token), timeoutMs: options.timeoutMs ?? null,
-  })], { cwd, env: { ...gitEnvironmentV2(), ...(options.disableGitHooks ? {
-    GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null", GIT_CONFIG_KEY_1: "core.fsmonitor", GIT_CONFIG_VALUE_1: "false",
-  } : {}) }, shell: false, detached: true, stdio: ["pipe", "pipe", "pipe", "pipe", ...(options.inheritedLockFd === undefined ? [] : [options.inheritedLockFd])] });
+  })], { cwd, env: { ...gitEnvironmentV2(), ...hookEnvironment }, shell: false, detached: true, stdio: ["pipe", "pipe", "pipe", "pipe", ...(options.inheritedLockFd === undefined ? [] : [options.inheritedLockFd])] });
   const append = (old: string, next: Buffer) => { const text = old + next.toString("utf8"); truncated ||= text.length > 16384; return bounded(text); };
   child.stdout!.on("data", b => stdout = append(stdout, b)); child.stderr!.on("data", b => stderr = append(stderr, b));
   child.stdio[3]!.on("data", (b: Buffer) => {

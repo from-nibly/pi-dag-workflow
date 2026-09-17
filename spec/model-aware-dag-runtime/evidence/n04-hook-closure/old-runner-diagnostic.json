@@ -1,0 +1,68 @@
+{
+  "diagnosticOnly": true,
+  "oldRunnerPid": 267847,
+  "settled": true,
+  "activeProcessesInOldWorkspace": [],
+  "removedKnownOwnedDependencySymlink": true,
+  "symlink": "/home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git-fixes/node_modules",
+  "target": "/home/jordan/gh/from-nibly/pi-dag-workflow/node_modules",
+  "results": [
+    {
+      "command": "node scripts/dag-v2-git-attributes-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 18.129,
+      "log": "/tmp/n04-review-a5649e0600/dag-v2-git-attributes-test.log"
+    },
+    {
+      "command": "node scripts/dag-v2-git-acceptance-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 515.474,
+      "log": "/tmp/n04-review-a5649e0600/dag-v2-git-acceptance-test.log"
+    },
+    {
+      "command": "node scripts/dag-v2-git-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 0.811,
+      "log": "/tmp/n04-review-a5649e0600/dag-v2-git-test.log"
+    },
+    {
+      "command": "node scripts/dag-v2-context-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 38.838,
+      "log": "/tmp/n04-review-a5649e0600/dag-v2-context-test.log"
+    },
+    {
+      "command": "node scripts/dag-v2-lifecycle-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 147.525,
+      "log": "/tmp/n04-review-a5649e0600/dag-v2-lifecycle-test.log"
+    },
+    {
+      "command": "node scripts/dag-v2-state-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 330.051,
+      "log": "/tmp/n04-review-a5649e0600/dag-v2-state-test.log"
+    },
+    {
+      "command": "node scripts/git-integration-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 147.276,
+      "log": "/tmp/n04-review-a5649e0600/git-integration-test.log"
+    },
+    {
+      "command": "node scripts/dag-runtime-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 436.306,
+      "log": "/tmp/n04-review-a5649e0600/dag-runtime-test.log"
+    }
+  ],
+  "note": "Old-tree results are not fix certification. No tracked original-workspace files changed."
+}

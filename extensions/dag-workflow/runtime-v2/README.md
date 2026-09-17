@@ -266,6 +266,20 @@ are pinned/disabled rather than silently inherited. No lazy fetch is permitted.
 No restricted external effects are supported. Local test argv are trusted local
 procedures, not a network/credential sandbox or a grant to publish.
 
+Git 2.54 `hook.<name>.command/event/enabled` hooks are disabled separately from
+`core.hooksPath`. Each native invocation inventories hook names using Git's
+config parser, including nested and dormant conditional includes (which can
+activate in worktree-add children). Per-name command-scope overrides disable
+those hooks without changing repository config. Validation/landing descendants
+inherit the same per-name disabling; only landing's operation-owned hooksPath
+is permitted. Names installed by validation are rediscovered before subsequent
+observation, cleanup, recovery and closure; cached base options are insufficient.
+Disabled hooks and unused events such as pre-push remain allowed. Referenced
+config must be readable/parseable for discovery. Existing worktree-config profile
+restrictions remain unchanged. Trusted argv can deliberately override its Git
+environment or install and invoke a new hook within argv itself; this is not a
+sandbox against the approved local procedure or concurrent same-UID config edits.
+
 Landing is ordinary `merge --ff-only --no-autostash --no-overwrite-ignore`, with
 an operation-owned reference-transaction hook instead of user hooks. At Git's
 **prepared** phase, under its native ref locks, the hook requires the exact direct
@@ -301,11 +315,16 @@ retained, not force-removed.
 cancellation. It never releases consumers or cleans up bytes; running checks,
 unsettled subprocesses, dirty/third targets and native drift still block. Normal
 replacement/cancellation/successor APIs refuse unresolved Git operations.
+Closure verifies the persisted native binding before opening/creating the common
+lock, and rechecks binding and held-lock identity before claiming. An already
+replaced common directory receives no lock, claim or other operation metadata.
 
 `node scripts/dag-v2-git-test.mjs` retains the original unsafe-merge
 characterizations. `node scripts/dag-v2-git-acceptance-test.mjs` exercises the
 native adapter, real command validation, guarded races, process death and
-fresh-service dependent-node integration. Neither is an OS-isolation claim.
+fresh-service dependent-node integration. `node scripts/dag-v2-git-hooks-test.mjs`
+adds real configured-hook markers across effective config, recovery, private refs,
+worktree children and validation descendants. None is an OS-isolation claim.
 
 ## Limitations and verification
 

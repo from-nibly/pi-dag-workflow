@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile, rm, rename, cp, symlink, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, rename, cp, symlink, chmod, readdir } from "node:fs/promises";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -171,6 +171,107 @@ async function runtimeFixture({ nodes = 1, finalFail = false, prefixDelay = 0, p
   run = await prepare(runtime, run, "a", f.candidate);
   return { ...f, store, storeRoot, fresh, runtime, plan, run, prepare, counter, reload: () => new RuntimeV2(new StoreV2(storeRoot), fresh) };
 }
+function installConfiguredHooks(f, enabled = "true") {
+  const marker = join(f.dir, "CONFIG-HOOK-RAN");
+  for (const event of ["post-index-change", "reference-transaction", "post-checkout", "post-merge"]) {
+    f.git("config", `hook.${event}.command`, `printf ${event} >> ${JSON.stringify(marker)}`);
+    f.git("config", "--add", `hook.${event}.event`, "pre-push");
+    f.git("config", "--add", `hook.${event}.event`, event);
+    f.git("config", `hook.${event}.enabled`, enabled);
+  }
+  return marker;
+}
+for (const point of ["initial", "landing-intent"]) test(`configured hooks: complete actual driver disables hooks installed at ${point}`, async () => {
+  const f = await runtimeFixture(); let marker;
+  try {
+    if (point === "initial") marker = installConfiguredHooks(f);
+    const run = await new GitDriverV2(f.runtime, f.root, { failpoint: async current => {
+      if (point === "landing-intent" && current === point) marker = installConfiguredHooks(f);
+    } }).integrate(mutationV2(f.run), "a", 1, f.candidate);
+    assert.equal(run.status, "complete"); assert.equal(f.git("rev-parse", "HEAD"), run.gitOperations[0].proposal.commit);
+    assert.equal(await readFile(f.counter, "utf8"), "prefix\nfinal\n");
+    await assert.rejects(readFile(marker), { code: "ENOENT" });
+    for (const request of run.gitOperations[0].checks) assert.equal((await f.store.read()).executions[request.id].result.disposition, "PASS");
+  } finally { await f.cleanup(); }
+});
+test("configured hooks: initial dirty rejection runs no hook or validation command", async () => {
+  const f = await runtimeFixture(); try {
+    const marker = installConfiguredHooks(f); await writeFile(join(f.root, "file"), "USER BYTES\n");
+    await assert.rejects(new GitDriverV2(f.runtime, f.root).integrate(mutationV2(f.run), "a", 1, f.candidate), /TARGET_DIRTY/);
+    await assert.rejects(readFile(marker), { code: "ENOENT" }); await assert.rejects(readFile(f.counter), { code: "ENOENT" });
+    assert.equal(f.git("rev-parse", "HEAD"), f.old.commit); assert.equal(await readFile(join(f.root, "file"), "utf8"), "USER BYTES\n");
+  } finally { await f.cleanup(); }
+});
+for (const state of ["old", "new"]) test(`configured hooks: ${state} fresh-service recovery executes no hook`, async () => {
+  const f = await runtimeFixture(); try {
+    const point = state === "old" ? "landing-intent" : "git-exited";
+    await assert.rejects(new GitDriverV2(f.runtime, f.root, { failpoint: async current => { if (current === point) throw Error("hook recovery restart"); } }).integrate(mutationV2(f.run), "a", 1, f.candidate), /hook recovery restart/);
+    const marker = installConfiguredHooks(f), saved = (await f.store.read()).runs[f.run.runId];
+    const run = await new GitDriverV2(f.reload(), f.root).integrate(mutationV2(saved), "a", 1, f.candidate);
+    assert.equal(run.status, "complete"); await assert.rejects(readFile(marker), { code: "ENOENT" });
+    assert.equal(await readFile(f.counter, "utf8"), "prefix\nfinal\n");
+    assert.equal(f.git("reflog", "show", "--format=%H", "main").split("\n").filter(oid => oid === run.gitOperations[0].proposal.commit).length, 1);
+  } finally { await f.cleanup(); }
+});
+test("configured hooks: fresh-service composed closure runs no hook", async () => {
+  const f = await runtimeFixture(); try {
+    await assert.rejects(new GitDriverV2(f.runtime, f.root, { failpoint: async point => { if (point === "composed") throw Error("close here"); } }).integrate(mutationV2(f.run), "a", 1, f.candidate), /close here/);
+    const marker = installConfiguredHooks(f), run = (await f.store.read()).runs[f.run.runId];
+    await new GitDriverV2(f.reload(), f.root).closeOperation(mutationV2(run), run.gitOperations[0].operationId);
+    assert.equal((await f.store.read()).runs[run.runId].gitOperations[0].phase, "closed");
+    assert.equal(f.git("rev-parse", "HEAD"), f.old.commit); await assert.rejects(readFile(marker), { code: "ENOENT" });
+  } finally { await f.cleanup(); }
+});
+for (const scope of ["local", "include", "worktree"]) test(`configured hooks: validation-installed ${scope} config is disabled before observation, cleanup, recovery and closure`, async () => {
+  const prefixScript = f => {
+    const marker = join(f.dir, "CONFIG-HOOK-RAN"), file = join(f.dir, "validation-hook-config");
+    const args = scope === "include" ? ["--file", file] : scope === "worktree" ? ["--worktree"] : [];
+    return `const cp=require('node:child_process'), fs=require('node:fs');
+      ${scope === "worktree" ? "cp.execFileSync('git',['config','extensions.worktreeConfig','true']);" : ""}
+      for (const event of ['post-index-change','reference-transaction','post-checkout','post-merge']) {
+        cp.execFileSync('git',['config',...${JSON.stringify(args)},'hook.installed-'+event+'.command',${JSON.stringify(`printf ran >> ${JSON.stringify(marker)}`)}]);
+        cp.execFileSync('git',['config',...${JSON.stringify(args)},'hook.installed-'+event+'.event',event]);
+      }
+      ${scope === "include" ? `cp.execFileSync('git',['config','include.path',${JSON.stringify(file)}]);` : ""}
+      require('node:assert/strict').equal(fs.existsSync(${JSON.stringify(marker)}),false);`;
+  };
+  const f = await runtimeFixture({ prefixScript }); let retained;
+  try {
+    const driver = new GitDriverV2(f.runtime, f.root, { failpoint: async point => { if (point === "git-exited") throw Error("installed hooks restart"); } });
+    await assert.rejects(driver.integrate(mutationV2(f.run), "a", 1, f.candidate), scope === "worktree" ? /GIT_CHECK_NONPASS.*worktreeconfig/s : /installed hooks restart/);
+    let run = (await f.store.read()).runs[f.run.runId];
+    const job = (await f.store.read()).executions[run.gitOperations[0].checks[0].id];
+    assert.equal(job.result.executor.invoked, true); assert.equal(job.result.exitCode, 0);
+    if (scope === "worktree") {
+      retained = join(job.workspace, ".."); assert.equal(job.result.disposition, "BLOCKED"); assert.equal(job.result.workspace.cleanAfter, false);
+      assert.equal(await readFile(join(job.workspace, "file"), "utf8"), "integrated a\n");
+      await assert.rejects(new GitDriverV2(f.reload(), f.root).integrate(mutationV2(run), "a", 1, f.candidate), /worktreeconfig/);
+      run = (await f.store.read()).runs[f.run.runId];
+      await assert.rejects(new GitDriverV2(f.reload(), f.root).closeOperation(mutationV2(run), run.gitOperations[0].operationId), /GIT_CLOSURE_UNRESOLVED/);
+    } else {
+      assert.equal(job.result.disposition, "PASS"); assert.equal(job.result.workspace.cleanAfter, true);
+      await assert.rejects(readFile(join(job.workspace, "file")), { code: "ENOENT" });
+      run = await new GitDriverV2(f.reload(), f.root).integrate(mutationV2(run), "a", 1, f.candidate); assert.equal(run.status, "complete");
+    }
+    await assert.rejects(readFile(join(f.dir, "CONFIG-HOOK-RAN")), { code: "ENOENT" });
+  } finally { if (retained) await rm(retained, { recursive: true, force: true }); await f.cleanup(); }
+});
+test("fresh closure rejects replacement common directory before creating any lock, claim or files", async () => {
+  const f = await runtimeFixture(); try {
+    await assert.rejects(new GitDriverV2(f.runtime, f.root, { failpoint: async point => { if (point === "composed") throw Error("replacement restart"); } }).integrate(mutationV2(f.run), "a", 1, f.candidate), /replacement restart/);
+    const run = (await f.store.read()).runs[f.run.runId], common = run.gitBinding.common.path;
+    await rename(common, common + ".original"); f.git("init", "-b", "unrelated");
+    const contents = async () => (await Promise.all((await readdir(common, { recursive: true, withFileTypes: true })).map(async entry => [
+      join(entry.parentPath, entry.name).slice(common.length), entry.isDirectory() ? "directory" : (await readFile(join(entry.parentPath, entry.name))).toString("base64"),
+    ]))).sort((a, b) => a[0].localeCompare(b[0]));
+    const before = await contents(), snapshot = await readFile(f.store.statePath);
+    await assert.rejects(readFile(join(common, "pi-dag-v2-owned")), { code: "ENOENT" });
+    await assert.rejects(new GitDriverV2(f.reload(), f.root).closeOperation(mutationV2(run), run.gitOperations[0].operationId), /GIT_NATIVE_IDENTITY_DRIFT/);
+    assert.deepEqual(await contents(), before); assert.deepEqual(await readFile(f.store.statePath), snapshot);
+    for (const name of ["pi-dag-v2-owned", "pi-dag-integration.lock"]) await assert.rejects(readFile(join(common, name)), { code: "ENOENT" });
+    assert.equal((await f.store.read()).runs[run.runId].gitOperations[0].phase, "composed");
+  } finally { await f.cleanup(); }
+});
 async function installFilterAttributes(f, { staged = false } = {}) {
   const marker = join(f.dir, "FILTER-RAN");
   await writeFile(join(f.root, ".gitattributes"), "file filter=unsafe\n");

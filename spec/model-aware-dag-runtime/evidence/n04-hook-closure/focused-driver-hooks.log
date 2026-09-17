@@ -1,0 +1,10 @@
+PASS configured hooks: complete actual driver disables hooks installed at initial (26786ms)
+PASS configured hooks: complete actual driver disables hooks installed at landing-intent (27646ms)
+PASS configured hooks: initial dirty rejection runs no hook or validation command (16968ms)
+PASS configured hooks: old fresh-service recovery executes no hook (29902ms)
+PASS configured hooks: new fresh-service recovery executes no hook (28118ms)
+PASS configured hooks: fresh-service composed closure runs no hook (18777ms)
+PASS configured hooks: validation-installed local config is disabled before observation, cleanup, recovery and closure (28285ms)
+PASS configured hooks: validation-installed include config is disabled before observation, cleanup, recovery and closure (34780ms)
+PASS configured hooks: validation-installed worktree config is disabled before observation, cleanup, recovery and closure (21621ms)
+9/9 native acceptance tests passed

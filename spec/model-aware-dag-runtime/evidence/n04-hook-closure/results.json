@@ -1,0 +1,127 @@
+{
+  "base": "2987c750a5d88173e74549b0afbcea9f370ad63e",
+  "branch": "implement/legacy-plus-git-hooks",
+  "node": "v24.19.0",
+  "git": "git version 2.54.0",
+  "sourceSha256": {
+    "extensions/dag-workflow/runtime-v2/git-native.ts": "e774e1a32f6915848d7c02c786a1f04dc445648255b135a5c2d948d23e4ede26",
+    "extensions/dag-workflow/runtime-v2/git-driver.ts": "a786dd2778734eefb4f7d38e4a66a2b4367edb62972bbff1b0ca5882d2acdc4d",
+    "extensions/dag-workflow/runtime-v2/command-runner.ts": "30564e85aa0e467243461f805fdc0c765a050bdf7d2ff61db705570c56a75990",
+    "scripts/dag-v2-git-hooks-test.mjs": "11368dd130678aab81798a71e8288963ee23320081f32bc6b1a677bb844f8705",
+    "scripts/dag-v2-git-acceptance-test.mjs": "d82a6ec9be722e672769e808e484db4a340a4192989269c0bd7e20fdec4cc9f8",
+    "scripts/dag-v2-lifecycle-test.mjs": "c18f9c738364be943698839205622fd440bb702fa259842222a0f36d15c88d77",
+    "scripts/dag-v2-workspace-test.mjs": "e0e67aa0beb021e2b63031d8cf88e4856187fde78c568cf3613aabc9dc749801",
+    "scripts/dag-v2-git-attributes-test.mjs": "cec154b70fc014bf32b196fcebdad0ad3acc9d2d3e61e36c649128364addd477",
+    "scripts/dag-v2-git-test.mjs": "9ff74366f41640612b1671ba4db5545256a74613fe634109d4ddd443fdfc6e23"
+  },
+  "results": [
+    {
+      "suite": "hooks",
+      "command": [
+        "node",
+        "scripts/dag-v2-git-hooks-test.mjs"
+      ],
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 15.804,
+      "log": "hooks.log",
+      "originalLog": "/tmp/n04-hooks-fix-d73ccf116e/hooks.log",
+      "sha256": "050b4c2c73d83b68f2874fbaab0296b775f6b700e6e5a32e6ebfb67659dd394d"
+    },
+    {
+      "suite": "focused-driver-hooks",
+      "command": [
+        "node",
+        "scripts/dag-v2-git-acceptance-test.mjs",
+        "--test-name",
+        "configured hooks:"
+      ],
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 233.91,
+      "log": "focused-driver-hooks.log",
+      "originalLog": "/tmp/n04-hooks-fix-d73ccf116e/focused-driver-hooks.log",
+      "sha256": "fba17f09a678f438c3941992af4bb1bbf3f7e27f806c008e998f50dd754fb611"
+    },
+    {
+      "suite": "focused-closure",
+      "command": [
+        "node",
+        "scripts/dag-v2-git-acceptance-test.mjs",
+        "--test-name",
+        "fresh closure rejects replacement"
+      ],
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 18.072,
+      "log": "focused-closure.log",
+      "originalLog": "/tmp/n04-hooks-fix-d73ccf116e/focused-closure.log",
+      "sha256": "d9aa0f386875ca8392e24f103982db2a250c569f2bc3317c2e5993ad2965163c"
+    },
+    {
+      "suite": "native",
+      "command": [
+        "node",
+        "scripts/dag-v2-git-acceptance-test.mjs"
+      ],
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 913.569,
+      "log": "native.log",
+      "originalLog": "/tmp/n04-hooks-fix-d73ccf116e/native.log",
+      "sha256": "6f6fe382338db7dac4a042dd87adbcef58b220dcb55ade7172c259718cc80f92"
+    },
+    {
+      "suite": "lifecycle",
+      "command": [
+        "node",
+        "scripts/dag-v2-lifecycle-test.mjs"
+      ],
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 150.66,
+      "log": "lifecycle.log",
+      "originalLog": "/tmp/n04-hooks-fix-d73ccf116e/lifecycle.log",
+      "sha256": "6260cf7f4cc7df32c812375a4fac9bc8d2996b5964ccb030c966de677558052a"
+    },
+    {
+      "suite": "workspace",
+      "command": [
+        "node",
+        "scripts/dag-v2-workspace-test.mjs"
+      ],
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 110.432,
+      "log": "workspace.log",
+      "originalLog": "/tmp/n04-hooks-fix-d73ccf116e/workspace.log",
+      "sha256": "fbb2b872e7a4dec8ca1db9a47ce0c5f9f0dd1caa9a75a6ca1172d8c52baceffc"
+    },
+    {
+      "suite": "attributes",
+      "command": [
+        "node",
+        "scripts/dag-v2-git-attributes-test.mjs"
+      ],
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 30.618,
+      "log": "attributes.log",
+      "originalLog": "/tmp/n04-hooks-fix-d73ccf116e/attributes.log",
+      "sha256": "eb8512e63eb24f50b6e4aaedafb67985bd6d57ac5804097e2e0eaa63143a1498"
+    },
+    {
+      "suite": "git-plumbing",
+      "command": [
+        "node",
+        "scripts/dag-v2-git-test.mjs"
+      ],
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "seconds": 0.758,
+      "log": "git-plumbing.log",
+      "originalLog": "/tmp/n04-hooks-fix-d73ccf116e/git-plumbing.log",
+      "sha256": "809e2de7d78c58c0244877e28b65f071f203106d6aa369f05e212a8fe2b738a8"
+    }
+  ]
+}

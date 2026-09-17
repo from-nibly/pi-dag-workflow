@@ -1,0 +1,13 @@
+{
+  "suite": "focused-driver-hooks",
+  "command": [
+    "node",
+    "scripts/dag-v2-git-acceptance-test.mjs",
+    "--test-name",
+    "configured hooks:"
+  ],
+  "timeoutSeconds": 3600,
+  "exit": 1,
+  "seconds": 229.322,
+  "log": "focused-driver-hooks-initial.log"
+}
