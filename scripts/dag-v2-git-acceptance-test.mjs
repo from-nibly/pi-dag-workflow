@@ -152,12 +152,12 @@ test("conflict and required unsupported attributes fail closed without target mo
     await assert.rejects(eligibleGitV2(f.op.binding, [bad]), /attributes/);
   } finally { await f.cleanup(); }
 });
-async function runtimeFixture({ nodes = 1, finalFail = false, prefixDelay = 0 } = {}) {
+async function runtimeFixture({ nodes = 1, finalFail = false, prefixDelay = 0, prefixScript = () => "" } = {}) {
   const f = await fixture(); const storeRoot = join(f.dir, "store"); await mkdir(storeRoot);
   const store = new StoreV2(storeRoot), fresh = { current: async p => ({ repository: p.repository, source: p.source }) }, runtime = new RuntimeV2(store, fresh);
   const workItem = (id, dependsOn) => ({ id, title: id, objective: id, outcomeIds: ["result"], context: [], checks: ["actual verification"], dependsOn, risk: "low", riskNotes: [], resources: {}, gates: [], lifecycle: fixtureLifecycleV2() });
   const counter = join(f.dir, "validation-count");
-  const command = (phase, fail = false) => ({ id: phase, argv: [process.execPath, "-e", `require('node:fs').appendFileSync(${JSON.stringify(counter)},${JSON.stringify(phase + "\n")}); console.log(require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'})); setTimeout(()=>process.exit(${fail ? 7 : 0}),${phase === "prefix" ? prefixDelay : 0})`] });
+  const command = (phase, fail = false) => ({ id: phase, argv: [process.execPath, "-e", `${phase === "prefix" ? prefixScript(f) : ""}require('node:fs').appendFileSync(${JSON.stringify(counter)},${JSON.stringify(phase + "\n")}); console.log(require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'})); setTimeout(()=>process.exit(${fail ? 7 : 0}),${phase === "prefix" ? prefixDelay : 0})`] });
   const plan = await runtime.save({ planId: "git", title: "native integration", repository: { repositoryId: "native", baselineCommit: f.old.commit, baselineTree: f.old.tree, targetBranch: "refs/heads/main" },
     source: { governingClosure: `sha256:${"a".repeat(64)}`, refs: [fixtureSourceV2], scopeSummary: "repository local" }, architecture: { outcomes: [{ id: "result", description: "actual integration" }], nonGoals: ["publication"], notes: [], risks: [] },
     workItems: nodes === 2 ? [workItem("a", []), workItem("b", ["a"])] : [workItem("a", [])], constraints: { maxConcurrency: 1, resources: {}, mutexGroups: [], gates: [] },
@@ -171,6 +171,59 @@ async function runtimeFixture({ nodes = 1, finalFail = false, prefixDelay = 0 } 
   run = await prepare(runtime, run, "a", f.candidate);
   return { ...f, store, storeRoot, fresh, runtime, plan, run, prepare, counter, reload: () => new RuntimeV2(new StoreV2(storeRoot), fresh) };
 }
+async function installFilterAttributes(f, { staged = false } = {}) {
+  const marker = join(f.dir, "FILTER-RAN");
+  await writeFile(join(f.root, ".gitattributes"), "file filter=unsafe\n");
+  if (staged) f.git("add", ".gitattributes");
+  else await writeFile(join(f.root, ".git/info/exclude"), ".gitattributes\n");
+  await writeFile(join(f.root, "file"), "user bytes\n");
+  f.git("config", "filter.unsafe.clean", `printf ran >> ${JSON.stringify(marker)}; cat`);
+  await assert.rejects(readFile(marker), { code: "ENOENT" }); return marker;
+}
+test("attribute guard rejects staged attributes on initial driver dispatch without running filters", async () => {
+  const f = await runtimeFixture(); try {
+    const marker = await installFilterAttributes(f, { staged: true });
+    await assert.rejects(new GitDriverV2(f.runtime, f.root).integrate(mutationV2(f.run), "a", 1, f.candidate), /UNSUPPORTED_GIT_CAPABILITY:.*attributes/);
+    const run = (await f.store.read()).runs[f.run.runId]; assert.equal(run.gitOperations[0].phase, "blocked");
+    assert.equal(f.git("rev-parse", "HEAD"), f.old.commit); await assert.rejects(readFile(marker), { code: "ENOENT" });
+  } finally { await f.cleanup(); }
+});
+for (const state of ["old", "new", "third", "no-landing"]) test(`attribute guard blocks ${state} fresh recovery and closure before filter execution`, async () => {
+  const f = await runtimeFixture(); try {
+    const stop = state === "new" ? "git-exited" : state === "no-landing" ? "composed" : "landing-intent";
+    await assert.rejects(new GitDriverV2(f.runtime, f.root, { failpoint: async point => { if (point === stop) throw Error("restart for attributes"); } }).integrate(mutationV2(f.run), "a", 1, f.candidate), /restart for attributes/);
+    const marker = await installFilterAttributes(f);
+    if (state === "third") f.git("update-ref", "refs/heads/main", f.third);
+    const head = f.git("rev-parse", "HEAD"), index = await readFile(join(f.root, ".git/index"));
+    let run = (await f.store.read()).runs[f.run.runId];
+    await assert.rejects(new GitDriverV2(f.reload(), f.root).integrate(mutationV2(run), "a", 1, f.candidate), /BLOCKED|UNSUPPORTED_GIT_CAPABILITY/);
+    await assert.rejects(readFile(marker), { code: "ENOENT" }); run = (await f.store.read()).runs[f.run.runId];
+    await assert.rejects(new GitDriverV2(f.reload(), f.root).closeOperation(mutationV2(run), run.gitOperations[0].operationId), /GIT_CLOSURE_UNRESOLVED/);
+    await assert.rejects(readFile(marker), { code: "ENOENT" }); assert.equal(f.git("rev-parse", "HEAD"), head);
+    assert.deepEqual(await readFile(join(f.root, ".git/index")), index); assert.equal(await readFile(join(f.root, "file"), "utf8"), "user bytes\n");
+  } finally { await f.cleanup(); }
+});
+test("attribute guard rechecks the durable landing launch boundary", async () => {
+  const f = await runtimeFixture(); let marker; try {
+    await assert.rejects(new GitDriverV2(f.runtime, f.root, { failpoint: async point => { if (point === "landing-intent") marker = await installFilterAttributes(f, { staged: true }); } }).integrate(mutationV2(f.run), "a", 1, f.candidate), /GIT_NOT_LANDED|UNSUPPORTED_GIT_CAPABILITY/);
+    assert(marker); await assert.rejects(readFile(marker), { code: "ENOENT" }); assert.equal(f.git("rev-parse", "HEAD"), f.old.commit);
+  } finally { await f.cleanup(); }
+});
+for (const staged of [false, true]) test(`attribute guard rejects validation-installed ${staged ? "index-only" : "ignored"} attributes before post-command observation`, async () => {
+  const prefixScript = f => `const fs=require('node:fs'), cp=require('node:child_process'); fs.writeFileSync('.gitattributes','file filter=unsafe\\n'); ${staged ? "cp.execFileSync('git',['add','.gitattributes']); fs.unlinkSync('.gitattributes');" : ""} fs.writeFileSync('file','verification edit\\n'); cp.execFileSync('git',['config','filter.unsafe.clean',${JSON.stringify(`printf ran >> ${JSON.stringify(join(f.dir, "FILTER-RAN"))}; cat`)}]);`;
+  const f = await runtimeFixture({ prefixScript }); try {
+    const marker = join(f.dir, "FILTER-RAN");
+    await writeFile(join(f.root, ".git/info/exclude"), staged ? "" : ".gitattributes\n");
+    await assert.rejects(new GitDriverV2(f.runtime, f.root).integrate(mutationV2(f.run), "a", 1, f.candidate), /GIT_CHECK_NONPASS.*attributes/);
+    await assert.rejects(readFile(marker), { code: "ENOENT" }); assert.equal(f.git("rev-parse", "HEAD"), f.old.commit);
+    const s = await f.store.read(), op = s.runs[f.run.runId].gitOperations[0], job = s.executions[op.checks[0].id];
+    assert.equal(job.result.disposition, "BLOCKED"); assert.equal(job.result.executor.invoked, true); assert.equal(job.result.workspace.cleanAfter, false);
+    assert.equal(await readFile(join(job.workspace, "file"), "utf8"), "verification edit\n");
+    assert.equal(s.executions[op.checks[1].id], undefined);
+    // This fixture owns the deliberately retained temporary workspace.
+    await rm(join(job.workspace, ".."), { recursive: true, force: true });
+  } finally { await f.cleanup(); }
+});
 test("real two-node integration across fresh services: isolated prefix/final, exact proposal, acceptance once and successor readiness", async () => {
   const f = await runtimeFixture({ nodes: 2 }); try {
     let run = await new GitDriverV2(f.runtime, f.root).integrate(mutationV2(f.run), "a", 1, f.candidate);

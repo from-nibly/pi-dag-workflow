@@ -12,6 +12,7 @@ import { StoreV2, processIdentityV2 } from "./store.ts";
 import { ExecutionRequestV2Schema, ExecutionResultV2Schema, type CandidateV2, type ExecutionRequestV2, type ExecutionResultV2, type CommandJobV2, type FindingV2 } from "./lifecycle-schema.ts";
 import { auditResultV2 } from "./lifecycle.ts";
 import { currentGitExecutionV2 } from "./git-state.ts";
+import { bindGitV2, eligibleGitV2 } from "./git-native.ts";
 
 /** Local trusted implementations are code, not worker-supplied attestations.
  * run is actually invoked, once, in the exact isolated candidate workspace.
@@ -175,11 +176,12 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
     try {
       requireV2(request.check.environment === this.environment, "EXECUTION_ENVIRONMENT_UNAVAILABLE");
       await this.inspect(request.candidate);
+      if (this.gitOptions.length > 0) await eligibleGitV2(await bindGitV2(this.repository), [request.candidate]);
       requireV2(!signal?.aborted, "EXECUTION_CANCELLED");
       root = await mkdtemp(join(tmpdir(), "dag-v2-check-")); cwd = join(root, "candidate");
       this.git(this.repository, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", cwd, request.candidate.commit); added = true;
       identity = this.workspaceIdentity(cwd);
-      result.workspace.cleanBefore = this.clean(cwd, request.candidate);
+      result.workspace.cleanBefore = await this.clean(cwd, request.candidate);
       requireV2(result.workspace.cleanBefore, "UNCLEAN_EXECUTION_WORKSPACE");
       requireV2(Date.now() < request.authority.expiresAt, "AUTHORITY_EXPIRED");
       const procedure = request.check.procedure;
@@ -230,7 +232,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
         result.disposition = observed.disposition; result.stdout = bounded(observed.observation); result.truncated = observed.observation.length > 16384;
         result.findings = observed.findings; result.diagnostic = `producer=${procedure.producerId}: ${bounded(observed.observation)}`;
       }
-      result.workspace.cleanAfter = sameV2(identity, this.workspaceIdentity(cwd)) && this.clean(cwd, request.candidate);
+      result.workspace.cleanAfter = sameV2(identity, this.workspaceIdentity(cwd)) && await this.clean(cwd, request.candidate);
       if (!result.workspace.cleanAfter) { result.disposition = "FAIL"; result.diagnostic += "; candidate/workspace changed during no-edit verification"; }
       if (result.disposition === "PASS" && result.findings.some(f => f.severity === "blocking")) result.disposition = "FAIL";
     } catch (error) {
@@ -241,7 +243,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
       // Never force-clean a dirty check worktree: preserve it for diagnosis.
       if (!unsettled && added && cwd && result.workspace.cleanAfter) {
         try {
-          requireV2(sameV2(identity, this.workspaceIdentity(cwd)) && this.clean(cwd, request.candidate), "EXECUTION_WORKSPACE_IDENTITY_DRIFT");
+          requireV2(sameV2(identity, this.workspaceIdentity(cwd)) && await this.clean(cwd, request.candidate), "EXECUTION_WORKSPACE_IDENTITY_DRIFT");
           this.git(this.repository, "worktree", "remove", cwd);
           if (root && request.check.procedure.kind === "command") protocolDirectory = root;
           else if (root) await rm(root, { recursive: true });
@@ -276,7 +278,10 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
     const identity = (path: string) => { const stat = lstatSync(path, { bigint: true }); requireV2(stat.isDirectory() && realpathSync(path) === path, "UNSAFE_EXECUTION_WORKSPACE"); return { path, dev: stat.dev.toString(), ino: stat.ino.toString() }; };
     return { root: identity(resolve(cwd)), common: identity(this.git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")), admin: identity(this.git(cwd, "rev-parse", "--absolute-git-dir")) };
   }
-  private clean(cwd: string, candidate: CandidateV2): boolean {
+  private async clean(cwd: string, candidate: CandidateV2): Promise<boolean> {
+    // Verification argv may have installed attributes/config. Its local command
+    // authority does not authorize filters during our observation or cleanup.
+    if (this.gitOptions.length > 0) await eligibleGitV2(await bindGitV2(cwd), [candidate]);
     return this.git(cwd, "rev-parse", "--abbrev-ref", "HEAD") === "HEAD"
       && resolve(this.git(cwd, "rev-parse", "--show-toplevel")) === resolve(cwd)
       && this.git(cwd, "rev-parse", "HEAD") === candidate.commit && this.git(cwd, "rev-parse", "HEAD^{tree}") === candidate.tree

@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { lstat, realpath, readFile, readdir, open, mkdir, copyFile, chmod } from "node:fs/promises";
+import { lstatSync, readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireV2, sameV2 } from "../planning/v2.ts";
@@ -38,11 +39,30 @@ export function inspectGitCandidateV2(root: string, candidate: CandidateV2): voi
   requireV2(nativeGitV2(root, "rev-parse", "--verify", `${candidate.commit}^{commit}`) === candidate.commit
     && nativeGitV2(root, "rev-parse", `${candidate.commit}^{tree}`) === candidate.tree, "NATIVE_CANDIDATE_MISMATCH");
 }
+/** Inspect names/metadata only: status/diff can execute a clean filter even when
+ * they ultimately reject dirty bytes. Include the index (also Git's fallback
+ * when a working attribute file is absent), not just untracked/ignored files.
+ * Global/system attributes are disabled by gitOptionsV2/gitEnvironmentV2. */
+export function assertGitAttributesV2(root: string): void {
+  for (const options of [["--cached"], ["--others", "--exclude-standard"], ["--others", "--ignored", "--exclude-standard"]]) {
+    requireV2(nativeGitV2(root, "ls-files", "-z", ...options, "--", ".gitattributes", ":(glob)**/.gitattributes") === "", "UNSUPPORTED_GIT_CAPABILITY: index/worktree attributes");
+  }
+  const path = nativeGitV2(root, "rev-parse", "--path-format=absolute", "--git-path", "info/attributes");
+  try {
+    const stat = lstatSync(path);
+    requireV2(stat.isFile() && readFileSync(path).length === 0, "UNSUPPORTED_GIT_CAPABILITY: info/attributes");
+  } catch (error: any) { if (error.code !== "ENOENT") throw error; }
+}
+function inspectGitTreesV2(root: string, candidates: CandidateV2[]): void {
+  for (const candidate of candidates) {
+    inspectGitCandidateV2(root, candidate);
+    const entries = nativeGitV2(root, "ls-tree", "-r", "-z", candidate.tree).split("\0").filter(Boolean);
+    requireV2(entries.every(e => !e.startsWith("160000 ") && !/(?:\t|\/)\.gitattributes$/.test(e)), "UNSUPPORTED_GIT_CAPABILITY: gitlinks or attributes in materialized tree");
+  }
+}
 export async function eligibleGitV2(binding: GitBindingV2, candidates: CandidateV2[]): Promise<void> {
   await verifyBindingV2(binding); const root = binding.root.path;
-  // Even untracked/ignored attributes can select checkout filters or conversion
-  // before status notices a dirty target. Inspect names without hashing files.
-  for (const ignored of [false, true]) requireV2(nativeGitV2(root, "ls-files", "--others", ...(ignored ? ["--ignored"] : []), "--exclude-standard", "--", ".gitattributes", "**/.gitattributes") === "", "UNSUPPORTED_GIT_CAPABILITY: worktree attributes");
+  assertGitAttributesV2(root);
   const config = nativeGitV2(root, "config", "--null", "--list");
   for (const entry of config.split("\0")) {
     const [key, value = ""] = entry.split("\n");
@@ -52,18 +72,15 @@ export async function eligibleGitV2(binding: GitBindingV2, candidates: Candidate
       || /^(core\.(sparsecheckout|ignorecase)|extensions\.worktreeconfig)$/.test(key) && value !== "false"
       || key === "core.symlinks" && value === "false") throw Error(`UNSUPPORTED_GIT_CAPABILITY: ${key}`);
   }
-  for (const path of ["shallow", "info/grafts", "objects/info/alternates", "info/attributes"]) {
+  for (const path of ["shallow", "info/grafts", "objects/info/alternates"]) {
     const file = join(binding.common.path, path);
     requireV2(!await exists(file) || (await readFile(file)).length === 0, `UNSUPPORTED_GIT_CAPABILITY: ${path}`);
   }
-  for (const candidate of candidates) {
-    inspectGitCandidateV2(root, candidate);
-    const entries = nativeGitV2(root, "ls-tree", "-r", "-z", candidate.tree).split("\0").filter(Boolean);
-    requireV2(entries.every(e => !e.startsWith("160000 ") && !/(?:\t|\/)\.gitattributes$/.test(e)), "UNSUPPORTED_GIT_CAPABILITY: gitlinks or attributes in materialized tree");
-  }
+  inspectGitTreesV2(root, candidates);
 }
 export function composeGitV2(op: GitOperationV2): CandidateV2 {
   const root = op.binding.root.path;
+  assertGitAttributesV2(root); inspectGitTreesV2(root, [op.sourceBase, op.expected, op.candidate]);
   // Git lets a configured driver shadow even the built-in name "text".
   // Pinning merge.default alone does not disable that external execution.
   requireV2(!nativeGitV2(root, "config", "--null", "--list").split("\0").some(entry => entry.split("\n")[0] === "merge.text.driver"), "UNSUPPORTED_GIT_CAPABILITY: merge.text.driver overrides the required built-in driver");
@@ -84,7 +101,9 @@ export function privateRefV2(root: string, ref: string, oid: string): void {
   nativeGitV2(root, "update-ref", "--no-deref", ref, oid, "0".repeat(oid.length));
 }
 export async function assertTargetV2(op: GitOperationV2, candidate: CandidateV2, checkLocks = true): Promise<void> {
-  await verifyBindingV2(op.binding); const root = op.binding.root.path;
+  // Recovery/closure call this without initial dispatch eligibility. Recheck at
+  // every observation boundary before any index refresh or content comparison.
+  await eligibleGitV2(op.binding, [candidate]); const root = op.binding.root.path;
   requireV2(op.targetRef.startsWith("refs/heads/"), "DIRECT_BRANCH_REQUIRED"); nativeGitV2(root, "check-ref-format", op.targetRef);
   requireV2(nativeGitV2(root, "symbolic-ref", "--no-recurse", "HEAD") === op.targetRef, "BOUND_BRANCH_CHANGED");
   const direct = spawnSync("git", [...gitOptionsV2, "symbolic-ref", "--quiet", "--no-recurse", op.targetRef], { cwd: root, env: gitEnvironmentV2() });
