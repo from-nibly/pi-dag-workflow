@@ -36,6 +36,11 @@ assert.deepEqual(modelOnly.focused, ["test:model"]);
 assert.equal(modelOnly.full, false);
 
 for (const path of ["extensions/dag-workflow/dag-runtime/reducer.ts", "unknown/new-runtime.xyz"]) assert.equal(classifyReleaseImpact([path]).full, true, `${path} fails closed to a full gate`);
+for (const path of ["extensions/dag-workflow/dag-runtime/evaluation.ts", "extensions/dag-workflow/dag-runtime/evaluation-store.ts"]) {
+  const impact = classifyReleaseImpact([path]);
+  assert.deepEqual(impact.focused, ["test:dag-evaluation", "test:dag-v2-historical-evaluation"], `${path}: retained envelope readers must be exercised`);
+  assert.equal(impact.portfolioIdentity, true);
+}
 const full = fullReleaseImpact();
 assert.deepEqual(full.focused, [
   "test:release-impact", "test:model", "test:dag-planning", "test:dag-planning-runtime", "test:dag-planning-command", "test:dag-prepared-start",
