@@ -24,9 +24,14 @@ export function nativeGitV2(root: string, ...args: string[]): string {
  * a different gitdir/onbranch context. Disable names, not whole config files,
  * so safe config, disabled hooks and unused events remain supported. */
 export function configuredGitHooksV2(root: string, options: readonly string[] = gitOptionsV2): string[] {
-  const config = (...args: string[]) => execFileSync("git", [...options, "config", ...args], {
-    cwd: root, env: gitEnvironmentV2(), encoding: "utf8", timeout: 60000, maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
-  });
+  const config = (...args: string[]) => {
+    const bytes = execFileSync("git", [...options, "config", ...args], {
+      cwd: root, env: gitEnvironmentV2(), timeout: 60000, maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
+    });
+    const text = bytes.toString("utf8");
+    requireV2(Buffer.from(text, "utf8").equals(bytes), "GIT_CONFIG_ENCODING_UNSUPPORTED");
+    return text;
+  };
   const names = new Set<string>(), files = new Set<string>(), includes = new Set<string>();
   const scan = (text: string) => {
     const entries = text.split("\0");

@@ -40,6 +40,23 @@ for (const scope of ["local", "include", "conditional", "worktree"]) test(`${sco
     await assert.rejects(assertTargetV2(f.op, f.old), scope === "worktree" ? /worktreeconfig/ : /TARGET_DIRTY/); await absent(f);
   } finally { await f.cleanup(); }
 });
+test("non-UTF8 configured hook identities fail closed before dirty observation", async () => {
+  const f = await fixture(); try {
+    const config = join(f.root, ".git", "config");
+    const original = await readFile(config);
+    await writeFile(config, Buffer.concat([original, Buffer.from('\n[hook "raw-'), Buffer.from([0xff]),
+      Buffer.from(`"]\n command = printf hook >> ${JSON.stringify(f.marker)}\n event = post-index-change\n`)]));
+    f.git("hook", "run", "post-index-change", "--", "0", "0");
+    assert.match(await readFile(f.marker, "utf8"), /hook/); await rm(f.marker);
+    await writeFile(join(f.root, "file"), "dirty retained bytes\n");
+    const index = await readFile(join(f.op.binding.admin.path, "index"));
+    assert.throws(() => configuredGitHooksV2(f.root), /GIT_CONFIG_ENCODING_UNSUPPORTED/);
+    await assert.rejects(assertTargetV2(f.op, f.old), /GIT_CONFIG_ENCODING_UNSUPPORTED/);
+    await absent(f);
+    assert.deepEqual(await readFile(join(f.op.binding.admin.path, "index")), index);
+    assert.equal(await readFile(join(f.root, "file"), "utf8"), "dirty retained bytes\n");
+  } finally { await f.cleanup(); }
+});
 for (const state of ["old", "new", "third"]) test(`${state} recovery observes without executing configured index hooks`, async () => {
   const f = await fixture(); try {
     if (state !== "old") f.git("update-ref", "refs/heads/main", state === "new" ? f.op.proposal.commit : f.third);
