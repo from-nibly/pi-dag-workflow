@@ -103,7 +103,9 @@ const execFilePromise = promisify(execFile);
 async function execFileAsync(executable, argv, options = {}) {
   const started = performance.now();
   try {
-    const result = await execFilePromise(executable, argv, { timeout: RELEASE_SUITE_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024, ...options });
+    const env = { ...process.env };
+    for (const key of Object.keys(env)) if (key.startsWith("PI_DAG_WORKER_") || key.startsWith("DAG_V2_PRODUCT_")) delete env[key];
+    const result = await execFilePromise(executable, argv, { timeout: RELEASE_SUITE_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024, ...options, env });
     console.log(JSON.stringify({ kind: "SmokeCommandResult", argv: [executable, ...argv], code: 0, signal: null, elapsedMs: Math.round(performance.now() - started) }));
     return result;
   } catch (error) {
@@ -203,9 +205,9 @@ assertIncludes(readme, "project-model/model.json", "README documents the shared 
 assertIncludes(readme, "/dag brainstorm", "README documents model brainstorming");
 assertIncludes(readme, "/dag migrate", "README documents guided project-model migration");
 assertIncludes(readme, "dag_model_record_direction", "README documents the direct-authority boundary");
-assertIncludes(readme, "/dag plan [--new", "README documents architecture-first planning");
+assertIncludes(readme, "/dag plan [goal]", "README documents architecture-first planning");
 assertIncludes(readme, "/dag show --run", "README documents exact live inspection");
-assertIncludes(readme, "/dag run [--plan", "README documents explicit product execution");
+assertIncludes(readme, "/dag run <JSON object containing selection and authority>", "README documents explicit product execution");
 assert(!readme.includes("Model-aware DAG planning and execution remain deferred"), "README no longer advertises the shipped product workflow as deferred");
 assertIncludes(readme, "subagent_report", "README documents the owned worker report boundary");
 assertIncludes(readme, ".ai/worker-sessions/", "README documents durable worker state");

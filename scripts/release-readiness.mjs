@@ -19,7 +19,7 @@ const noCache = args.includes("--no-cache") || forceFull || allowDirty;
 const baseIndex = args.indexOf("--base");
 const explicitBase = baseIndex < 0 ? null : args[baseIndex + 1];
 const releaseEnv = { ...process.env };
-for (const key of Object.keys(releaseEnv)) if (key.startsWith("PI_DAG_WORKER_")) delete releaseEnv[key];
+for (const key of Object.keys(releaseEnv)) if (key.startsWith("PI_DAG_WORKER_") || key.startsWith("DAG_V2_PRODUCT_")) delete releaseEnv[key];
 
 await preflightCleanTree();
 await run("git", ["diff", "--check"], { cwd: root });
