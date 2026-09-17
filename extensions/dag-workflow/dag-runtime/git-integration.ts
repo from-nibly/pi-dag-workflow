@@ -654,9 +654,21 @@ function assertRequest(value: GitIntegrationRequestV1): void {
 }
 
 class IntegrationDirectoryLockV1 {
+  private commonLock?: Awaited<ReturnType<typeof import("../runtime-v2/git-lock.ts").lockGitCommonV2>>;
   readonly path: string; readonly retiredPath: string; readonly identityHash: string; readonly recoveredStaleIdentityHashes: string[]; readonly directoryIdentity: string; #released = false;
   private constructor(path: string, retiredPath: string, identityHash: string, recoveredStaleIdentityHashes: string[], directoryIdentity: string) { this.path = path; this.retiredPath = retiredPath; this.identityHash = identityHash; this.recoveredStaleIdentityHashes = recoveredStaleIdentityHashes; this.directoryIdentity = directoryIdentity; }
   static async acquire(path: string, transactionId: string, acquiredAt: string, signal?: AbortSignal): Promise<IntegrationDirectoryLockV1> {
+    const common = dirname(dirname(dirname(path)));
+    const { lockGitCommonV2 } = await import("../runtime-v2/git-lock.ts");
+    const shared = await lockGitCommonV2(common).catch(error => { throw new GitIntegrationBlockedError(error.message === "GIT_COMMON_BUSY" ? "INTEGRATION_LOCKED" : "INTEGRATION_LOCK_AMBIGUOUS", error.message); });
+    try {
+      // V2 owns this repository's integration lane once native intent exists.
+      // Older unresolved V2 operations cannot be superseded by a V1 writer.
+      if (await stat(join(common, "pi-dag-v2-owned")).then(() => true, (e: any) => { if (e.code === "ENOENT") return false; throw e; })) throw new GitIntegrationBlockedError("V2_INTEGRATION_OWNED", "Repository uses V2 integration; V1 integration is disabled");
+      const lock = await this.acquireLegacy(path, transactionId, acquiredAt, signal); lock.commonLock = shared; return lock;
+    } catch (e) { await shared.close(); throw e; }
+  }
+  private static async acquireLegacy(path: string, transactionId: string, acquiredAt: string, signal?: AbortSignal): Promise<IntegrationDirectoryLockV1> {
     signal?.throwIfAborted?.();
     await mkdir(dirname(path), { recursive: true });
     const recoveredStaleIdentityHashes: string[] = [];
@@ -688,6 +700,9 @@ class IntegrationDirectoryLockV1 {
     throw new GitIntegrationBlockedError("INTEGRATION_LOCK_RACE", "Could not establish one exact integration lock owner");
   }
   async release(): Promise<void> {
+    try { await this.releaseLegacy(); } finally { await this.commonLock?.close(); this.commonLock = undefined; }
+  }
+  private async releaseLegacy(): Promise<void> {
     if (this.#released) return; this.#released = true;
     const metadata = await readJson(join(this.path, "metadata.json")).catch(() => null) as any; const directoryStat = await stat(this.path).catch(() => null); const currentStart = await currentProcessStartIdentity();
     if (!metadata || canonicalHash(metadata) !== this.identityHash || metadata.pid !== process.pid || metadata.processStartIdentity !== currentStart || !directoryStat || `${directoryStat.dev}:${directoryStat.ino}` !== this.directoryIdentity) throw new GitIntegrationBlockedError("INTEGRATION_LOCK_RELEASE_AMBIGUOUS", "Refusing to release a lock no longer owned by this exact process/directory identity");

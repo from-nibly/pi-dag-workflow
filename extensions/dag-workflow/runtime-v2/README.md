@@ -1,8 +1,10 @@
-# V2 state, admission and direct lifecycle evidence (N02–N03)
+# V2 state, lifecycle evidence and native Git integration (N02–N04)
 
 This is a working local state service, not the product cutover. Import from
-`runtime-v2/index.ts`. N05 must wire this service instead of the V1 writer; no V1
-runtime module is modified here. Do not start V1 selection through this service.
+`runtime-v2/index.ts`. N05 must wire this service instead of the V1 writer. The
+only V1 writer adjustment here is common-directory integration exclusion;
+historical V1 data and interpretation remain unchanged. Do not start V1 selection
+through this service.
 
 ## Storage and consistency
 
@@ -237,39 +239,81 @@ an unverified callback. Product tools should derive revision/lease internals and
 call these closed operations, never expose `StoreV2.transaction` as a state-patch
 tool.
 
-## N04 landing capability blocker (not implemented)
+## Native Git integration (N04)
 
-`IntegrationsV2.verify` is still an interface, **not a shipped native V2 Git
-transaction driver**. N05 must not connect it to an ordinary `git merge --ff-only`
-adapter and describe a caller's precheck as expected-old CAS. The disposable
-real-Git characterization in `node scripts/dag-v2-git-test.mjs` demonstrates on
-Git 2.54.0 that:
+N05 can call `new GitDriverV2(runtime, boundRoot).integrate(mutation, itemId,
+generation, candidate, signal?)`. This is a concrete adapter, not a verification
+callback placeholder. It persists native root/common/admin path/dev/ino bindings
+and operation requests in the V2 snapshot, composes with explicit-base
+`merge-tree`, creates a deterministic single-parent native commit, protects the
+objects with exact-CAS private refs, and runs every prefix and final argv on
+isolated exact-proposal worktrees through N03's subreaping command executor.
+Requests/results survive fresh services; failure or ambiguity never fabricates
+PASS. Internal lifecycle readiness remains mandatory. Long checks run outside
+the snapshot lock. `verify` only accepts an independently hydrated native landing.
 
-- A backward ref move after a caller's precheck can be silently incorporated by
-  an ordinary fast-forward, rather than rejecting the caller's stale expected old.
-- An existing target ref lock or a ref move during merge makes Git's own ref
-  transaction fail **after** proposal files/index have been installed.
-- A `reference-transaction` hook rejecting the prepared update is also too late
-  to prevent those worktree/index effects.
+The supported landing profile is a **quiescent bound worktree**, Linux/local
+filesystem, Git 2.54.0, files refs and SHA-1/SHA-256. It is not arbitrary same-UID
+filesystem/editor isolation. Other worktrees may be used; another checkout,
+reset, index writer or editor must not modify these exact session files during
+landing. Unsupported required capabilities fail closed: sparse/case-insensitive
+checkout, attributes (including ignored/untracked working attributes), gitlinks,
+partial/shallow/alternate objects, overrides of the required built-in text merge
+driver, and unsupported backend/version. UTF-8 commit encoding and the default
+merge driver are pinned. Unrelated safe configuration and unused drivers/hooks are
+allowed; composition semantics, user hooks, fsmonitor and automatic maintenance
+are pinned/disabled rather than silently inherited. No lazy fetch is permitted.
+No restricted external effects are supported. Local test argv are trusted local
+procedures, not a network/credential sandbox or a grant to publish.
 
-The common-dir cooperative lock, intent journal, or a post-command observation
-cannot remove these windows for nonparticipating Git writers. A reference hook
-alone is not a safe remedy. Do not recover by reset/stash/forced checkout or assume
-an unsuccessful command was effect-free. The accepted ordinary-fast-forward
-contract also excludes raw checked-branch `update-ref`; replacing it with a new
-multi-step checkout/ref protocol would need its own design, crash recovery and
-real-Git validation. No such replacement or enforceable exclusive-worktree
-capability has been implemented here. Fail closed at product wiring until that
-boundary is resolved. Existing V1 behavior and N03 lifecycle readiness are
-unchanged. Passing this characterization suite proves the blocker, **not N04
-completion**, native binding, combined validation, or exactly-once landing.
+Landing is ordinary `merge --ff-only --no-autostash --no-overwrite-ignore`, with
+an operation-owned reference-transaction hook instead of user hooks. At Git's
+**prepared** phase, under its native ref locks, the hook requires the exact direct
+branch/HEAD and expected-old/proposal tuple. Only supported ORIG_HEAD and
+AUTO_MERGE ancillary operations are allowed. The ORIG_HEAD new-OID guard rejects
+backward captured-HEAD drift before checkout on this supported profile; the final
+branch guard independently rejects stale expected old. No raw target update-ref,
+reset, stash, forced cleanup or automatic recomposition is used.
+
+Ordinary merge is **not a filesystem transaction**. Failed/killed commands can
+leave their own partial index/files. Reconciliation distinguishes old-clean,
+new-clean, old/new-dirty, third and identity drift. New-clean is observed once
+without another merge; acceptance still requires the current lease/generation,
+authority and lifecycle. Old-clean allows at most two dispatches with exact stored
+validation and current authority. Dirty/third/identity ambiguity is retained and
+blocked, including after user edits or fresh reload. Foreign locks are never
+removed. No exit code alone proves landing or absence of effects.
+
+Lock order is common-dir then snapshot. V1 and V2 in this source share the same
+non-unlinked flock inode. Before publishing intent, V2 durably claims the common
+directory; it refuses unresolved V1 locks. The claim blocks V1 integration and
+cross-store V2 successors until the named operation is accepted or explicitly
+closed after observed settlement. Old installed/uncooperative V1 conductors must
+not run alongside this profile. A landing/validation supervisor inherits the
+common flock description so owner death does not release it while children act.
+Missing subtree-extinction evidence blocks recovery, even if the owner died.
+Hook/store locking cannot invert the lock order: the trusted hook never opens the
+runtime store. All ambiguous protocol directories and verification worktrees are
+retained, not force-removed.
+
+`closeOperation(mutation, operationId)` can close a proven clean old operation
+(consuming integration retry budget), or a clean old/new operation during
+cancellation. It never releases consumers or cleans up bytes; running checks,
+unsettled subprocesses, dirty/third targets and native drift still block. Normal
+replacement/cancellation/successor APIs refuse unresolved Git operations.
+
+`node scripts/dag-v2-git-test.mjs` retains the original unsafe-merge
+characterizations. `node scripts/dag-v2-git-acceptance-test.mjs` exercises the
+native adapter, real command validation, guarded races, process death and
+fresh-service dependent-node integration. Neither is an OS-isolation claim.
 
 ## Limitations and verification
 
 One project snapshot and project-wide short lock simplify cross-record atomicity;
 large histories may eventually need compaction/partitioning. Dispatch adapters
 must return promptly; long worker execution must happen outside the lock. Native
-Git effects still need N04's separate repository lock/CAS and reconciliation.
+Git effects use N04's separate repository lock/CAS and reconciliation; N05 must
+wire the concrete driver rather than a permissive verification callback.
 No installed package, historical real run, project model or V1 writer is changed.
 
 Run `node scripts/dag-v2-state-test.mjs` and

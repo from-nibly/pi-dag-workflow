@@ -1,6 +1,9 @@
 // N04 landing capability characterization, NOT V2 integration certification.
 // These disposable-repository regressions deliberately demonstrate why an
-// ordinary merge adapter cannot satisfy the expected-old/worktree contract.
+// unguarded precheck-plus-merge adapter cannot enforce expected-old, and why
+// even guarded ordinary merge must retain partial checkout effects on failure.
+// Native V2 acceptance lives in dag-v2-git-acceptance-test.mjs; keep these unsafe
+// characterizations unchanged rather than treating their PASS as certification.
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";

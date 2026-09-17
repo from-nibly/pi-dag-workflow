@@ -41,9 +41,11 @@ export const LifecycleV2Schema = StrictObject({ candidate: CandidateV2Schema, ca
   executions: Type.Array(ExecutionV2Schema), findings: Type.Array(StrictObject({ finding: FindingV2Schema, disposition: Type.Optional(TextV2) })),
   ready: Type.Boolean(), stop: Type.Optional(TextV2),
 });
+const directoryIdentity = StrictObject({ path: TextV2, dev: TextV2, ino: TextV2 });
+export const WorkspaceIdentityV2Schema = StrictObject({ root: directoryIdentity, common: directoryIdentity, admin: directoryIdentity });
 export const CommandJobV2Schema = StrictObject({ request: ExecutionRequestV2Schema, owner: StrictObject({ pid: Type.Integer({ minimum: 1, maximum: 2147483647 }), processStart: TextV2 }),
   status: Type.Union([Type.Literal("running"), Type.Literal("settled"), Type.Literal("ambiguous")]),
-  workspace: Type.Optional(TextV2),
+  workspace: Type.Optional(TextV2), workspaceIdentity: Type.Optional(WorkspaceIdentityV2Schema),
   result: Type.Optional(ExecutionResultV2Schema),
 });
 export type CandidateV2 = Static<typeof CandidateV2Schema>;

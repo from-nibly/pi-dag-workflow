@@ -4,6 +4,7 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { lockGitCommonV2 } from "../extensions/dag-workflow/runtime-v2/git-lock.ts";
 import { acquireGitIntegrationLockV1, canonicalHash, composeGitProposalV1, DurableGitIntegrationRuntimeV1, ensurePrivateGitRefV1, ExactGitIntegrationV1, GitIntegrationBlockedError, landOrReconcileBoundWorktreeV1, preflightBoundRepositoryV1, readRepositoryBindingIdentityV1 } from "../extensions/dag-workflow/dag-runtime/index.ts";
 
 const execFileAsync = promisify(execFile);
@@ -26,6 +27,13 @@ try {
   await assert.rejects(() => landOrReconcileBoundWorktreeV1(operationBinding, happy.request.targetRef, happy.request.expectedPrefix, operationProposal.composed, { effectId: "abort-land", requestHash: canonicalHash({ kind: "land", payload: { commonDirIdentityHash: operationBinding.commonDirIdentityHash, targetRef: happy.request.targetRef, expectedOld: happy.request.expectedPrefix, intended: operationProposal.composed } }), ownerEpoch: happy.request.ownerEpoch }, aborted.signal), (error) => error?.name === "AbortError");
   await assert.rejects(() => gitRaw(happy.repo, ["show-ref", "--verify", "--hash", abortRef]), "aborted ref/effect boundary publishes no hidden ref");
   assert.equal(await git(happy.repo, ["rev-parse", "HEAD"]), happy.base.commit, "aborted lock/compose/land boundaries leave the target unchanged");
+  const overlapGuard = { effectId: "overlap-lock", requestHash: canonicalHash({ kind: "acquire_lock", payload: { transactionId: happy.request.transactionId, repositoryId: happy.request.repositoryId, commonDirIdentityHash: operationBinding.commonDirIdentityHash, ownerEpoch: happy.request.ownerEpoch } }), ownerEpoch: happy.request.ownerEpoch };
+  const commonLock = await lockGitCommonV2(operationBinding.commonDir);
+  try { await assert.rejects(acquireGitIntegrationLockV1(happy.request, operationBinding, overlapGuard), error => error?.code === "INTEGRATION_LOCKED"); }
+  finally { await commonLock.close(); }
+  const v2Claim = join(operationBinding.commonDir, "pi-dag-v2-owned"); await writeFile(v2Claim, "fixture-owned V2 lane claim");
+  try { await assert.rejects(acquireGitIntegrationLockV1(happy.request, operationBinding, overlapGuard), error => error?.code === "V2_INTEGRATION_OWNED"); }
+  finally { await rm(v2Claim); }
   const recorder = runtime();
   const transaction = new ExactGitIntegrationV1(recorder);
   const receipt = await transaction.execute(happy.request);

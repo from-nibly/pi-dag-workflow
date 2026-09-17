@@ -5,6 +5,7 @@ import { processIdentityV2, StoreV2 } from "./store.ts";
 import { CandidateV2Schema, ExecutionResultV2Schema, type CandidateV2, type RetryDimensionV2 } from "./lifecycle-schema.ts";
 import { assertReadyV2, assertStageV2, auditResultV2, consumeRetryV2, contextReusedV2, rejectedContextResultV2, currentExecutionV2, executionRequestV2, frameV2, invalidateLifecycleV2, stageChecksV2 } from "./lifecycle.ts";
 import type { CandidateInspectorV2, ResultsV2 } from "./command-runner.ts";
+import { unresolvedGitV2 } from "./git-state.ts";
 
 /** Hydrate from the repository/model, not from the submitted plan. Called inside
  * the start consistency guard; N05 owns concrete product adapters. */
@@ -129,6 +130,8 @@ export class RuntimeV2 {
       }
       assertReadyV2(run, plan, evidence.itemId, evidence.candidate);
       await integrations.verify(structuredClone(run), structuredClone(plan), structuredClone(evidence));
+      const operation = run.gitOperations?.find(op => op.operationId === evidence.operationId);
+      if (operation) { requireV2(operation.phase === "landed" && sameV2(operation.proposal, evidence.target), "GIT_LANDING_NOT_RECONCILED"); operation.phase = "accepted"; }
       node.integration = structuredClone(evidence); node.status = "complete";
       if (Object.values(run.nodes).every(n => ["complete", "excluded"].includes(n.status))) run.status = "complete";
       // No initializing fallback: a completed producer immediately releases its
@@ -158,6 +161,7 @@ export class RuntimeV2 {
       requireV2(!["complete", "cancelling", "cancelled"].includes(run.status), "RUN_TERMINAL_OR_CANCELLING");
       const node = this.node(run, itemId, generation);
       requireV2(node.status === "active" && node.reservation, "ACTIVE_RESERVATION_REQUIRED");
+      requireV2(!unresolvedGitV2(run, itemId), "UNRESOLVED_GIT_OPERATION");
       requireV2(!node.lifecycle?.executions.some(e => !e.result), "EXECUTION_RECONCILIATION_REQUIRED");
       await settled(structuredClone(node.reservation));
       consumeRetryV2(run, itemId, "replacement", 0, "worker", "replacement");
@@ -186,6 +190,7 @@ export class RuntimeV2 {
       if (run.status === "cancelled") return false;
       requireV2(run.status === "cancelling", "CANCELLATION_REQUIRED");
       requireV2(Object.values(run.nodes).every(n => !n.lifecycle?.executions.some(e => !e.result)), "EXECUTION_RECONCILIATION_REQUIRED");
+      requireV2(!unresolvedGitV2(run), "UNRESOLVED_GIT_OPERATION");
       await settled(structuredClone(run)); run.status = "cancelled"; return true;
     });
   }
@@ -205,6 +210,7 @@ export class RuntimeV2 {
       requireV2(node.status === "active" && node.reservation?.state === "bound", "BOUND_WORKER_REQUIRED");
       requireV2(!node.lifecycle?.stop, "LIFECYCLE_RETRY_STOP");
       if (node.lifecycle?.candidateReady && sameV2(node.lifecycle.candidate, candidate)) return false;
+      requireV2(!unresolvedGitV2(run, itemId), "UNRESOLVED_GIT_OPERATION");
       await inspector.inspect(structuredClone(candidate));
       if (node.lifecycle && candidate.tree !== node.lifecycle.candidate.tree && node.lifecycle.candidates.some(c => c.tree === candidate.tree)) {
         node.lifecycle.stop = "NO_PROGRESS: recurring candidate tree";
@@ -288,6 +294,7 @@ export class RuntimeV2 {
       const e = l?.executions.find(e => e.request.id === executionId);
       requireV2(l && e?.result && e.status === "observed" && currentExecutionV2(run, e.request) && e.result.disposition !== "PASS", "CURRENT_FAILED_EXECUTION_REQUIRED");
       requireV2(l.executions.every(e => e.result), "EXECUTION_RECONCILIATION_REQUIRED");
+      requireV2(!unresolvedGitV2(run, itemId), "UNRESOLVED_GIT_OPERATION");
       const finding = e.result.findings.find(f => f.severity === "blocking");
       const kind = finding?.kind;
       const dimension: RetryDimensionV2 = e.contextRejection || kind === "infrastructure_failure" || kind === "capability_absent" || kind === "external_precondition_failure" ? "infrastructure"

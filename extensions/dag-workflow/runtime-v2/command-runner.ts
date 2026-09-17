@@ -1,4 +1,5 @@
 import { spawn, execFileSync } from "node:child_process";
+import { lstatSync, realpathSync } from "node:fs";
 import { mkdtemp, rm, readFile, open, rename } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,7 @@ import { requireV2, sameV2, validateShapeV2 } from "../planning/v2.ts";
 import { StoreV2, processIdentityV2 } from "./store.ts";
 import { ExecutionRequestV2Schema, ExecutionResultV2Schema, type CandidateV2, type ExecutionRequestV2, type ExecutionResultV2, type CommandJobV2, type FindingV2 } from "./lifecycle-schema.ts";
 import { auditResultV2 } from "./lifecycle.ts";
+import { currentGitExecutionV2 } from "./git-state.ts";
 
 /** Local trusted implementations are code, not worker-supplied attestations.
  * run is actually invoked, once, in the exact isolated candidate workspace.
@@ -40,11 +42,13 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
   readonly repository: string;
   readonly producers: ReadonlyMap<string, TrustedProducerV2>;
   readonly environment: string;
-  constructor(store: StoreV2, repository: string, producers: ReadonlyMap<string, TrustedProducerV2> = new Map(), environment = "node-local") {
-    this.store = store; this.repository = repository; this.producers = producers; this.environment = environment;
+  readonly gitOptions: readonly string[];
+  readonly inheritedLockFd?: number;
+  constructor(store: StoreV2, repository: string, producers: ReadonlyMap<string, TrustedProducerV2> = new Map(), environment = "node-local", gitOptions: readonly string[] = [], inheritedLockFd?: number) {
+    this.store = store; this.repository = repository; this.producers = producers; this.environment = environment; this.gitOptions = gitOptions; this.inheritedLockFd = inheritedLockFd;
   }
   private git(cwd: string, ...args: string[]): string {
-    return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: gitEnvironmentV2() }).trim();
+    return execFileSync("git", [...this.gitOptions, ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: gitEnvironmentV2() }).trim();
   }
   async inspect(candidate: Readonly<CandidateV2>): Promise<void> {
     requireV2(this.git(this.repository, "rev-parse", "--verify", `${candidate.commit}^{commit}`) === candidate.commit
@@ -65,8 +69,8 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
       // Only service-persisted current intents can cause execution. A late ensure
       // after cancellation/replacement cannot launch an obsolete command.
       const run = s.runs[request.runId], node = run?.nodes[request.itemId];
-      requireV2(run?.status === "active" && node?.generation === request.generation && node.lifecycle?.round === request.round
-        && node.lifecycle.executions.some(e => e.status === "intent" && sameV2(e.request, request)), "CURRENT_EXECUTION_INTENT_REQUIRED");
+      requireV2(currentGitExecutionV2(s, request) || (run?.status === "active" && node?.generation === request.generation && node.lifecycle?.round === request.round
+        && node.lifecycle.executions.some(e => e.status === "intent" && sameV2(e.request, request))), "CURRENT_EXECUTION_INTENT_REQUIRED");
       requireV2(Date.now() < request.authority.expiresAt, "AUTHORITY_EXPIRED");
       jobs[request.id] = { request, owner: { pid: process.pid, processStart: identity }, status: "running" };
       await publish(); return true;
@@ -139,10 +143,12 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
       await this.store.transaction(async (s, publish) => {
         const run = s.runs[request.runId], node = run?.nodes[request.itemId], job = s.executions?.[request.id];
         requireV2(job && sameV2(job.request, request) && !job.result, "EXECUTION_REQUEST_CONFLICT");
-        requireV2(run.status === "active" && node?.generation === request.generation && node.lifecycle?.round === request.round
-          && node.lifecycle.executions.some(e => e.status === "intent" && sameV2(e.request, request)), "EXECUTION_FENCED_BEFORE_INVOCATION");
+        requireV2(currentGitExecutionV2(s, request) || (run.status === "active" && node?.generation === request.generation && node.lifecycle?.round === request.round
+          && node.lifecycle.executions.some(e => e.status === "intent" && sameV2(e.request, request))), "EXECUTION_FENCED_BEFORE_INVOCATION");
         requireV2(Date.now() < request.authority.expiresAt, "AUTHORITY_EXPIRED");
-        job.workspace = cwd; await publish();
+        const identity = this.workspaceIdentity(cwd);
+        requireV2(!job.workspaceIdentity || sameV2(job.workspaceIdentity, identity), "EXECUTION_WORKSPACE_IDENTITY_DRIFT");
+        job.workspace = cwd; job.workspaceIdentity = identity; await publish();
         await beforeStart?.();
         pending = start();
       });
@@ -165,12 +171,14 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
   private async execute(request: ExecutionRequestV2, signal?: AbortSignal): Promise<{ result: ExecutionResultV2; protocolDirectory?: string }> {
     const result = this.emptyResult(request), start = performance.now();
     let root: string | undefined, cwd: string | undefined, protocolDirectory: string | undefined, added = false, unsettled = false;
+    let identity: ReturnType<CommandRunnerV2["workspaceIdentity"]> | undefined;
     try {
       requireV2(request.check.environment === this.environment, "EXECUTION_ENVIRONMENT_UNAVAILABLE");
       await this.inspect(request.candidate);
       requireV2(!signal?.aborted, "EXECUTION_CANCELLED");
       root = await mkdtemp(join(tmpdir(), "dag-v2-check-")); cwd = join(root, "candidate");
       this.git(this.repository, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", cwd, request.candidate.commit); added = true;
+      identity = this.workspaceIdentity(cwd);
       result.workspace.cleanBefore = this.clean(cwd, request.candidate);
       requireV2(result.workspace.cleanBefore, "UNCLEAN_EXECUTION_WORKSPACE");
       requireV2(Date.now() < request.authority.expiresAt, "AUTHORITY_EXPIRED");
@@ -178,7 +186,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
       if (procedure.kind === "command") {
         const observed = await this.invoke(request, cwd, () => runArgvV2(procedure.argv, cwd!, signal, {
           timeoutMs: Math.max(1, request.authority.expiresAt - Date.now()),
-          protocolDirectory: dirname(cwd!),
+          protocolDirectory: dirname(cwd!), inheritedLockFd: this.inheritedLockFd, disableGitHooks: this.gitOptions.length > 0,
           launch: async (identity, launch) => {
             // The gated session leader cannot invoke argv before this journal is
             // synced and the current intent has been rechecked under the lock.
@@ -222,7 +230,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
         result.disposition = observed.disposition; result.stdout = bounded(observed.observation); result.truncated = observed.observation.length > 16384;
         result.findings = observed.findings; result.diagnostic = `producer=${procedure.producerId}: ${bounded(observed.observation)}`;
       }
-      result.workspace.cleanAfter = this.clean(cwd, request.candidate);
+      result.workspace.cleanAfter = sameV2(identity, this.workspaceIdentity(cwd)) && this.clean(cwd, request.candidate);
       if (!result.workspace.cleanAfter) { result.disposition = "FAIL"; result.diagnostic += "; candidate/workspace changed during no-edit verification"; }
       if (result.disposition === "PASS" && result.findings.some(f => f.severity === "blocking")) result.disposition = "FAIL";
     } catch (error) {
@@ -233,6 +241,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
       // Never force-clean a dirty check worktree: preserve it for diagnosis.
       if (!unsettled && added && cwd && result.workspace.cleanAfter) {
         try {
+          requireV2(sameV2(identity, this.workspaceIdentity(cwd)) && this.clean(cwd, request.candidate), "EXECUTION_WORKSPACE_IDENTITY_DRIFT");
           this.git(this.repository, "worktree", "remove", cwd);
           if (root && request.check.procedure.kind === "command") protocolDirectory = root;
           else if (root) await rm(root, { recursive: true });
@@ -263,10 +272,16 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
       return { result: failure, protocolDirectory };
     }
   }
+  private workspaceIdentity(cwd: string) {
+    const identity = (path: string) => { const stat = lstatSync(path, { bigint: true }); requireV2(stat.isDirectory() && realpathSync(path) === path, "UNSAFE_EXECUTION_WORKSPACE"); return { path, dev: stat.dev.toString(), ino: stat.ino.toString() }; };
+    return { root: identity(resolve(cwd)), common: identity(this.git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")), admin: identity(this.git(cwd, "rev-parse", "--absolute-git-dir")) };
+  }
   private clean(cwd: string, candidate: CandidateV2): boolean {
-    return resolve(this.git(cwd, "rev-parse", "--show-toplevel")) === resolve(cwd)
+    return this.git(cwd, "rev-parse", "--abbrev-ref", "HEAD") === "HEAD"
+      && resolve(this.git(cwd, "rev-parse", "--show-toplevel")) === resolve(cwd)
       && this.git(cwd, "rev-parse", "HEAD") === candidate.commit && this.git(cwd, "rev-parse", "HEAD^{tree}") === candidate.tree
-      && this.git(cwd, "status", "--porcelain=v1", "--untracked-files=all") === "";
+      && this.git(cwd, "write-tree") === candidate.tree
+      && this.git(cwd, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching") === "";
   }
 }
 
@@ -276,10 +291,10 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
  * repository config remains part of the trusted repository profile. */
 export function gitEnvironmentV2(): NodeJS.ProcessEnv {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
-  return { ...env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null" };
+  return { ...env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", GIT_NO_REPLACE_OBJECTS: "1", GIT_NO_LAZY_FETCH: "1", GIT_ATTR_NOSYSTEM: "1" };
 }
 
-type SessionIdentityV2 = { pid: number; processStart: string; token?: string };
+export type SessionIdentityV2 = { pid: number; processStart: string; token?: string };
 type ProcessJournalV2 = { version: 1 | 2; requestId: string; identity: SessionIdentityV2; state: "running" | "BLOCKED"; diagnostic?: string };
 const journalPathV2 = (cwd: string) => join(dirname(cwd), "command-process.json");
 async function writeProcessJournalV2(cwd: string, journal: ProcessJournalV2): Promise<void> {
@@ -307,7 +322,7 @@ type ProcessOutcomeV2 = {
   version: 2; token: string; identity: { pid: number; processStart: string }; cwd: string; extinct: true;
   invoked: boolean; exitCode: number | null; signal: string | null; interrupted: boolean; diagnostic: string;
 };
-async function readOutcomeV2(directory: string, cwd: string, identity: SessionIdentityV2): Promise<ProcessOutcomeV2 | null> {
+export async function readOutcomeV2(directory: string, cwd: string, identity: SessionIdentityV2): Promise<ProcessOutcomeV2 | null> {
   if (!validTokenV2(identity.token)) return null; // Legacy journals have no reaping proof.
   try {
     const value = JSON.parse(await readFile(outcomePathV2(directory, identity.token), "utf8"));
@@ -338,6 +353,8 @@ type ArgvObservationV2 = {
 export async function runArgvV2(argv: readonly string[], cwd: string, signal?: AbortSignal, options: {
   timeoutMs?: number;
   protocolDirectory?: string;
+  inheritedLockFd?: number;
+  disableGitHooks?: boolean;
   launch?: (identity: SessionIdentityV2, launch: () => void) => Promise<void>;
 } = {}): Promise<ArgvObservationV2> {
   requireV2(process.platform === "linux", "UNSUPPORTED_COMMAND_PROCESS_PROFILE");
@@ -348,7 +365,9 @@ export async function runArgvV2(argv: readonly string[], cwd: string, signal?: A
   let identity: SessionIdentityV2 | undefined, abortAt: number | undefined, outcome: ProcessOutcomeV2 | null = null;
   const child = spawn("python3", ["-I", "-B", fileURLToPath(new URL("./command-supervisor.py", import.meta.url)), JSON.stringify({
     argv, token, outcome: outcomePathV2(directory, token), timeoutMs: options.timeoutMs ?? null,
-  })], { cwd, env: gitEnvironmentV2(), shell: false, detached: true, stdio: ["pipe", "pipe", "pipe", "pipe"] });
+  })], { cwd, env: { ...gitEnvironmentV2(), ...(options.disableGitHooks ? {
+    GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null", GIT_CONFIG_KEY_1: "core.fsmonitor", GIT_CONFIG_VALUE_1: "false",
+  } : {}) }, shell: false, detached: true, stdio: ["pipe", "pipe", "pipe", "pipe", ...(options.inheritedLockFd === undefined ? [] : [options.inheritedLockFd])] });
   const append = (old: string, next: Buffer) => { const text = old + next.toString("utf8"); truncated ||= text.length > 16384; return bounded(text); };
   child.stdout!.on("data", b => stdout = append(stdout, b)); child.stderr!.on("data", b => stderr = append(stderr, b));
   child.stdio[3]!.on("data", (b: Buffer) => {

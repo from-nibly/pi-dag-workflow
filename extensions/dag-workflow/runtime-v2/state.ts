@@ -5,6 +5,8 @@ import { CountV2, IdV2, TextV2, sameV2, PlanV2Schema, PlanSelectorV2Schema, pars
 import { CandidateV2Schema, LifecycleV2Schema, RetryV2Schema, RetryDimensionV2Schema, CommandJobV2Schema } from "./lifecycle-schema.ts";
 import { auditLifecycleV2, assertReadyV2, auditResultV2, contextReusedV2, retryLimitsV2 } from "./lifecycle.ts";
 export { CandidateV2Schema } from "./lifecycle-schema.ts";
+import { GitBindingV2Schema, GitOperationV2Schema } from "./git-schema.ts";
+import { auditGitV2, gitExecutionV2 } from "./git-state.ts";
 
 const nonnegative = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
 export const AuthorityV2Schema = StrictObject({ scope: Type.Array(IdV2, { minItems: 1, maxItems: 512, uniqueItems: true }), maxConcurrency: CountV2,
@@ -18,6 +20,7 @@ export const IntegrationV2Schema = StrictObject({ operationId: TextV2, runId: Id
 const node = StrictObject({ generation: CountV2, status: Type.Union([Type.Literal("excluded"), Type.Literal("pending"), Type.Literal("active"), Type.Literal("complete"), Type.Literal("cancelled")]),
   reservation: Type.Optional(ReservationV2Schema), integration: Type.Optional(IntegrationV2Schema), lifecycle: Type.Optional(LifecycleV2Schema), retries: Type.Optional(Type.Array(RetryV2Schema)), retryHistory: Type.Optional(Type.Array(StrictObject({ dimension: RetryDimensionV2Schema, fingerprint: TextV2, tree: Type.Optional(CandidateV2Schema.properties.tree) }))) });
 export const RunV2Schema = StrictObject({ kind: Type.Literal("dag_run_v2"), schemaVersion: Type.Literal(2), runId: IdV2, revision: nonnegative,
+  gitBinding: Type.Optional(GitBindingV2Schema), gitOperations: Type.Optional(Type.Array(GitOperationV2Schema)),
   start: StartV2Schema, predecessorRunId: Type.Optional(IdV2), lease: Type.Optional(LeaseV2Schema),
   status: Type.Union([Type.Literal("active"), Type.Literal("paused"), Type.Literal("needs_replan"), Type.Literal("complete"), Type.Literal("cancelling"), Type.Literal("cancelled")]),
   replanDisposition: Type.Optional(TextV2),
@@ -58,13 +61,15 @@ export function auditSnapshotV2(value: unknown): SnapshotV2 {
   for (const [id, job] of Object.entries(s.executions ?? {})) {
     requireV2(id === job.request.id && (job.status === "settled") === Boolean(job.result), "EXECUTION_JOB_MISMATCH");
     const execution = s.runs[job.request.runId]?.nodes[job.request.itemId]?.lifecycle?.executions.find(e => e.request.id === id);
-    requireV2(execution && sameV2(execution.request, job.request), "EXECUTOR_WITHOUT_LIFECYCLE_INTENT");
+    const gitExecution = gitExecutionV2(s, id);
+    requireV2((execution && sameV2(execution.request, job.request)) || (gitExecution && sameV2(gitExecution.request, job.request)), "EXECUTOR_WITHOUT_LIFECYCLE_INTENT");
     if (job.result) auditResultV2(job.request, job.result);
-    if (execution.contextRejection) requireV2(sameV2(job.result, execution.contextRejection.observed), "REJECTED_EXECUTOR_RESULT_MISMATCH");
+    if (execution?.contextRejection) requireV2(sameV2(job.result, execution.contextRejection.observed), "REJECTED_EXECUTOR_RESULT_MISMATCH");
   }
   for (const [id, revisions] of Object.entries(s.plans)) revisions.forEach((p, i) => { parsePlanV2(p); requireV2(p.planId === id && p.revision === i + 1, "PLAN_REVISION_GAP"); });
   for (const [id, r] of Object.entries(s.runs)) {
     requireV2(r.runId === id, "RUN_ID_MISMATCH"); const p = runPlanV2(s, r); assertScopeV2(p, r.start.authority, 0);
+    auditGitV2(s, r, p);
     requireV2(Object.keys(r.nodes).length === p.workItems.length, "NODE_SET_MISMATCH");
     requireV2(r.releasedGates.every(g => p.constraints.gates.includes(g)), "UNKNOWN_GATE");
     for (const n of p.workItems) {
