@@ -216,13 +216,27 @@ export class WorkerManager {
     if (!/^sha256:[0-9a-f]{64}$/.test(String(input.configRequestHash ?? "")) || !Number.isInteger(Number(input.expectedAttemptNumber)) || Number(input.expectedAttemptNumber) < 1) throw new Error("Owned-worker launch requires exact config-request and attempt identities");
     const existingRecord = (state.launchRecords ?? []).find((candidate) => candidate.launchKey === launchKey);
     if (existingRecord) {
-      const existingWorker = state.workers[existingRecord.workerId];
-      if (!existingWorker || existingWorker.id !== workerId || existingWorker.normalizedRequest?.ownedWorktree?.baseCommit !== baseCommit || existingWorker.normalizedRequest?.boundConfigRequestHash !== input.configRequestHash) throw new Error("Owned-worker launch replay conflicts with its exact durable base/request identity");
+      const existingWorker = state.workers[existingRecord.workerId] ?? (existingRecord.archivedWorkerPath ? await readArchivedWorker(state, existingRecord) : null);
+      if (!existingWorker || existingWorker.id !== workerId || existingWorker.task !== String(input.task ?? "").trim() || existingWorker.normalizedRequest?.ownedWorktree?.baseCommit !== baseCommit || existingWorker.normalizedRequest?.boundConfigRequestHash !== input.configRequestHash || Boolean(existingWorker.normalizedRequest?.explicitDispatchRecovery) !== Boolean(input.explicitDispatchRecovery)) throw new Error("Owned-worker launch replay conflicts with its exact durable base/request identity");
       if (existingWorker.currentAttempt > 0) {
+        const pending = existingWorker.attempts.find(a => a.attemptNumber === existingWorker.currentAttempt);
+        if (pending?.status === "planned" && existingWorker.normalizedRequest.explicitDispatchRecovery) {
+          const paths = attemptPaths(state.repositoryRoot, state.storageId, workerId, pending.attemptNumber);
+          await writeImmutableJson(paths.config, pending.config);
+          await this.#dispatchReservedAttempt(workerId, pending.attemptNumber, signal);
+        }
         const replay = await this.attemptIdentityByLaunchKey(launchKey);
         if (!replay || replay.workerId !== workerId || replay.attemptNumber !== Number(input.expectedAttemptNumber)) throw new Error("Owned-worker launch replay lacks the exact reserved attempt identity");
         return replay;
       }
+      // Resume the already-normalized immutable reservation. Parent tool/model
+      // presentation may have changed after acknowledgement loss; it must not
+      // rewrite the reserved request or manufacture a second launch key.
+      await this.#launchAttempt(workerId, ctx, { initialOnly: true, launchKey, idempotentReplay: true }, signal);
+      await this.#updateScanTimer();
+      const replay = await this.attemptIdentityByLaunchKey(launchKey);
+      if (!replay || replay.attemptNumber !== Number(input.expectedAttemptNumber)) throw new Error("Owned-worker reservation recovery lacks its exact attempt");
+      return replay;
     } else {
       const recovered = await recoverUnboundOwnedAttempt(state.repositoryRoot, {
         launchKey, workerId, expectedAttemptNumber: Number(input.expectedAttemptNumber), configRequestHash: String(input.configRequestHash), baseCommit,
@@ -247,10 +261,46 @@ export class WorkerManager {
       approval = (await this.store.load()).approvedDisposableRoots.find((candidate) => candidate.approvalId === created.approvalId);
     }
     if (!approval || approval.realPath !== canonicalRoot || approval.dev !== exactWorktree.dev || approval.ino !== exactWorktree.ino) throw new Error("Owned-worker worktree approval does not bind the exact path/device/inode");
-    await this.launch({ launchKey, workerId, label: input.label, task: input.task, cwd: worktreeRoot, boundConfigRequestHash: input.configRequestHash, ownedWorktreeBaseCommit: baseCommit, ownedWorktreeCommonDir: exactWorktree.commonDir, ownedWorktreeObjectFormat: exactWorktree.objectFormat, ...(disposableRootToken ? { disposableRootToken } : { disposableApprovalId: approval.approvalId }) }, ctx, signal);
+    await this.launch({ launchKey, workerId, label: input.label, task: input.task, cwd: worktreeRoot, boundConfigRequestHash: input.configRequestHash, ownedWorktreeBaseCommit: baseCommit, ownedWorktreeCommonDir: exactWorktree.commonDir, ownedWorktreeObjectFormat: exactWorktree.objectFormat, ...(input.explicitDispatchRecovery ? { explicitDispatchRecovery: true } : {}), ...(disposableRootToken ? { disposableRootToken } : { disposableApprovalId: approval.approvalId }) }, ctx, signal);
     const exact = await this.attemptIdentityByLaunchKey(launchKey);
     if (!exact || exact.workerId !== workerId || exact.attemptNumber !== Number(input.expectedAttemptNumber)) throw new Error("Owned-worker launch did not bind the exact requested worker/attempt identity");
     return exact;
+  }
+
+  /** Generic pre-attempt cancellation. The caller must fence its own launch
+   * intent first. Atomic with attempt reservation; never fabricates a result for
+   * a process that did not execute, and future keyed initial launch stays fenced. */
+  async cancelUnlaunchedByLaunchKey(launchKey, configRequestHash) {
+    this.#assertAttached();
+    const key = normalizeLaunchKey(launchKey);
+    if (!/^sha256:[0-9a-f]{64}$/.test(String(configRequestHash))) throw new Error("Exact config-request identity required");
+    const result = await this.store.mutate((state) => {
+      const record = (state.launchRecords ?? []).find(r => r.launchKey === key);
+      if (!record) return { settled: true, disposition: "absent" };
+      const worker = state.workers[record.workerId];
+      if (!worker) return { settled: false, disposition: "attempt_exists" };
+      if (worker.normalizedRequest?.boundConfigRequestHash !== configRequestHash) throw new Error("Unlaunched cancellation request conflict");
+      if (worker.currentAttempt !== 0 || worker.attempts.length) {
+        const attempt = worker.attempts.find(a => a.attemptNumber === worker.currentAttempt);
+        if (!attempt?.config || attempt.dispatchClaimedAt || !["planned", "cancelling"].includes(attempt.status)) return { settled: false, disposition: "attempt_exists" };
+        // The atomic dispatch claim deletes this config and precedes every
+        // supervisor spawn. Fence it before publishing a truthful non-execution
+        // cancellation result; a crash can resume from the retained config.
+        worker.status = "cancelling"; attempt.status = "cancelling";
+        return { settled: false, disposition: "cancel_planned", workerId: worker.id, attemptNumber: attempt.attemptNumber, config: structuredClone(attempt.config) };
+      }
+      worker.status = "cancelled"; worker.updatedAt = nowIso();
+      return { settled: true, disposition: "cancelled_before_attempt" };
+    });
+    if (result.result.disposition === "cancel_planned") {
+      const { workerId, attemptNumber, config } = result.result;
+      const paths = attemptPaths(result.state.repositoryRoot, result.state.storageId, workerId, attemptNumber);
+      await writeImmutableJson(paths.config, config);
+      await this.#writeRecoveryResult(workerId, attemptNumber, "cancelled", "Exact planned attempt cancelled before any dispatch claim or process invocation");
+      await this.#ingestResult(workerId, attemptNumber, paths.recoveryResult, true);
+      return { settled: true, disposition: "cancelled_before_dispatch" };
+    }
+    return result.result;
   }
 
   async attemptIdentityByLaunchKey(launchKey) {
@@ -469,6 +519,7 @@ export class WorkerManager {
     const authorization = await this.store.mutate(async (draft) => {
       const worker = draft.workers[workerId];
       if (!worker) throw new Error(`Unknown worker: ${workerId}`);
+      if (worker.normalizedRequest?.explicitDispatchRecovery || this.options.autoRecoverOwned === false && worker.normalizedRequest?.ownedWorktree) throw new Error("Externally managed launch requires a new caller generation/key, not generic retry");
       const attempt = worker.attempts.find((candidate) => candidate.attemptNumber === worker.currentAttempt);
       if (!attempt || !TERMINAL_STATUSES.has(worker.status)) throw new Error(`Worker ${workerId} is not terminal`);
       const maxAttempts = Math.max(1, Number(this.options.maxAttemptsPerWorker ?? 32));
@@ -498,6 +549,7 @@ export class WorkerManager {
     const before = await this.store.load();
     const workerBefore = before.workers[workerId];
     if (!workerBefore) throw new Error(`Unknown worker: ${workerId}`);
+    if (!options.initialOnly && (workerBefore.normalizedRequest?.explicitDispatchRecovery || this.options.autoRecoverOwned === false && workerBefore.normalizedRequest?.ownedWorktree)) throw new Error("Externally managed launch requires a new caller generation/key, not generic retry");
     if (!options.initialOnly && options.retryToken) {
       const replayAuthorization = (before.retryAuthorizations ?? []).find((candidate) => candidate.workerId === workerId && candidate.tokenHash === sha256(options.retryToken));
       if (replayAuthorization?.consumedAt && replayAuthorization.launchedAttemptNumber) {
@@ -507,6 +559,7 @@ export class WorkerManager {
         return { workerId, launchKey: workerBefore.launchKey, attemptNumber: replayAttempt.attemptNumber, status: workerBefore.currentAttempt === replayAttempt.attemptNumber ? workerBefore.status : replayAttempt.status, asynchronous: true, idempotentReplay: true };
       }
     }
+    if (options.initialOnly && workerBefore.currentAttempt === 0 && workerBefore.status === "cancelled") throw new Error("Launch reservation was cancelled before its first attempt");
     if (options.initialOnly && workerBefore.currentAttempt > 0) return { workerId, launchKey: workerBefore.launchKey, attemptNumber: workerBefore.currentAttempt, status: workerBefore.status, asynchronous: true, idempotentReplay: true };
     const attemptNumber = workerBefore.currentAttempt + 1;
     const attemptNonce = newNonce();
@@ -542,6 +595,7 @@ export class WorkerManager {
       const current = draft.workers[workerId];
       if (!current) throw new Error(`Unknown worker: ${workerId}`);
       assertWorkingRootApprovalState(draft, request);
+      if (options.initialOnly && current.currentAttempt === 0 && current.status === "cancelled") throw new Error("Launch reservation was cancelled before its first attempt");
       if (options.initialOnly && current.currentAttempt > 0) return { attemptNumber: current.currentAttempt, existing: true };
       if (!options.initialOnly) {
         draft.retryAuthorizations ??= [];
@@ -743,6 +797,7 @@ export class WorkerManager {
       requestedWorkerId: input.workerId === undefined ? null : normalizeRuntimeId(input.workerId, "workerId"),
       boundConfigRequestHash: input.boundConfigRequestHash === undefined ? null : String(input.boundConfigRequestHash),
       ownedWorktree: input.ownedWorktreeBaseCommit === undefined ? null : { baseCommit: String(input.ownedWorktreeBaseCommit), commonDir: String(input.ownedWorktreeCommonDir), objectFormat: String(input.ownedWorktreeObjectFormat) },
+      ...(input.explicitDispatchRecovery === true ? { explicitDispatchRecovery: true } : {}),
       activeTools: [...new Set((this.pi.getActiveTools?.() ?? []).map(String))].sort(),
       reportRepairAttempts: normalizeRepairAttempts(input.reportRepairAttempts),
       piCliPath: await resolvePiCliPath(this.options.piCliPath),
@@ -782,6 +837,8 @@ export class WorkerManager {
       for (const worker of Object.values(state.workers)) {
         options.signal?.throwIfAborted?.();
         if (TERMINAL_STATUSES.has(worker.status) && !options.includeTerminal) continue;
+        const explicitRecovery = worker.normalizedRequest?.explicitDispatchRecovery || this.options.autoRecoverOwned === false && worker.normalizedRequest?.ownedWorktree;
+        if (worker.currentAttempt === 0 && (TERMINAL_STATUSES.has(worker.status) || explicitRecovery)) continue;
         if (worker.currentAttempt === 0 && worker.launchKey && worker.normalizedRequest) {
           await this.#launchAttempt(worker.id, this.context, { initialOnly: true, launchKey: worker.launchKey, idempotentReplay: true }, options.signal);
           continue;
@@ -796,9 +853,13 @@ export class WorkerManager {
             continue;
           }
           if (attempt.attemptNumber !== worker.currentAttempt) continue;
+          if (explicitRecovery && attempt.config && !attempt.dispatchClaimedAt && ["planned", "cancelling"].includes(attempt.status)) continue;
           const paths = attemptPaths(state.repositoryRoot, state.storageId, worker.id, attempt.attemptNumber);
           if (await pathExists(paths.launchReceipt)) await this.#bindLaunchReceipt(state, worker, attempt, paths);
           if (attempt.status === "planned") {
+            // Callers with external generation/CAS authority recover dispatch
+            // explicitly while holding that authority. A scan only observes.
+            if (explicitRecovery) continue;
             await writeImmutableJson(paths.config, attempt.config);
             await this.#dispatchReservedAttempt(worker.id, attempt.attemptNumber, options.signal);
             continue;

@@ -55,6 +55,10 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
     requireV2(this.git(this.repository, "rev-parse", "--verify", `${candidate.commit}^{commit}`) === candidate.commit
       && this.git(this.repository, "rev-parse", `${candidate.commit}^{tree}`) === candidate.tree, "NATIVE_CANDIDATE_MISMATCH");
   }
+  async inspectCleanWorkspace(candidate: Readonly<CandidateV2>, cwd: string): Promise<void> {
+    await this.inspect(candidate);
+    requireV2(await this.clean(cwd, candidate), "UNCLEAN_CANDIDATE_WORKSPACE: raw bytes/index/modes must match the committed candidate");
+  }
   async read(request: Readonly<ExecutionRequestV2>): Promise<ExecutionResultV2 | null> {
     const job = (await this.store.read()).executions?.[request.id];
     if (!job) return null;
@@ -133,6 +137,30 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
       result.diagnostic = "Executor died without a durable lifecycle result; independent process tree/effects settlement confirmed. Explicit bounded infrastructure retry required.";
       result.findings = [{ id: "executor-lost", kind: "infrastructure_failure", severity: "blocking", materiality: "local", subject: request.check.id, fingerprint: "executor-lost", detail: result.diagnostic }];
       job.result = result; job.status = "settled"; await publish();
+    });
+  }
+  /** Product recovery for the supported command profile: a durable kernel reaping
+   * outcome plus exact native workspace settlement, never a negative process
+   * scan or a caller's claim. Dirty/replaced workspaces remain blocked. */
+  async reconcileExtinctCommand(request: ExecutionRequestV2): Promise<void> {
+    requireV2(request.check.procedure.kind === "command", "COMMAND_RECOVERY_ONLY");
+    await this.reconcileInterrupted(request, async (_request, job) => {
+      requireV2(job.workspace && job.workspaceIdentity, "RECOVERY_WORKSPACE_REQUIRED");
+      const journal = await readProcessJournalV2(job.workspace);
+      requireV2(journal?.requestId === request.id && await readProcessOutcomeV2(job.workspace, journal.identity), "COMMAND_EXTINCTION_REQUIRED");
+      const binding = await bindGitV2(this.repository);
+      requireV2(sameV2(binding.common, job.workspaceIdentity.common), "RECOVERY_REPOSITORY_IDENTITY_DRIFT");
+      let exists = true;
+      try { lstatSync(job.workspace); } catch (error: any) { if (error.code === "ENOENT") exists = false; else throw error; }
+      if (exists) {
+        requireV2(sameV2(this.workspaceIdentity(job.workspace), job.workspaceIdentity), "RECOVERY_WORKSPACE_IDENTITY_DRIFT");
+        requireV2(await this.clean(job.workspace, request.candidate), "RECOVERY_WORKSPACE_DIRTY");
+      } else {
+        // Cleanup may have completed before result publication. The positive
+        // extinction outcome survives that boundary; require native deregistration
+        // too, rather than treating a vanished pathname alone as settlement.
+        requireV2(!this.git(this.repository, "worktree", "list", "--porcelain", "-z").split("\0").includes(`worktree ${job.workspace}`), "RECOVERY_WORKSPACE_STILL_REGISTERED");
+      }
     });
   }
   /** Recheck the generation while holding the launch lock through actual start.

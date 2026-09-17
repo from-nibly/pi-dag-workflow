@@ -1,10 +1,75 @@
-# V2 state, lifecycle evidence and native Git integration (N02–N04)
+# V2 product, state, lifecycle evidence and native Git integration
 
-This is a working local state service, not the product cutover. Import from
-`runtime-v2/index.ts`. N05 must wire this service instead of the V1 writer. The
-only V1 writer adjustment here is common-directory integration exclusion;
-historical V1 data and interpretation remain unchanged. Do not start V1 selection
-through this service.
+The extension registers `registerProductV2`, backed by `ProductV2`,
+`PlanningFreshnessV2`, `ProductWorkersV2`, the concrete command runner and native
+Git driver. Import library APIs from `runtime-v2/index.ts`. Historical V1 readers
+remain version-separated; no V1 selection starts through this service.
+
+## Registered product boundary
+
+`dag_plan_save` derives native repository identity and source digests itself. The
+frozen `source.selector` stores `model_scope_v2`, focus ID and workstream IDs.
+Save/run hydrate tracked authoritative model bytes, recompute all applicable
+non-superseded accepted governing objects, and compare requested generated specs
+with `SpecProjector.render`. Repository-wide objects always seed the closure;
+empty workstreams add no other scope seeds. Accepted governing relationships
+close transitively in both directions, excluding context-only `related_to` and
+historical `supersedes` links. Unaccepted governing dependencies block. Context
+refs and drafts do not become governing authority. The optional selector in the
+library schema preserves primitive fixtures; the product requires it and never
+runs unhydrated fixture plans. New worker/check/integration dispatch rechecks
+sources against the accepted native Git prefix; native landing recovery owns
+old/new/third reconciliation after a landing attempt. Candidate inspection rejects
+changes to frozen model/requested-spec paths, including clean committed edits.
+
+`dag_run_start` and `/dag run` accept exact selection plus explicit independent
+scope/concurrency/local-effect/expiry authority. No payload only reopens an
+existing session binding. Saving/revising/showing never executes work. There is
+no separate plan approval transition or hidden acceptance artifact.
+
+The shipped product profile accepts actual `node-local` argv checks, not arbitrary
+producer IDs. F2/F5 command processes perform declared deterministic oracle and
+architecture checks independently; F7 replays every applicable check. This is not
+a claim that a generated label represents a human/model reviewer. Custom trusted
+producers remain a library extension point. Runtime gates require an actual
+current PASS check with the same ID as the declared gate.
+
+`ProductWorkersV2` uses the generic manager's durable keyed `launchOwnedAttempt`
+and `launch`. Requests freeze task, native repository and base; reserved normalized
+tool/model configuration survives changed host presentation. The generic
+`explicitDispatchRecovery` policy suppresses scan-time launch of reserved/planned
+work and generic retry: only an explicit caller holding current generation/CAS
+may recover dispatch. The registered V2 host sets `autoRecoverOwned: false` so
+legacy-owned reservations cannot auto-launch or generically retry either.
+Planned cancellation is recorded as non-execution, never
+PASS; replacement uses a fresh generation/key. V2 retains exact
+storage/session/worker/attempt/nonce/config identity and ingested completion.
+Candidate inspection checks owned worktree identity, raw clean detached native
+commit/tree and base ancestry. Bounded replacement freezes the inspected prior
+candidate and actual failure observations into the next generation's immutable
+repair request. Old evidence is retained/quarantined and affected checks run again.
+Implementation worktrees are retained, not force-cleaned; generic retention limits
+can require operator maintenance. Reports cannot PASS lifecycle checks. Generic
+working-root ownership tokens remain process safety, not plan approval.
+
+Tools derive leases/CAS internally but retain exact generation, stage-attempt,
+completion and candidate selectors. `dag_recover_dispatch` only looks up an
+existing attempt. `dag_recover_execution` requires kernel subtree extinction and
+native workspace settlement and records BLOCKED, never invented PASS.
+`dag_close_git_operation` uses native settlement closure. Missing proof stays
+blocked. Read tools and passive headless-safe widgets never call these writers.
+
+`dag_history_v1` uses original plan/run/worker/Git/evaluation validators without
+attachment, migration or repair. There is no registered V1 continuation writer.
+A session retaining any V1 binding must use a new unbound session for V2;
+terminal V1 bindings are not implicitly adopted either.
+Do not run an older installed conductor concurrently with V2. Source changes do
+not update the separately installed runtime overlay.
+
+`node scripts/dag-v2-product-test.mjs` crosses actual extension registration,
+generic manager/supervisor/results, real lifecycle commands and native Git.
+Fractory successor and Operant safe-prefix tests are V2 product scenarios,
+not relabeled V1 tests. Focused success is not joined release certification.
 
 ## Storage and consistency
 
@@ -53,7 +118,9 @@ silently overwriting them. Semantic plan validation happens on ingress, and
 transition guards enforce local invariants. Both reload and every publication
 audit the complete snapshot semantically; rejected validation leaves existing
 snapshot bytes and durable revisions unchanged. There are no
-nested hashes or snapshot history chains. The only content hash is the plan hash.
+nested runtime proof hashes or snapshot history chains. The plan hash covers plan
+content; source/model and generic worker config digests identify independently
+stored inputs rather than granting consent.
 
 ## APIs and downstream boundaries
 
@@ -78,7 +145,7 @@ nested hashes or snapshot history chains. The only content hash is the plan hash
   identity with exact request comparison (identity excludes mutable dispatch
   state/workerId). Lost acknowledgement repeats ensure, not unkeyed spawn. Hold
   the transaction lock across this short operation. A raw spawn-only adapter is
-  invalid. N05 must connect this to the durable generic worker manager.
+  invalid. `ProductWorkersV2` connects the durable generic worker manager.
 - `integrate` first enforces **internal computed lifecycle readiness**, including
   exact current candidate and F0–F8 evidence. Even a permissive integration adapter
   cannot bypass this guard. `IntegrationsV2.verify` must additionally verify the
@@ -209,8 +276,9 @@ unused registry entries produce no evidence. F2/F5 worker-backed producers must
 return the **actual independently hydrated context ID/lineage** from their durable
 worker manager, not a generated label for this callback. Missing context or an
 invalid protocol result settles BLOCKED. Generic worker identity stays DAG-agnostic;
-N05 supplies its durable manager adapter and authenticates/hydrates its own local
-producer results. The concrete command path already works without that adapter.
+A custom worker-backed producer must supply and authenticate its own durable
+manager results. The shipped product uses the concrete independent command path
+and rejects arbitrary producer IDs rather than installing a placeholder adapter.
 
 The same protected snapshot stores executor jobs separately from lifecycle result
 application. A job is published before invocation; a result is published before
@@ -241,7 +309,7 @@ tool.
 
 ## Native Git integration (N04)
 
-N05 can call `new GitDriverV2(runtime, boundRoot).integrate(mutation, itemId,
+The registered product calls `new GitDriverV2(runtime, boundRoot).integrate(mutation, itemId,
 generation, candidate, signal?)`. This is a concrete adapter, not a verification
 callback placeholder. It persists native root/common/admin path/dev/ino bindings
 and operation requests in the V2 snapshot, composes with explicit-base
@@ -331,9 +399,9 @@ worktree children and validation descendants. None is an OS-isolation claim.
 One project snapshot and project-wide short lock simplify cross-record atomicity;
 large histories may eventually need compaction/partitioning. Dispatch adapters
 must return promptly; long worker execution must happen outside the lock. Native
-Git effects use N04's separate repository lock/CAS and reconciliation; N05 must
-wire the concrete driver rather than a permissive verification callback.
-No installed package, historical real run, project model or V1 writer is changed.
+Git effects use the separate repository lock/CAS and reconciliation through the
+concrete driver rather than a permissive verification callback.
+No installed package, historical real run or project model is changed.
 
 Run `node scripts/dag-v2-state-test.mjs` and
 `node scripts/dag-v2-lifecycle-test.mjs`. The latter exercises actual commands and

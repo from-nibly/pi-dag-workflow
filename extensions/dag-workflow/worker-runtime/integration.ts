@@ -13,8 +13,8 @@ export const ASYNC_COMPLETION_GUIDANCE = [
   "- those observation tools are for diagnosis and recovery only, not completion waiting",
 ].join("\n");
 
-export function registerWorkerRuntime(pi: ExtensionAPI) {
-  const manager = new WorkerManager(pi);
+export function registerWorkerRuntime(pi: ExtensionAPI, options: Record<string, unknown> = {}) {
+  const manager = new WorkerManager(pi, options);
   let attachError: string | null = null;
 
   pi.registerTool({

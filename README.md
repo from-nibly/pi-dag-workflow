@@ -58,36 +58,102 @@ Reloading, resuming, forking, or cloning a linked Pi conversation restores the e
 
 ## Planning, inspection, and execution
 
-One product workflow carries accepted project meaning into the shipped canonical runtime:
-
-The commands below describe the shipped V1 behavior. The
-[simplified contract and V1 compatibility matrix](spec/model-aware-dag-runtime/contract-compatibility.md)
-defines the new-writer target: direct run-intent acceptance without a separate
-plan-approval state, with retained execution protections and read-only historical
-V1 coexistence. That cutover is not implemented by the contract document.
+The registered extension writes V2 plans and runs in ignored
+`.ai/dag-workflow-v2/state.json`. Saving, previewing and revising are inert. An
+explicit request to run the exact current saved content accepts that content;
+there is no separate plan approval tool, field, command or hidden receipt.
+Project-model semantic acceptance remains unchanged.
 
 ```text
-/dag plan [--new | --plan <plan-id>] [goal]       # architecture, then internal decomposition
-/dag plan approve --plan <plan-id>@<revision>      # approve the exact current head
-/dag plan authorize --plan <plan-id>@<revision>    # authorize without starting
-/dag show [--plan <selector>] [--view plan|graph|lineage]
-/dag show [--plan <selector>] --node <id|Nxx>
-/dag show --run [<exact-current-session-run-id>]
-/dag run [--plan <plan-id>@<revision>]              # explicit start, or advance bound run
-/dag run --resume                                   # require an existing current-session binding
+/dag plan [goal]
+/dag show --plan <plan-id>@<revision> [--view plan|graph|lineage]
+/dag show --plan <plan-id>@<revision> --view node --node <exact-item-id>
+/dag show --run <exact-run-id>
+/dag run <JSON object containing selection and authority>
+/dag run                              # reopen only the existing session binding
 ```
 
-`/dag plan` keeps the active project-model focus. It asks the agent to establish outcomes, architecture, boundaries, risks, integration checks, and shell-free prefix/final validation argv before internally producing the smallest causal work-item graph. `dag_plan_save` derives Git and source identities from a clean tracked `HEAD`; callers never supply Git object IDs, hashes, artifact paths, or runtime receipts. Every successful revision returns deterministic Markdown and static-graph previews.
+`dag_plan_save` requires the exact active focus and expected content revision
+(`0` for creation). It independently reads tracked model/spec bytes and a clean
+native Git baseline. Sources use `model:<collection>/<objectId>` and
+`spec:<repository-relative-path>`. The persisted focus/workstream selector drives
+a fresh walk of **all** applicable, receipt-valid, non-superseded governing
+objects, including newly accepted objects—not just the caller's submitted refs.
+Repository-wide authority always applies; an empty workstream set starts from
+repository-wide objects. The closure also follows accepted governing relationships
+conservatively in both directions (excluding context-only `related_to` and
+historical `supersedes` links); drafts and contextual objects do not gain authority.
+An unaccepted governing dependency blocks. No submitted digest is trusted.
+Before new worker/check/integration dispatch, freshness is rechecked against the
+actual accepted native Git prefix (not the original HEAD after legitimate
+landings). Worker candidates cannot alter the frozen model/requested-spec paths.
 
-Approval and authorization are independent retained revisions. They may be decided together after one exact review, but neither starts work. V1 authorization is deliberately whole-plan: its scope must equal the complete exact work-item ID set, while maximum concurrency remains independently bounded. Only an explicit `/dag run` starts execution. `/dag chunk` is intentionally absent because decomposition is an internal phase of `/dag plan`.
+`dag_plan_list` enumerates exact current-head selectors without choosing a plan.
+`dag_plan_show` and `/dag show` expose plan, graph, exact node and lineage views.
+Implicit plan selection requires an exact session plan binding or one matching
+active-focus head. No timestamps, prefixes, or inferred latest selection. Reads
+never acquire a lease, ingest results, repair bindings or create the V2 store.
 
-Thin plans live under ignored `.ai/dag-plans-v1/`. Each head has immutable retained revisions, an exact active-focus binding, typed project-model/spec sources, one static semantic hash, and ordinary decision fields. Exact selectors are a plan ID for its head or `planId@revision`; prefix, modification-time, and inferred-latest selection are never used.
+Use `dag_run_start` (or the identical `/dag run` JSON payload):
 
-`/dag show` is read-only. A current-session live run wins by default; otherwise one session-bound or unambiguous active-focus static plan is required. Static Markdown, graph, node, and lineage views are deterministic projections. Live views resolve only the exact current-session run binding.
+```json
+{
+  "selection": {"planId": "delivery", "revision": 1, "planHash": "sha256:<exact saved hash>"},
+  "authority": {
+    "scope": ["first", "second"],
+    "maxConcurrency": 1,
+    "effects": ["repository_local"],
+    "expiresAt": 1800000000000
+  }
+}
+```
 
-`/dag run` revalidates the clean Git baseline, target branch, authoritative model objects, generated specification bytes, approval, and authorization before creating run authority. It internally compiles the thin plan into the existing canonical F0–F8 contracts, generates UUID occurrence identities, durably records a recoverable start intent, binds the run to the current session, and then starts an agent orchestration turn. A repeated command reads and reopens the bound agent loop without restarting or implicitly unpausing it. A process crash during start is recovered from the exact unfinished intent.
+Choose an explicit future expiry. Scope, concurrency and local-effect authority
+are independent of accepting content; unspecified or ambiguous authority needs
+clarification. Dependency scopes must be closed; serial integration scopes must
+be prefixes. Excluded nodes cannot occupy lanes or dispatch. Restricted effects
+(publication, credentials, deployment) are unsupported, never implied. Reopening
+the same frozen run cannot expand authority or implicitly resume paused work.
+Complete/reconciled-cancelled runs allow an exact terminal successor whose plan
+names the predecessor selector and freshly observed landed baseline.
 
-The top-level conversational agent is the visible canonical orchestrator. `dag_next_action` is read-only and returns the complete current semantic choices with explanations and concurrency context. Every choice is bound to one revision: the agent invokes one named operation and refreshes `dag_next_action` before choosing again. The tools—`dag_start_work`, `dag_run_checks`, `dag_record_completion`, `dag_integrate`, `dag_retry`, `dag_pause`, `dag_resume`, `dag_cancel`, and `dag_finalize`—derive and atomically revalidate internal revisions, hashes, epochs, locks, packets, and idempotency identities. Pausing suppresses only new admission; already-admitted completions and finalization remain available. The protected worker prompt still retains the canonical objective, stage role, worktree/edit boundaries, checks, and completion contract. Generic `subagent` calls cannot consume canonical DAG work. There is no conductor timer, session/`agent_end` pump, process-local service generation, or arbitrary worker timeout in normal orchestration. An owned-worker terminal callback only wakes the agent with exact completion identities. A pre-bind callback directs exact `dag_start_work` recovery first; otherwise the current `dag_record_completion` choice explicitly reconciles and records the durable terminal before the agent continues.
+The visible agent orchestrates via read-only `dag_next_action` and semantic
+`dag_start_work`, `dag_record_completion`, `dag_run_checks`, `dag_integrate`,
+`dag_retry`, `dag_replace_worker`, `dag_pause`, `dag_resume`, `dag_cancel` and
+`dag_finalize`. Tools derive leases/revision CAS internally while preserving
+exact run/item/generation/stage-attempt/completion selectors. Generic workers
+are durably keyed create-or-get operations with exact storage/attempt identities;
+acknowledgement loss never means a second unkeyed launch. V2-owned requests
+persist `explicitDispatchRecovery`: generic scans cannot launch reserved/planned
+work after an external generation fence, and generic retry cannot create another
+attempt under the same operation. The V2 host also disables scan-time launch and
+generic retry of legacy-owned reservations; reopening an old session is not V1
+execution continuation. Recovery dispatch goes through the V2 writer;
+replacement uses a fresh bounded generation/key. After dispatch, end the
+turn when remaining work depends on completion; the durable completion follow-up
+resumes it. Do not poll or use generic subagent launch for DAG work.
+
+F0 precedes implementation; actual committed candidate inspection and individual
+command results govern F1–F8. The shipped product profile uses shell-free
+`node-local` argv checks, with independently created F2/F5 process contexts and
+fresh clean F7 replay. Supply meaningful deterministic oracle/review checks,
+not success-only commands. Worker reports do not confer PASS. Arbitrary producer
+IDs are rejected by product save: custom semantic worker-backed evaluators are a
+library adapter capability, not a shipped product implementation. Runtime gates
+require a current durable PASS check with the same check ID as the declared gate.
+
+Native `GitDriverV2.integrate` performs explicit-base composition, isolated real
+prefix/final checks, guarded target CAS, and old/new/third-target recovery.
+`dag_recover_dispatch`, `dag_recover_execution`, and `dag_close_git_operation`
+provide exact recovery operations; missing extinction or ambiguous Git/workspace
+settlement remains blocked. Cancellation fences first, then signals workers and
+waits for actual settlement. Retry budgets and failure evidence survive reload.
+Worker repair uses a new keyed generation based on the inspected prior candidate,
+with frozen actual failure observations; all affected checks must run again.
+Implementation worktrees remain retained for diagnosis, not force-cleaned;
+generic worker/storage retention limits can require operator maintenance.
+The passive TUI widget shows stable current state and remounts for a successor;
+headless modes never mount it. It has no fabricated V1 hash fields.
 
 ## Model tools
 
@@ -160,51 +226,41 @@ Direct forks and clones transfer the complete worker session and completion queu
 
 Obsolete `pi-subagents` artifacts are not adopted or deleted automatically. Historical sibling directories named `*-dag-subagents` and temporary `/tmp/pi-subagents-*` trees may be removed manually only after confirming that no legacy worker process still owns them.
 
-## Canonical DAG execution
+## Historical compatibility and supported profile
 
-The product commands above use the existing guarded canonical runtime as a hidden execution substrate. The conductor binds one exact run to the current Pi session and branch; it never selects a “latest” run. Low-level tools remain available for exact diagnostics and compatibility.
+`dag_history_v1` reads an explicit V1 plan/revision, canonical run, bound workers,
+Git integration state or evaluation envelope through the original validators.
+`dag_history_worker` also accepts an exact generic worker storage/attempt binding.
+Neither reader attaches a conductor, acquires ownership, repairs, migrates,
+rewrites bytes or starts work. V1 files remain at their original paths. Existing V1 libraries and
+regressions remain for compatibility; **this extension does not continue V1
+runs or convert V1 evidence into V2 execution**. Do not run an old installed V1
+conductor alongside V2 integration. Installed-package overlays are not replaced
+by source-checkout changes.
 
-Read-only tools:
+The older `/dag validate|status|workers|inspect|tail` and
+`dag_validate|dag_diagram|dag_status` diagnostics remain clearly labeled legacy
+read-only views. Their old latest-selection behavior is never used for V2.
+`/dag review`, `/dag retro`, `/dag archive` and separate `/dag chunk` are not
+implemented (`/dag plan` includes decomposition).
 
-- `dag_run_status`
-- `dag_run_diagram`
-- `dag_run_inspect`
-- `dag_run_tail`
-- `dag_run_explain`
+The supported V2 profile is Linux/local filesystem with util-linux flock,
+readable same-namespace `/proc`, Python 3.9+ and **Git 2.54.0, files refs,
+SHA-1/SHA-256**. Unsupported capabilities fail closed. Native landing requires a
+quiescent session worktree. Sparse/partial/shallow repositories, attributes,
+gitlinks and unsafe composition overrides are unsupported. User hooks and
+configured Git 2.54 hooks are disabled without rewriting repository config.
+No reset, stash, force landing or forced ambiguous-workspace cleanup occurs.
+The repository must ignore `.ai/` and have a clean committed baseline; the
+extension does not edit ignore rules automatically. A session retaining any V1
+binding must use a new unbound Pi session for V2 (no implicit cross-version
+adoption, even for a terminal V1 run).
+See [the V2 API and safety profile](extensions/dag-workflow/runtime-v2/README.md).
 
-Guarded mutation tools:
-
-- `dag_run_start`
-- `dag_run_control` (`pause`, `resume`, or `cancel`)
-- `dag_run_retry`
-- `dag_run_reattach`
-
-Retained thin-plan runs may begin with an empty retry ledger. After a failed owned-worker attempt is sealed and its exact worktree cleanup and effects are reconciled, `dag_next_action` can offer `dag_retry` under the existing `thin-plan-bounded-retry-v1` policy. Authorization creates the missing worker-replacement slot atomically and frees the current stage pointer for a fresh attempt; failed evidence remains immutable. Recovery allows at most two replacement retries per work item/stage, conservatively counting retained attempts across candidate generations. It does not relabel incomplete validation as PASS, authorize product repair, retry successful-worker check failures, bypass findings or exhausted budgets, or replay unknown/non-repeatable effects. Other policy hashes require their own explicit policy support.
-
-Every post-start mutation carries the exact run nonce, owner epoch, revision, snapshot hash, command/idempotency identity, and explicit timestamp; start itself binds immutable plan/genesis/context artifacts and an explicit run identity. Interactive TUI sessions show a passive bounded DAG widget with static activity marks and render deduplication; headless modes expose the same semantic projection without rendering a widget.
-
-The deterministic scheduler separates correctness readiness from lane/resource/mutex admission. `maxActiveNodes` lanes remain sticky through phase waits, repairs, blocking, and integration. Generic worker status affects DAG projection only through an exact run-state worker binding.
-
-Real-Git integration uses core-only repository preflight, immutable private refs, explicit-base `merge-tree`, deterministic one-parent `commit-tree`, plan-hashed executable prefix/final verification profiles, and a guarded ordinary fast-forward in the clean session-bound worktree. Target old/new/third reconciliation and immutable receipts make every failpoint recoverable without reset, stash, force update, or conductor conflict edits.
-
-The reducer-driven F0–F8 lifecycle publishes immutable attempt, launch, worker-result, candidate, check, environment, finding, integration, and cleanup facts before they can advance authority. Session attachment and exact terminal-worker ingestion wake one coalesced service-owned conductor pump, so procedure reconciliation seals stages and dispatches newly ready work without another user command. A fresh conductor service in the same exact session/process CAS-transfers to a new owner epoch before mutation instead of treating a long-lived Pi wrapper PID as proof that the prior pump is still operational; old commands are fenced by epoch/token/revision checks. Different-process takeover still requires exact proven-dead reattachment. Owner takeover and prior-session worker reconciliation remain process-identity fenced. Detached evaluation observes committed snapshot identities asynchronously, retains privacy-safe bounded accumulators and envelopes, and cannot affect execution. The dogfood portfolio runs six counterbalanced serial/parallel pairs (twelve canonical executions) plus separate recovery drills.
-
-Separate `/dag review`, `/dag retro`, and `/dag archive` product workflows are not implemented. `/dag chunk` is intentionally folded into `/dag plan`. GrillMe, promotion, legacy prompt workflows, the dormant `dag_subagent` adapter, the `pi-subagents` dependency, and model-unaware mutating DAG tools are removed.
-
-Clearly labeled read-only diagnostics remain for pre-cutover artifacts:
-
-```text
-/dag validate
-/dag status
-/dag workers
-/dag inspect
-/dag tail
-dag_validate
-dag_diagram
-dag_status
-```
-
-They cannot create or advance execution.
+Local-effect authority is not an arbitrary-code/network sandbox: trusted argv
+and generic worker tools must honor their bounded task and no-edit contracts.
+No dependencies or credentials are installed automatically. OS isolation is
+required for hostile same-UID code, namespace tampering or escaped effects.
 
 ## Runtime-v2 local command capability
 
@@ -229,6 +285,7 @@ npm run test:dag-planning
 npm run test:dag-planning-runtime
 npm run test:dag-planning-command
 npm run test:dag-prepared-start
+node scripts/dag-v2-product-test.mjs
 npm run test:dag-runtime
 npm run test:dag-evaluation
 npm run test:dag-dogfood -- --group lifecycle
@@ -245,4 +302,9 @@ node scripts/migrate-brainstorm-to-project-model.mjs --force
 
 `release:ready` compares `HEAD` with the latest prior semantic release tag (or `--base <ref>` / `PI_RELEASE_BASE`), classifies every changed path through a fail-closed impact map, and runs only affected focused suites, dogfood groups, portfolio templates, and recovery drills. It then runs one package-mode smoke pass against the extracted npm artifact to verify contents, entrypoint loading, release-impact policy, and direct package helpers without repeating the focused process/Git matrices. Unknown paths and broad canonical primitives escalate to the full gate. Successful expensive gates are reused only through hash-validated local receipts under `$XDG_CACHE_HOME/pi-dag-workflow/release-evidence-v1` (or `~/.cache/...`) bound to the exact relevant Git tree, command, executable hashes, Node/Git toolchain, kernel/platform, locale, and timezone; use `--no-cache` to bypass them. Broad smoke runs once against the extracted npm artifact. `release:full` remains the periodic uncached certification path.
 
-The production tests cover model validation, acceptance boundaries, concurrent model/focus CAS, sparse/stale review resolution, deterministic plan projections and lineage, exact command selection, real-Git source/baseline validation, crash-recoverable prepared start, canonical runtime compilation, whole-run replanning, Pi activation and fork restoration, legacy read-only compatibility, generic migration bootstrap/resume, no-overwrite staging, source and manifest freshness, preserved side-by-side specs, approved projection collisions, legacy-adapter dispatch, and authoritative-model refusal.
+`dag-v2-product-test.mjs` is registered V2 end-to-end coverage. The older V1
+planning/runtime/dogfood/evaluation suites remain compatibility coverage, not
+substitutes for V2 product certification. Full uncached release readiness and
+extracted-package smoke must run on the joined clean candidate.
+
+The test suites cover model validation, acceptance boundaries, concurrent model/focus CAS, sparse/stale review resolution, deterministic plan projections and lineage, exact command selection, real-Git source/baseline validation, crash-recoverable prepared start, canonical runtime compilation, whole-run replanning, Pi activation and fork restoration, legacy read-only compatibility, generic migration bootstrap/resume, no-overwrite staging, source and manifest freshness, preserved side-by-side specs, approved projection collisions, legacy-adapter dispatch, and authoritative-model refusal.

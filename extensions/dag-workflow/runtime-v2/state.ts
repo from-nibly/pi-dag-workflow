@@ -1,5 +1,5 @@
 import { Type, type Static } from "typebox";
-import { StrictObject } from "../dag-runtime/common.ts";
+import { StrictObject, HashSchema } from "../dag-runtime/common.ts";
 import { CountV2, IdV2, TextV2, sameV2, PlanV2Schema, PlanSelectorV2Schema, parsePlanV2, requireV2, validateShapeV2, type PlanV2 } from "../planning/v2.ts";
 
 import { CandidateV2Schema, LifecycleV2Schema, RetryV2Schema, RetryDimensionV2Schema, CommandJobV2Schema } from "./lifecycle-schema.ts";
@@ -14,8 +14,10 @@ export const AuthorityV2Schema = StrictObject({ scope: Type.Array(IdV2, { minIte
   effects: Type.Array(Type.Literal("repository_local"), { minItems: 1, maxItems: 1 }), expiresAt: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) });
 export const StartV2Schema = StrictObject({ intent: Type.Literal("run"), sessionId: IdV2, selection: PlanSelectorV2Schema, authority: AuthorityV2Schema });
 export const LeaseV2Schema = StrictObject({ sessionId: IdV2, pid: Type.Integer({ minimum: 1, maximum: 2147483647 }), processStart: TextV2, generation: CountV2 });
+export const WorkerBindingV2Schema = StrictObject({ workerStorageId: IdV2, launchOwnerSessionId: TextV2, workerId: TextV2, attemptNumber: CountV2, attemptNonce: TextV2, configHash: HashSchema });
+export type WorkerBindingV2 = Static<typeof WorkerBindingV2Schema>;
 export const ReservationV2Schema = StrictObject({ operationId: TextV2, runId: IdV2, itemId: IdV2, generation: CountV2, request: TextV2,
-  state: Type.Union([Type.Literal("reserved"), Type.Literal("dispatching"), Type.Literal("bound")]), workerId: Type.Optional(TextV2) });
+  state: Type.Union([Type.Literal("reserved"), Type.Literal("dispatching"), Type.Literal("bound")]), workerId: Type.Optional(TextV2), binding: Type.Optional(WorkerBindingV2Schema), completion: Type.Optional(StrictObject({ completionId: TextV2, terminalStatus: TextV2 })) });
 export const IntegrationV2Schema = StrictObject({ operationId: TextV2, runId: IdV2, itemId: IdV2, generation: CountV2, candidate: CandidateV2Schema, target: CandidateV2Schema });
 const node = StrictObject({ generation: CountV2, status: Type.Union([Type.Literal("excluded"), Type.Literal("pending"), Type.Literal("active"), Type.Literal("complete"), Type.Literal("cancelled")]),
   reservation: Type.Optional(ReservationV2Schema), integration: Type.Optional(IntegrationV2Schema), lifecycle: Type.Optional(LifecycleV2Schema), retries: Type.Optional(Type.Array(RetryV2Schema)), retryHistory: Type.Optional(Type.Array(StrictObject({ dimension: RetryDimensionV2Schema, fingerprint: TextV2, tree: Type.Optional(CandidateV2Schema.properties.tree) }))) });
@@ -79,6 +81,8 @@ export function auditSnapshotV2(value: unknown): SnapshotV2 {
       if (state.reservation) {
         requireV2(state.reservation.operationId === `${id}/${n.id}/${state.reservation.generation}`, "RESERVATION_ID_MISMATCH");
         requireV2((state.reservation.state === "bound") === Boolean(state.reservation.workerId), "WORKER_BINDING_MISMATCH");
+        if (state.reservation.binding) requireV2(state.reservation.binding.workerId === state.reservation.workerId, "EXACT_WORKER_BINDING_MISMATCH");
+        if (state.reservation.completion) requireV2(state.reservation.binding, "COMPLETION_WITHOUT_EXACT_BINDING");
       }
       if (state.integration) requireV2(state.status === "complete" && state.integration.operationId === `${id}/${n.id}/${state.generation}/integration`, "INTEGRATION_ID_MISMATCH");
       for (const [dimension, limit] of Object.entries(retryLimitsV2)) {

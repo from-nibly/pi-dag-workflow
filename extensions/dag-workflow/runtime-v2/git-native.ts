@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { lstat, realpath, readFile, readdir, open, mkdir, copyFile, chmod } from "node:fs/promises";
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireV2, sameV2 } from "../planning/v2.ts";
@@ -90,7 +90,21 @@ export function inspectGitCandidateV2(root: string, candidate: CandidateV2): voi
  * Global/system attributes are disabled by gitOptionsV2/gitEnvironmentV2. */
 export function assertGitAttributesV2(root: string): void {
   for (const options of [["--cached"], ["--others", "--exclude-standard"], ["--others", "--ignored", "--exclude-standard"]]) {
-    requireV2(nativeGitV2(root, "ls-files", "-z", ...options, "--", ".gitattributes", ":(glob)**/.gitattributes") === "", "UNSUPPORTED_GIT_CAPABILITY: index/worktree attributes");
+    const paths = nativeGitV2(root, "ls-files", "-z", ...options, "--", ".gitattributes", ":(glob)**/.gitattributes").split("\0").filter(Boolean);
+    for (const path of paths) {
+      // Git emits an opaque nested worktree directory for this pathspec, even
+      // when it contains no attributes. Inspect it rather than treating its
+      // mere existence as an attribute (owned implementation roots live here).
+      requireV2(path.endsWith("/") && !path.endsWith(".gitattributes/"), "UNSUPPORTED_GIT_CAPABILITY: index/worktree attributes");
+      const inspect = (directory: string) => {
+        requireV2(lstatSync(directory).isDirectory() && !lstatSync(directory).isSymbolicLink(), "UNSUPPORTED_GIT_CAPABILITY: opaque attributes path");
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+          requireV2(entry.name !== ".gitattributes", "UNSUPPORTED_GIT_CAPABILITY: nested worktree attributes");
+          if (entry.isDirectory() && entry.name !== ".git") inspect(join(directory, entry.name));
+        }
+      };
+      inspect(join(root, path));
+    }
   }
   const path = nativeGitV2(root, "rev-parse", "--path-format=absolute", "--git-path", "info/attributes");
   try {
@@ -145,7 +159,7 @@ export function privateRefV2(root: string, ref: string, oid: string): void {
   if (old.status === 0) { requireV2(old.stdout.trim() === oid, "PRIVATE_REF_CONFLICT"); return; }
   nativeGitV2(root, "update-ref", "--no-deref", ref, oid, "0".repeat(oid.length));
 }
-export async function assertTargetV2(op: GitOperationV2, candidate: CandidateV2, checkLocks = true): Promise<void> {
+export async function assertTargetV2(op: Pick<GitOperationV2, "binding" | "targetRef">, candidate: CandidateV2, checkLocks = true): Promise<void> {
   // Recovery/closure call this without initial dispatch eligibility. Recheck at
   // every observation boundary before any index refresh or content comparison.
   await eligibleGitV2(op.binding, [candidate]); const root = op.binding.root.path;

@@ -26,11 +26,12 @@ export const LifecyclePlanV2Schema = StrictObject({
   checks: Type.Array(LifecycleCheckV2Schema, { minItems: 7, maxItems: 128 }),
 });
 export type LifecycleCheckV2 = Static<typeof LifecycleCheckV2Schema>;
+export const SourceScopeV2Schema = StrictObject({ kind: Type.Literal("model_scope_v2"), focusId: IdV2, workstreamIds: ids });
 export const PlanInputV2Schema = StrictObject({
   planId: IdV2,
   predecessor: Type.Optional(PlanSelectorV2Schema), title: TextV2,
   repository: RepositoryV2Schema,
-  source: StrictObject({ governingClosure: HashSchema, refs: Type.Array(StrictObject({ ref: TextV2, digest: HashSchema }), { maxItems: 512 }), scopeSummary: TextV2 }),
+  source: StrictObject({ selector: Type.Optional(SourceScopeV2Schema), governingClosure: HashSchema, refs: Type.Array(StrictObject({ ref: TextV2, digest: HashSchema }), { maxItems: 512 }), scopeSummary: TextV2 }),
   architecture: StrictObject({ outcomes: Type.Array(StrictObject({ id: IdV2, description: TextV2 }), { minItems: 1, maxItems: 512 }), nonGoals: strings, notes: strings, risks: strings }),
   workItems: Type.Array(StrictObject({ id: IdV2, title: TextV2, objective: TextV2, outcomeIds: ids, context: strings, checks: Type.Array(TextV2, { minItems: 1, maxItems: 512 }), dependsOn: ids,
     risk: Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")]), riskNotes: strings,
@@ -99,7 +100,12 @@ export function createPlanV2(input: PlanInputV2, revision: number): PlanV2 {
 export function renderPlanV2(plan: PlanV2): string {
   parsePlanV2(plan);
   return [`# ${plan.title}`, `Plan ${plan.planId} revision ${plan.revision} (${plan.planHash})`, plan.source.scopeSummary,
-    ...plan.workItems.map(n => `## ${n.id}: ${n.title}\n${n.objective}\nDepends on: ${n.dependsOn.join(", ") || "none"}\n${n.checks.map(c => `- ${c}`).join("\n")}`)].join("\n\n");
+    `## Architecture\n${plan.architecture.outcomes.map(o => `- ${o.id}: ${o.description}`).join("\n")}\nNon-goals: ${plan.architecture.nonGoals.join("; ") || "none"}\nNotes: ${plan.architecture.notes.join("; ")}\nRisks: ${plan.architecture.risks.join("; ")}`,
+    `## Frozen sources\n${JSON.stringify(plan.source.selector ?? null)}\n${plan.source.refs.map(r => `- ${r.ref}: ${r.digest}`).join("\n")}`,
+    `## Constraints\n${JSON.stringify(plan.constraints)}`,
+    ...plan.workItems.map(n => `## ${n.id}: ${n.title}\n${n.objective}\nOutcomes: ${n.outcomeIds.join(", ")}\nDepends on: ${n.dependsOn.join(", ") || "none"}\nContext: ${n.context.join("; ")}\nRisk: ${n.risk}; ${n.riskNotes.join("; ")}\nResources: ${JSON.stringify(n.resources)}; gates: ${n.gates.join(", ") || "none"}\nOracle: ${n.lifecycle.oracle.statement}\n${n.lifecycle.checks.map(c => `- F${c.stage} ${c.id}: ${c.expectation} (${c.applicability.kind}); ${JSON.stringify(c.procedure)}`).join("\n")}\n${n.checks.map(c => `- ${c}`).join("\n")}`),
+    `## Integration\n${JSON.stringify(plan.integration, null, 2)}`,
+    `## Lineage\n${plan.predecessor ? JSON.stringify(plan.predecessor) : "No predecessor"}`].join("\n\n");
 }
 /** Inspection never creates a V2 store or rewrites historical bytes. */
 export async function inspectPlanFileV2(path: string): Promise<{ version: 1 | 2; value: unknown; raw: string }> {

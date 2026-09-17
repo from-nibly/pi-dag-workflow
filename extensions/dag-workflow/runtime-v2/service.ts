@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createPlanV2, parsePlanV2, PlanInputV2Schema, PlanSelectorV2Schema, requireV2, sameV2, validateShapeV2, type PlanInputV2, type PlanSelectorV2, type PlanV2 } from "../planning/v2.ts";
-import { admissibleV2, assertScopeV2, IntegrationV2Schema, StartV2Schema, runPlanV2, type IntegrationV2, type LeaseV2, type ReservationV2, type RunV2, type SnapshotV2, type StartV2 } from "./state.ts";
+import { admissibleV2, assertScopeV2, IntegrationV2Schema, StartV2Schema, runPlanV2, type IntegrationV2, type LeaseV2, type ReservationV2, type RunV2, type SnapshotV2, type StartV2, type WorkerBindingV2 } from "./state.ts";
 import { processIdentityV2, StoreV2 } from "./store.ts";
 import { CandidateV2Schema, ExecutionResultV2Schema, type CandidateV2, type RetryDimensionV2 } from "./lifecycle-schema.ts";
 import { assertReadyV2, assertStageV2, auditResultV2, consumeRetryV2, contextReusedV2, rejectedContextResultV2, currentExecutionV2, executionRequestV2, frameV2, invalidateLifecycleV2, stageChecksV2 } from "./lifecycle.ts";
@@ -13,7 +13,7 @@ export interface FreshnessV2 { current(plan: Readonly<PlanV2>): Promise<Pick<Pla
 /** The generic worker manager must durably key creation by operationId and compare
  * the entire request. Repeated ensure after acknowledgement loss must return the
  * same worker, never create a second process. No caller-generated action ID. */
-export interface WorkersV2 { ensure(reservation: Readonly<ReservationV2>): Promise<{ workerId: string }> }
+export interface WorkersV2 { ensure(reservation: Readonly<ReservationV2>): Promise<{ workerId: string; binding?: WorkerBindingV2 }> }
 /** Native Git boundary (N04): independently hydrate the reconciled landing.
  * Internal lifecycle checks run first; a worker claim is not landing evidence. */
 export interface IntegrationsV2 { verify(run: Readonly<RunV2>, plan: Readonly<PlanV2>, integration: Readonly<IntegrationV2>): Promise<void> }
@@ -112,7 +112,32 @@ export class RuntimeV2 {
       const worker = await workers.ensure(structuredClone(reservation));
       requireV2(typeof worker.workerId === "string" && worker.workerId.length > 0 && worker.workerId.length <= 65536, "INVALID_WORKER_BINDING");
       reservation.workerId = worker.workerId; reservation.state = "bound";
+      if (worker.binding) reservation.binding = structuredClone(worker.binding);
       run.revision++; await publish(); return run;
+    });
+  }
+  /** Recover a lost dispatch acknowledgement by read-only exact manager lookup.
+   * Unlike dispatch, this may bind an already-fenced generation but cannot launch. */
+  async recoverWorkerBinding(m: MutationV2, itemId: string, generation: number,
+    read: (reservation: Readonly<ReservationV2>) => Promise<WorkerBindingV2>): Promise<RunV2> {
+    return this.change(m, async run => {
+      const node = run.nodes[itemId], reservation = node?.reservation;
+      requireV2(reservation && reservation.generation === generation && ["active", "cancelled"].includes(node.status), "EXACT_RESERVATION_REQUIRED");
+      if (reservation.state === "bound") return false;
+      requireV2(reservation.state === "dispatching", "DISPATCH_INTENT_REQUIRED");
+      const binding = await read(structuredClone(reservation));
+      reservation.workerId = binding.workerId; reservation.binding = structuredClone(binding); reservation.state = "bound"; return true;
+    });
+  }
+  async recordWorkerCompletion(m: MutationV2, itemId: string, generation: number, completionId: string,
+    read: (binding: Readonly<WorkerBindingV2>) => Promise<{ completionId: string; terminalStatus: string } | null>): Promise<RunV2> {
+    return this.change(m, async run => {
+      const node = this.node(run, itemId, generation), reservation = node.reservation;
+      requireV2(node.status === "active" && reservation?.binding, "EXACT_WORKER_BINDING_REQUIRED");
+      const terminal = await read(structuredClone(reservation.binding));
+      requireV2(terminal && terminal.completionId === completionId, "EXACT_WORKER_COMPLETION_REQUIRED");
+      if (reservation.completion) { requireV2(sameV2(reservation.completion, terminal), "WORKER_COMPLETION_CONFLICT"); return false; }
+      reservation.completion = structuredClone(terminal); return true;
     });
   }
   async integrate(m: MutationV2, evidence: IntegrationV2, integrations: IntegrationsV2): Promise<RunV2> {
@@ -156,7 +181,8 @@ export class RuntimeV2 {
   }
   /** Generation replacement only after the worker adapter proves the old natural
    * operation settled, within retained retry limits and evidence invalidation. */
-  async replace(m: MutationV2, itemId: string, generation: number, settled: (reservation: Readonly<ReservationV2>) => Promise<void>): Promise<RunV2> {
+  async replace(m: MutationV2, itemId: string, generation: number, settled: (reservation: Readonly<ReservationV2>) => Promise<void>, request?: string): Promise<RunV2> {
+    if (request !== undefined) requireV2(typeof request === "string" && request.length > 0 && request.length <= 65536, "INVALID_WORKER_REQUEST");
     return this.change(m, async run => {
       requireV2(!["complete", "cancelling", "cancelled"].includes(run.status), "RUN_TERMINAL_OR_CANCELLING");
       const node = this.node(run, itemId, generation);
@@ -168,8 +194,8 @@ export class RuntimeV2 {
       invalidateLifecycleV2(run, itemId, "worker replacement");
       if (node.lifecycle) node.lifecycle.candidateReady = false;
       node.generation++;
-      node.reservation = { ...node.reservation, operationId: `${run.runId}/${itemId}/${node.generation}`, generation: node.generation, state: "reserved" };
-      delete node.reservation.workerId;
+      node.reservation = { ...node.reservation, ...(request === undefined ? {} : { request }), operationId: `${run.runId}/${itemId}/${node.generation}`, generation: node.generation, state: "reserved" };
+      delete node.reservation.workerId; delete node.reservation.binding; delete node.reservation.completion;
       return true;
     });
   }
