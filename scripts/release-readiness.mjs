@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { ProjectModelDomain } from "../extensions/dag-workflow/project-model/domain.ts";
-import { classifyReleaseImpact, fullReleaseImpact, releaseBaseAndChangedPaths } from "./release-impact.mjs";
+import { classifyReleaseImpact, fullReleaseImpact, releaseBaseAndChangedPaths, RELEASE_SUITE_TIMEOUT_MS, RELEASE_AGGREGATE_BUDGET_SECONDS, RELEASE_CACHE_INPUTS, RELEASE_CACHE_POLICY, V2_REQUIRED_PACKAGE_FILES, PRODUCT_PACKAGE_SMOKE_PATH, runtimePackageSources } from "./release-impact.mjs";
 
 const run = promisify(execFile);
 const root = process.cwd();
@@ -37,19 +37,21 @@ else {
   if (allowDirty) changedPaths = [...new Set([...changedPaths, ...await workingTreePaths()])].sort();
   impact = classifyReleaseImpact(changedPaths);
 }
-process.stdout.write(`${JSON.stringify({ kind: "ReleaseImpactPlanV1", version: packageJson.version, base, changedPathCount: changedPaths.length, changedPaths, impact }, null, 2)}\n`);
+const candidateHead = (await run("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" })).stdout.trim();
+process.stdout.write(`${JSON.stringify({ kind: "ReleaseImpactPlanV1", version: packageJson.version, candidateHead, base, changedPathCount: changedPaths.length, changedPaths, impact, minimumOuterBudgetSeconds: RELEASE_AGGREGATE_BUDGET_SECONDS }, null, 2)}\n`);
+console.log(`Allow at least ${RELEASE_AGGREGATE_BUDGET_SECONDS}s for the aggregate gate; increase for measured serial-suite duration. Legacy dogfood/portfolio are compatibility evidence, not V2 product acceptance.`);
 
-for (const script of impact.focused) await command("npm", ["run", script], focusedTimeout(script));
-const dogfoodInputs = ["extensions/dag-workflow/dag-runtime", "scripts/dag-dogfood-test.mjs", "package.json"];
-for (const group of impact.dogfoodGroups) await cachedCommand(`dag-dogfood-group-${group}`, "npm", ["run", "test:dag-dogfood", "--", "--group", group], 45 * 60_000, dogfoodInputs);
-const portfolioInputs = ["extensions/dag-workflow/dag-runtime", "scripts/dag-dogfood-test.mjs", "scripts/dag-dogfood-portfolio.mjs", "scripts/fixtures/dag-evaluation-portfolio-v1.json", "package.json"];
-if (impact.portfolioIdentity) await cachedCommand("dag-dogfood-portfolio-identity", "npm", ["run", "test:dag-dogfood-portfolio", "--", "--portfolio-only"], 10 * 60_000, portfolioInputs);
-for (const template of impact.portfolioTemplates) await cachedCommand(`dag-dogfood-portfolio-template-${template}`, "npm", ["run", "test:dag-dogfood-portfolio", "--", "--template", template], 60 * 60_000, portfolioInputs);
-for (const drill of impact.recoveryDrills) await cachedCommand(`dag-dogfood-portfolio-drill-${drill}`, "npm", ["run", "test:dag-dogfood-portfolio", "--", "--drill", drill], 45 * 60_000, portfolioInputs);
+for (const script of impact.focused) await command("npm", ["run", script], RELEASE_SUITE_TIMEOUT_MS);
+for (const group of impact.dogfoodGroups) await cachedCommand(`dag-dogfood-group-${group}`, "npm", ["run", "test:dag-dogfood", "--", "--group", group], RELEASE_SUITE_TIMEOUT_MS, RELEASE_CACHE_INPUTS);
+if (impact.portfolioIdentity) await cachedCommand("dag-dogfood-portfolio-identity", "npm", ["run", "test:dag-dogfood-portfolio", "--", "--portfolio-only"], RELEASE_SUITE_TIMEOUT_MS, RELEASE_CACHE_INPUTS);
+for (const template of impact.portfolioTemplates) await cachedCommand(`dag-dogfood-portfolio-template-${template}`, "npm", ["run", "test:dag-dogfood-portfolio", "--", "--template", template], RELEASE_SUITE_TIMEOUT_MS, RELEASE_CACHE_INPUTS);
+for (const drill of impact.recoveryDrills) await cachedCommand(`dag-dogfood-portfolio-drill-${drill}`, "npm", ["run", "test:dag-dogfood-portfolio", "--", "--drill", drill], RELEASE_SUITE_TIMEOUT_MS, RELEASE_CACHE_INPUTS);
 
 const packed = JSON.parse((await run("npm", ["pack", "--dry-run", "--json"], { cwd: root, maxBuffer: 8 * 1024 * 1024 })).stdout)[0];
 if (packed.version !== packageJson.version) throw new Error("npm pack version does not match package.json");
 for (const path of [
+  ...V2_REQUIRED_PACKAGE_FILES, ...await runtimePackageSources(root),
+  "scripts/dag-v2-product-test.mjs", PRODUCT_PACKAGE_SMOKE_PATH,
   "extensions/dag-workflow/planning/integration.ts",
   "extensions/dag-workflow/project-model/migration-workflow.ts",
   "extensions/dag-workflow/planning/runtime-adapter.ts",
@@ -69,7 +71,7 @@ try {
   await run("tar", ["-xzf", join(packageStage, artifact.filename), "-C", packageStage]);
   const extracted = join(packageStage, "package");
   await symlink(join(root, "node_modules"), join(extracted, "node_modules"));
-  await command("npm", ["run", "smoke", "--", "--package"], 15 * 60_000, extracted);
+  await command("npm", ["run", "smoke", "--", "--package"], RELEASE_SUITE_TIMEOUT_MS, extracted);
 } finally { await rm(packageStage, { recursive: true, force: true }); }
 
 await preflightCleanTree();
@@ -97,9 +99,10 @@ async function gateInputHash(gateId, executable, commandArgs, trackedPaths) {
   const tree = (await run("git", ["ls-tree", "-r", "HEAD", "--", ...trackedPaths], { cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 })).stdout;
   const gitVersion = (await run("git", ["--version"], { encoding: "utf8" })).stdout.trim();
   const gitPath = (await run("sh", ["-c", "command -v git"], { encoding: "utf8" })).stdout.trim(); const shellPath = (await run("sh", ["-c", "command -v sh"], { encoding: "utf8" })).stdout.trim(); const truePath = "/usr/bin/true";
-  const [nodeExecutableHash, gitExecutableHash, shellExecutableHash, trueExecutableHash] = await Promise.all([hashFile(process.execPath), hashFile(gitPath), hashFile(shellPath), hashFile(truePath)]);
+  const pythonPath = (await run("python3", ["-I", "-B", "-c", "import os,sys; print(os.path.realpath(sys.executable))"], { encoding: "utf8" })).stdout.trim();
+  const [nodeExecutableHash, gitExecutableHash, shellExecutableHash, trueExecutableHash, pythonExecutableHash] = await Promise.all([hashFile(process.execPath), hashFile(gitPath), hashFile(shellPath), hashFile(truePath), hashFile(pythonPath)]);
   const kernel = (await run("uname", ["-srmo"], { encoding: "utf8" })).stdout.trim();
-  return createHash("sha256").update(JSON.stringify({ gateId, executable, commandArgs, tree, node: process.version, execPath: process.execPath, nodeExecutableHash, gitVersion, gitPath, gitExecutableHash, shellPath, shellExecutableHash, truePath, trueExecutableHash, kernel, platform: platform(), arch: process.arch, locale: releaseEnv.LC_ALL ?? releaseEnv.LANG ?? null, timezone: releaseEnv.TZ ?? null })).digest("hex");
+  return createHash("sha256").update(JSON.stringify({ policy: RELEASE_CACHE_POLICY, gateId, executable, commandArgs, tree, node: process.version, execPath: process.execPath, nodeExecutableHash, gitVersion, gitPath, gitExecutableHash, shellPath, shellExecutableHash, truePath, trueExecutableHash, pythonPath, pythonExecutableHash, kernel, platform: platform(), arch: process.arch, locale: releaseEnv.LC_ALL ?? releaseEnv.LANG ?? null, timezone: releaseEnv.TZ ?? null })).digest("hex");
 }
 
 function hashFile(path) { return new Promise((resolveHash, reject) => { const hash = createHash("sha256"); const stream = createReadStream(path); stream.on("error", reject); stream.on("data", (chunk) => hash.update(chunk)); stream.on("end", () => resolveHash(hash.digest("hex"))); }); }
@@ -116,11 +119,17 @@ async function preflightCleanTree() {
   if (status && allowDirty) process.stderr.write("warning: clean-tree release gate skipped by --allow-dirty\n");
 }
 
-function focusedTimeout(script) { return script === "test:workers" ? 15 * 60_000 : script === "test:git-integration" ? 10 * 60_000 : script === "test:dag-evaluation" ? 30 * 60_000 : 20 * 60_000; }
 function command(executable, commandArgs, timeout, cwd = root) {
   return new Promise((resolve, reject) => {
+    const startedAt = new Date().toISOString(), started = performance.now();
+    console.log(JSON.stringify({ kind: "ReleaseCommandStart", candidateHead, argv: [executable, ...commandArgs], cwd, timeoutMs: timeout, startedAt }));
     const child = spawn(executable, commandArgs, { cwd, stdio: "inherit", env: releaseEnv, timeout });
-    child.once("error", reject);
-    child.once("exit", (code, signal) => code === 0 ? resolve() : reject(new Error(`${executable} ${commandArgs.join(" ")} failed (${code ?? signal})`)));
+    let spawnError;
+    child.once("error", error => { spawnError = error; });
+    child.once("close", (code, signal) => {
+      console.log(JSON.stringify({ kind: "ReleaseCommandResult", candidateHead, argv: [executable, ...commandArgs], cwd, startedAt, elapsedMs: Math.round(performance.now() - started), code, signal, error: spawnError?.message ?? null }));
+      if (!spawnError && code === 0 && signal === null) resolve();
+      else reject(spawnError ?? new Error(`${executable} ${commandArgs.join(" ")} failed (${code ?? signal})`));
+    });
   });
 }

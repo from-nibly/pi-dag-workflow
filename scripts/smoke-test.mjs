@@ -8,10 +8,16 @@ import { configToDagBase, mergeConfig } from "../extensions/dag-workflow/config.
 import { PACKAGE_DEFAULT_CONFIG } from "../extensions/dag-workflow/defaults.ts";
 import { getNodeFlowName } from "../extensions/dag-workflow/dag.ts";
 import { ensureNodeWorktree, execGit, isConventionalCommitSubject, mergeNode, refreshNodeWorktreeFromParent } from "../extensions/dag-workflow/worktrees.ts";
+import { V2_FOCUSED_SUITES, V2_REQUIRED_PACKAGE_FILES, PRODUCT_PACKAGE_SMOKE_PATH, RELEASE_SUITE_TIMEOUT_MS, runtimePackageSources } from "./release-impact.mjs";
 
-const args = process.argv.slice(2); if (args.some((arg) => arg !== "--package")) throw new Error(`Unknown smoke argument: ${args.find((arg) => arg !== "--package")}`); const packageMode = args.includes("--package");
+const args = process.argv.slice(2);
+if (args.some(arg => !["--package", "--package-static"].includes(arg)) || args.length > 1) throw new Error("Usage: smoke-test.mjs [--package | --package-static]");
+// Diagnostic only: readiness always uses --package and cannot bypass product smoke.
+const staticOnly = args.includes("--package-static");
+const packageMode = args.includes("--package") || staticOnly;
 
 const files = [
+  ...V2_REQUIRED_PACKAGE_FILES, ...await runtimePackageSources(process.cwd()),
   "package.json",
   "extensions/dag-workflow/index.ts",
   "extensions/dag-workflow/types.ts",
@@ -93,9 +99,27 @@ const files = [
 
 for (const file of files) await access(file);
 
-const execFileAsync = promisify(execFile);
+const execFilePromise = promisify(execFile);
+async function execFileAsync(executable, argv, options = {}) {
+  const started = performance.now();
+  try {
+    const result = await execFilePromise(executable, argv, { timeout: RELEASE_SUITE_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024, ...options });
+    console.log(JSON.stringify({ kind: "SmokeCommandResult", argv: [executable, ...argv], code: 0, signal: null, elapsedMs: Math.round(performance.now() - started) }));
+    return result;
+  } catch (error) {
+    process.stdout.write(error.stdout ?? ""); process.stderr.write(error.stderr ?? "");
+    console.error(JSON.stringify({ kind: "SmokeCommandResult", argv: [executable, ...argv], code: error.code ?? null, signal: error.signal ?? null, elapsedMs: Math.round(performance.now() - started) }));
+    throw error;
+  }
+}
 const extension = await import("../extensions/dag-workflow/index.ts");
 if (typeof extension.default !== "function") throw new Error("Packed DAG workflow extension entrypoint is not loadable");
+const runtimeV2 = await import("../extensions/dag-workflow/runtime-v2/index.ts");
+for (const name of ["RuntimeV2", "StoreV2", "CommandRunnerV2"]) assert(typeof runtimeV2[name] === "function", `V2 export ${name} is loadable`);
+await import("../extensions/dag-workflow/runtime-v2/git-native.ts");
+await import("../extensions/dag-workflow/runtime-v2/git-lock.ts");
+const pythonSources = [...new Set(files.filter(path => path.endsWith(".py")))];
+await execFileAsync("python3", ["-I", "-B", "-c", "import ast,pathlib,sys; [ast.parse(pathlib.Path(p).read_bytes(), filename=p) for p in sys.argv[1:]]", ...pythonSources]);
 const releaseImpact = await execFileAsync(process.execPath, ["scripts/release-impact-test.mjs"]);
 assertIncludes(releaseImpact.stdout, "Release impact classification tests OK", "release impact mapping tests pass");
 if (!packageMode) {
@@ -115,14 +139,15 @@ if (!packageMode) {
   assertIncludes(dagWidget.stdout, "DAG widget V2 tests OK", "responsive DAG widget/controller tests pass");
   const widgetPrototype = await execFileAsync(process.execPath, ["spec/prototypes/dag-widget-activity-lanes/scenario.mjs"]);
   assertIncludes(widgetPrototype.stdout, "DAG widget activity-lane prototype OK", "DAG widget visual prototype evidence still executes");
-  const gitIntegration = await execFileAsync(process.execPath, ["scripts/git-integration-test.mjs"], { timeout: 300_000 });
+  const gitIntegration = await execFileAsync(process.execPath, ["scripts/git-integration-test.mjs"]);
   assertIncludes(gitIntegration.stdout, "Exact real-Git integration transaction and failpoint matrix OK", "real-Git integration failpoint matrix passes");
-  const workerRuntime = await execFileAsync(process.execPath, ["scripts/worker-runtime-test.mjs"], { timeout: 10 * 60_000 });
+  const workerRuntime = await execFileAsync(process.execPath, ["scripts/worker-runtime-test.mjs"]);
   assertIncludes(workerRuntime.stdout, "Owned worker core, supervisor, and manager tests OK", "owned worker runtime tests pass");
   const adapterPrototype = await execFileAsync(process.execPath, ["spec/prototypes/brainstorm-pi-adapter/scenario.mjs"]);
   assertIncludes(adapterPrototype.stdout, "Brainstorm Pi adapter prototype OK", "legacy adapter evidence still executes");
   const lavishPrototype = await execFileAsync(process.execPath, ["spec/prototypes/lavish-turn-renderer/scenario.mjs"]);
   assertIncludes(lavishPrototype.stdout, "Lavish turn-renderer prototype OK", "Lavish turn-renderer prototype scenario passes");
+  for (const script of V2_FOCUSED_SUITES) await execFileAsync("npm", ["run", script]);
 }
 
 const sampleDag = {
@@ -186,10 +211,11 @@ assertIncludes(readme, "subagent_report", "README documents the owned worker rep
 assertIncludes(readme, ".ai/worker-sessions/", "README documents durable worker state");
 const packageJson = JSON.parse(await readFile("package.json", "utf8"));
 assert(!packageJson.dependencies?.["pi-subagents"], "pi-subagents dependency is removed");
-for (const script of ["test:dag-planning", "test:dag-planning-runtime", "test:dag-planning-command", "test:dag-prepared-start", "release:ready"]) assert(packageJson.scripts?.[script], `package exposes ${script}`);
+for (const script of [...V2_FOCUSED_SUITES, "test:dag-planning", "test:dag-planning-runtime", "test:dag-planning-command", "test:dag-prepared-start", "release:ready"]) assert(packageJson.scripts?.[script], `package exposes ${script}`);
 const packed = JSON.parse((await execFileAsync("npm", ["pack", "--dry-run", "--json"], { maxBuffer: 8 * 1024 * 1024 })).stdout)[0];
 const packedPaths = new Set(packed.files.map(({ path }) => path));
 for (const path of [
+  ...files, ...(!staticOnly ? ["scripts/dag-v2-product-test.mjs"] : []),
   "extensions/dag-workflow/planning/integration.ts",
   "extensions/dag-workflow/planning/runtime-adapter.ts",
   "extensions/dag-workflow/command-prompts/plan.md",
@@ -200,7 +226,20 @@ for (const path of [
   "spec/prototypes/lavish-turn-renderer/scenario.mjs",
 ]) assert(packedPaths.has(path), `package includes ${path}`);
 
-console.log(`Smoke OK: ${files.length} required files exist; model, planning, canonical runtime, worker, package, and legacy read-only checks passed`);
+if (staticOnly) {
+  console.log("Static package checks OK; V2 production registration/save/show/run UNRUN (--package-static is NOT release certification).");
+} else {
+  // Integration hook deliberately fails closed until the joined product supplies
+  // real assertions. It must import the shipped default entrypoint, reject
+  // dag_plan_decide/actionId writer schemas, and save/show/run V2 in a temp repo.
+  // Do not point this at the full product suite or mutate the extracted package.
+  assert(packedPaths.has(PRODUCT_PACKAGE_SMOKE_PATH), `joined bounded V2 product smoke is missing: ${PRODUCT_PACKAGE_SMOKE_PATH}; static checks alone are not release certification`);
+  const productSmoke = await execFileAsync(process.execPath, [PRODUCT_PACKAGE_SMOKE_PATH]);
+  process.stdout.write(productSmoke.stdout); process.stderr.write(productSmoke.stderr);
+  console.log(packageMode
+    ? "Package smoke OK: required sources/helpers, imports, package policy, legacy helper regressions and bounded V2 product smoke passed; full suites were not repeated."
+    : "Smoke OK: source suites, required sources/helpers, package policy, legacy helper regressions and bounded V2 product smoke passed.");
+}
 
 function testConfigMergeAndDagBase() {
   const userConfig = {
