@@ -1,0 +1,53 @@
+PASS sha1: deterministic explicit-base single parent, safe config and real guarded positive landing (2056ms)
+PASS sha256: deterministic explicit-base single parent, safe config and real guarded positive landing (2017ms)
+PASS linked bound worktree lands through its own native admin paths and guarded ancillary transactions (1815ms)
+PASS native guard rejects wrong old/new/ref, HEAD-only, symbolic/detached binding and malformed/missing context (1428ms)
+PASS same-tree backward drift rejected by ORIG_HEAD guard before checkout; final guard independently rejects wrong-old (1181ms)
+PASS during-command same-tree ref race preserves third OID and partial OWN checkout (856ms)
+PASS during-command different-tree ref race preserves third OID and partial OWN checkout (887ms)
+PASS foreign refs/heads/main.lock retained, no speculative removal (1086ms)
+PASS foreign HEAD.lock retained, no speculative removal (1061ms)
+PASS foreign index.lock retained, no speculative removal (892ms)
+PASS preexisting tracked state retained and not accepted (678ms)
+PASS preexisting index state retained and not accepted (715ms)
+PASS preexisting untracked state retained and not accepted (694ms)
+PASS preexisting ignored state retained and not accepted (576ms)
+PASS preexisting directory state retained and not accepted (648ms)
+PASS preexisting symlink state retained and not accepted (699ms)
+PASS preexisting sequencer state retained and not accepted (338ms)
+PASS preexisting branch state retained and not accepted (345ms)
+PASS preexisting duplicate state retained and not accepted (397ms)
+PASS untracked working attributes cannot activate unapproved filters (355ms)
+PASS ignored working attributes cannot activate unapproved filters (334ms)
+PASS private refs use exact expected-absent CAS and reject symbolic/conflicting replay (363ms)
+PASS common-dir lock serializes linked worktrees and native common/admin/root replacement rejects (494ms)
+PASS a copied linked-worktree gitfile cannot impersonate the sole registered branch checkout (477ms)
+FAIL conflict and required unsupported attributes fail closed without target movement AssertionError [ERR_ASSERTION]: Missing expected exception.
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:146:12
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:319:69 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: undefined,
+  expected: /GIT_FAILED|CONFLICT/,
+  operator: 'throws',
+  diff: 'simple'
+}
+PASS real two-node integration across fresh services: isolated prefix/final, exact proposal, acceptance once and successor readiness (59120ms)
+PASS actual final nonPASS blocks landing, retains exact results on replay, cannot bypass lifecycle or generation (20814ms)
+PASS durable landing-intent acknowledgement loss: fresh reload reconciles once (25120ms)
+PASS durable git-exited acknowledgement loss: fresh reload reconciles once (24001ms)
+PASS durable landed acknowledgement loss: fresh reload reconciles once (23839ms)
+PASS pause/cancellation during actual combined check persists immediately (no long snapshot lock) and never lands (22965ms)
+PASS supervisor retains common-dir exclusion after owner descriptor closure until complete subtree settlement (657ms)
+PASS persisted native binding rejects copied common directory after a fresh service restart (20279ms)
+PASS stored combined evidence rejects stale candidate/prefix corruption; lease takeover fences dispatch without repeating checks (23690ms)
+PASS repository user hooks never run, including configured hook directories (1035ms)
+PASS native root replacement retains original binding instead of adopting copied resources (457ms)
+PASS native admin replacement retains original binding instead of adopting copied resources (437ms)
+PASS real Git SIGKILL before-checkout: retain effects and reconcile without rollback (21840ms)
+PASS real Git SIGKILL after-checkout: retain effects and reconcile without rollback (22236ms)
+PASS real Git SIGKILL after-ref: retain effects and reconcile without rollback (23087ms)
+PASS successful no-op command acknowledgement is old-clean, never completion; bounded real redispatch (25822ms)
+PASS real owner SIGKILL at landing-intent, fresh lease and service recover one landing (25311ms)
+PASS real owner SIGKILL at git-exited, fresh lease and service recover one landing (26640ms)
+42/43 native acceptance tests passed

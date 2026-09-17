@@ -1,0 +1,268 @@
+FAIL sha1: deterministic explicit-base single parent, safe config and real guarded positive landing AssertionError [ERR_ASSERTION]: V2 reference guard rejected: unknown phase
+fatal: in 'preparing' phase, update aborted by the reference-transaction hook
+
+
+128 !== 0
+
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:37:68
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 128,
+  expected: 0,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+FAIL sha256: deterministic explicit-base single parent, safe config and real guarded positive landing AssertionError [ERR_ASSERTION]: V2 reference guard rejected: unknown phase
+fatal: in 'preparing' phase, update aborted by the reference-transaction hook
+
+
+128 !== 0
+
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:37:68
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 128,
+  expected: 0,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+FAIL native guard rejects wrong old/new/ref, HEAD-only, symbolic/detached binding and malformed/missing context AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+1 !== 0
+
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:46:12
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 1,
+  expected: 0,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+FAIL same-tree backward drift rejected by ORIG_HEAD guard before checkout; final guard independently rejects wrong-old AssertionError [ERR_ASSERTION]: The input did not match the regular expression /captured starting HEAD/. Input:
+
+'V2 reference guard rejected: unknown phase\n' +
+  "fatal: in 'preparing' phase, update aborted by the reference-transaction hook\n"
+
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:57:79
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 'V2 reference guard rejected: unknown phase\n' +
+    "fatal: in 'preparing' phase, update aborted by the reference-transaction hook\n",
+  expected: /captured starting HEAD/,
+  operator: 'match',
+  diff: 'simple'
+}
+FAIL during-command same-tree ref race preserves third OID and partial OWN checkout AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
++ actual - expected
+
++ 'e83c69584930b0002981a6a0bcb38a3aa037ed8e'
+- '6299868969edec555a710f7a474c3a69c3c4ff68'
+
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:71:79
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 'e83c69584930b0002981a6a0bcb38a3aa037ed8e',
+  expected: '6299868969edec555a710f7a474c3a69c3c4ff68',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+FAIL during-command different-tree ref race preserves third OID and partial OWN checkout AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
++ actual - expected
+
++ 'e83c69584930b0002981a6a0bcb38a3aa037ed8e'
+- '9aee9c7e8433ac70a2e07252882f8725d223a760'
+
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:71:79
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 'e83c69584930b0002981a6a0bcb38a3aa037ed8e',
+  expected: '9aee9c7e8433ac70a2e07252882f8725d223a760',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+FAIL foreign refs/heads/main.lock retained, no speculative removal AssertionError [ERR_ASSERTION]: The input did not match the regular expression /LOCK/. Input:
+
+'Error: TARGET_NOT_DIRECT'
+
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:79:5
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: Error: TARGET_NOT_DIRECT
+      at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/planning/v2.ts:49:107)
+      at assertTargetV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-native.ts:83:3)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:79:5
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69,
+  expected: /LOCK/,
+  operator: 'rejects',
+  diff: 'simple'
+}
+FAIL foreign HEAD.lock retained, no speculative removal AssertionError [ERR_ASSERTION]: The input did not match the regular expression /LOCK/. Input:
+
+'Error: TARGET_NOT_DIRECT'
+
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:79:5
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: Error: TARGET_NOT_DIRECT
+      at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/planning/v2.ts:49:107)
+      at assertTargetV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-native.ts:83:3)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:79:5
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69,
+  expected: /LOCK/,
+  operator: 'rejects',
+  diff: 'simple'
+}
+FAIL foreign index.lock retained, no speculative removal AssertionError [ERR_ASSERTION]: The input did not match the regular expression /LOCK/. Input:
+
+'Error: TARGET_NOT_DIRECT'
+
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:79:5
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: Error: TARGET_NOT_DIRECT
+      at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/planning/v2.ts:49:107)
+      at assertTargetV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-native.ts:83:3)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:79:5
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69,
+  expected: /LOCK/,
+  operator: 'rejects',
+  diff: 'simple'
+}
+PASS preexisting tracked state retained and not accepted (453ms)
+PASS preexisting index state retained and not accepted (484ms)
+PASS preexisting untracked state retained and not accepted (433ms)
+PASS preexisting ignored state retained and not accepted (342ms)
+PASS preexisting directory state retained and not accepted (448ms)
+PASS preexisting symlink state retained and not accepted (438ms)
+PASS preexisting sequencer state retained and not accepted (248ms)
+PASS preexisting branch state retained and not accepted (244ms)
+PASS preexisting duplicate state retained and not accepted (265ms)
+FAIL private refs use exact expected-absent CAS and reject symbolic/conflicting replay Error: PRIVATE_REF_SYMBOLIC_OR_UNREADABLE
+    at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/planning/v2.ts:49:107)
+    at privateRefV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-native.ts:74:3)
+    at file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:103:5
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69
+PASS common-dir lock serializes linked worktrees and native common/admin/root replacement rejects (437ms)
+PASS conflict and required unsupported attributes fail closed without target movement (398ms)
+FAIL real two-node integration across fresh services: isolated prefix/final, exact proposal, acceptance once and successor readiness Error: TARGET_NOT_DIRECT
+    at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/planning/v2.ts:49:107)
+    at assertTargetV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-native.ts:83:3)
+    at async GitDriverV2.integrate (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-driver.ts:103:80)
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:145:15
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69
+FAIL actual final nonPASS blocks landing, retains exact results on replay, cannot bypass lifecycle or generation AssertionError [ERR_ASSERTION]: The input did not match the regular expression /GIT_CHECK_NONPASS/. Input:
+
+'Error: TARGET_NOT_DIRECT'
+
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:159:5
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: Error: TARGET_NOT_DIRECT
+      at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/planning/v2.ts:49:107)
+      at assertTargetV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-native.ts:83:3)
+      at async GitDriverV2.integrate (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-driver.ts:103:80)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:159:5
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69,
+  expected: /GIT_CHECK_NONPASS/,
+  operator: 'rejects',
+  diff: 'simple'
+}
+FAIL durable landing-intent acknowledgement loss: fresh reload reconciles once AssertionError [ERR_ASSERTION]: The input did not match the regular expression /lost acknowledgement/. Input:
+
+'Error: TARGET_NOT_DIRECT'
+
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:170:5
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: Error: TARGET_NOT_DIRECT
+      at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/planning/v2.ts:49:107)
+      at assertTargetV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-native.ts:83:3)
+      at async GitDriverV2.integrate (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-driver.ts:103:80)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:170:5
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69,
+  expected: /lost acknowledgement/,
+  operator: 'rejects',
+  diff: 'simple'
+}
+FAIL durable git-exited acknowledgement loss: fresh reload reconciles once AssertionError [ERR_ASSERTION]: The input did not match the regular expression /lost acknowledgement/. Input:
+
+'Error: TARGET_NOT_DIRECT'
+
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:170:5
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: Error: TARGET_NOT_DIRECT
+      at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/planning/v2.ts:49:107)
+      at assertTargetV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-native.ts:83:3)
+      at async GitDriverV2.integrate (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-driver.ts:103:80)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:170:5
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69,
+  expected: /lost acknowledgement/,
+  operator: 'rejects',
+  diff: 'simple'
+}
+FAIL durable landed acknowledgement loss: fresh reload reconciles once AssertionError [ERR_ASSERTION]: The input did not match the regular expression /lost acknowledgement/. Input:
+
+'Error: TARGET_NOT_DIRECT'
+
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:170:5
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: Error: TARGET_NOT_DIRECT
+      at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/planning/v2.ts:49:107)
+      at assertTargetV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-native.ts:83:3)
+      at async GitDriverV2.integrate (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-driver.ts:103:80)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:170:5
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69,
+  expected: /lost acknowledgement/,
+  operator: 'rejects',
+  diff: 'simple'
+}
+FAIL pause/cancellation during actual combined check persists immediately (no long snapshot lock) and never lands AssertionError [ERR_ASSERTION]: The input did not match the regular expression /RUN_NOT_ACTIVE/. Input:
+
+'Error: TARGET_NOT_DIRECT'
+
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:181:5
+    at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: Error: TARGET_NOT_DIRECT
+      at requireV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/planning/v2.ts:49:107)
+      at assertTargetV2 (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-native.ts:83:3)
+      at async GitDriverV2.integrate (file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/extensions/dag-workflow/runtime-v2/git-driver.ts:103:80)
+      at async waitForActual (node:assert:646:5)
+      at async strict.rejects (node:assert:769:25)
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:181:5
+      at async file:///home/jordan/gh/from-nibly/pi-dag-workflow/.git/ordinary-legacy-plus-git/scripts/dag-v2-git-acceptance-test.mjs:189:69,
+  expected: /RUN_NOT_ACTIVE/,
+  operator: 'rejects',
+  diff: 'simple'
+}
+11/27 native acceptance tests passed

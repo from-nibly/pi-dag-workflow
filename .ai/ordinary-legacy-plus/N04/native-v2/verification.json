@@ -1,0 +1,82 @@
+{
+  "implementationCommit": "15770e18f57a876340f1d9a7c4f2d288db594caa",
+  "testedSourceTree": "032ef43a39fe27b69dbad0b1c7b8df2a0ba89e39",
+  "perCommandTimeoutSeconds": 3600,
+  "aggregateCommandSeconds": 1954.841,
+  "results": [
+    {
+      "command": "node scripts/dag-v2-git-acceptance-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "durationSeconds": 380.52,
+      "log": "/tmp/n04-implementation/final/native-certified.log",
+      "sourceTree": "032ef43a39fe27b69dbad0b1c7b8df2a0ba89e39",
+      "note": "Final full native suite; required built-in driver shadowing fails closed rather than executing repository commands.",
+      "retainedLog": ".ai/ordinary-legacy-plus/N04/native-v2/logs/native-acceptance.log"
+    },
+    {
+      "command": "node scripts/dag-v2-lifecycle-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "durationSeconds": 175.898,
+      "log": "/tmp/n04-implementation/final/dag-v2-lifecycle-test.log",
+      "retainedLog": ".ai/ordinary-legacy-plus/N04/native-v2/logs/dag-v2-lifecycle-test.log"
+    },
+    {
+      "command": "node scripts/dag-v2-context-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "durationSeconds": 48.975,
+      "log": "/tmp/n04-implementation/final/dag-v2-context-test.log",
+      "retainedLog": ".ai/ordinary-legacy-plus/N04/native-v2/logs/dag-v2-context-test.log"
+    },
+    {
+      "command": "node scripts/dag-v2-state-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "durationSeconds": 373.051,
+      "log": "/tmp/n04-implementation/final/dag-v2-state-test.log",
+      "retainedLog": ".ai/ordinary-legacy-plus/N04/native-v2/logs/dag-v2-state-test.log"
+    },
+    {
+      "command": "node scripts/git-integration-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "durationSeconds": 156.463,
+      "log": "/tmp/n04-implementation/final/git-integration-test.log",
+      "retainedLog": ".ai/ordinary-legacy-plus/N04/native-v2/logs/git-integration-test.log"
+    },
+    {
+      "command": "node scripts/dag-runtime-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "durationSeconds": 373.894,
+      "log": "/tmp/n04-implementation/final/dag-runtime-test.log",
+      "retainedLog": ".ai/ordinary-legacy-plus/N04/native-v2/logs/dag-runtime-test.log"
+    },
+    {
+      "command": "node scripts/dag-v2-git-test.mjs",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "durationSeconds": 1.1,
+      "log": "/tmp/n04-implementation/final/dag-v2-git-test.log",
+      "retainedLog": ".ai/ordinary-legacy-plus/N04/native-v2/logs/dag-v2-git-test.log"
+    },
+    {
+      "command": "node scripts/dag-dogfood-test.mjs --scenario semanticIntegrationRecovery",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "durationSeconds": 231.739,
+      "log": "/tmp/n04-implementation/final/semanticIntegrationRecovery.log",
+      "retainedLog": ".ai/ordinary-legacy-plus/N04/native-v2/logs/semanticIntegrationRecovery.log"
+    },
+    {
+      "command": "node scripts/dag-dogfood-test.mjs --scenario semanticIntegrationFailure",
+      "timeoutSeconds": 3600,
+      "exit": 0,
+      "durationSeconds": 213.201,
+      "log": "/tmp/n04-implementation/final/semanticIntegrationFailure.log",
+      "retainedLog": ".ai/ordinary-legacy-plus/N04/native-v2/logs/semanticIntegrationFailure.log"
+    }
+  ]
+}

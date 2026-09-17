@@ -1,0 +1,2 @@
+PASS conflict and required unsupported attributes fail closed without target movement (673ms)
+1/1 native acceptance tests passed

@@ -1,0 +1,1 @@
+{"kind":"DagDogfoodSelectionManifestV1","manifestHash":"sha256:dae288ef47660b406cb6c5d75e5a7398a4f34c2ee2333fcb0f350e9974c0c441","results":{"semanticIntegrationRecovery":"sha256:3198bd112739fb0185ce7f924a8371a87a18b3505574d7666c28b2cab4343524"},"schemaVersion":1,"selectedScenarioIds":["semanticIntegrationRecovery"]}
