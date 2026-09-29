@@ -4,11 +4,9 @@ import { basename, dirname, posix, resolve } from "node:path";
 import { migrateLegacyBrainstorm } from "./migration.ts";
 import { candidateManifestHash, createEmptyModel, slugify } from "./model.ts";
 import { SpecProjector } from "./projector.ts";
-import { FocusSessionStore } from "./sessions.ts";
 import { ProjectModelStore } from "./store.ts";
 import type { MigrationArtifactDisposition, MigrationMetadata, MigrationSourceDisposition, ProjectModel } from "./types.ts";
 
-const MIGRATION_FOCUS_ID = "focus-project-model-migration";
 const MAX_INVENTORY_FILES = 500;
 const MAX_HASH_BYTES = 5 * 1024 * 1024;
 const ORIENTATION_NAMES = new Set([
@@ -27,7 +25,6 @@ export interface MigrationMetadataInput {
 
 export interface MigrationBootstrapResult {
   model: ProjectModel;
-  focusId: string;
   created: boolean;
   usedLegacyAdapter: boolean;
   sourceCount: number;
@@ -38,7 +35,6 @@ export interface MigrationBootstrapResult {
 export async function bootstrapProjectMigration(rootInput: string): Promise<MigrationBootstrapResult> {
   const root = resolve(rootInput);
   const models = new ProjectModelStore(root);
-  const sessions = new FocusSessionStore(root);
   let created = false;
   let usedLegacyAdapter = false;
 
@@ -66,7 +62,6 @@ export async function bootstrapProjectMigration(rootInput: string): Promise<Migr
     const result = await models.mutate((draft) => {
       draft.project.migration = {
         schemaVersion: 1,
-        focusId: MIGRATION_FOCUS_ID,
         phase: "inventory",
         sources: inventory.sources,
         artifacts: inventory.artifacts,
@@ -80,25 +75,8 @@ export async function bootstrapProjectMigration(rootInput: string): Promise<Migr
     model = result.model;
   }
 
-  const focusId = model.project.migration.focusId;
-  const existing = await sessions.list();
-  if (existing.some(({ id }) => id === focusId)) {
-    await sessions.mutate(focusId, (focus) => {
-      focus.status = "active";
-      focus.workstreamIds = model.workstreams.map(({ id }) => id).sort();
-    });
-  } else {
-    await sessions.create({
-      id: focusId,
-      title: "Project-model migration",
-      seed: "Infer and audit this repository's candidate project model before exact cutover.",
-      workstreamIds: model.workstreams.map(({ id }) => id),
-    });
-  }
-
   return {
     model,
-    focusId,
     created,
     usedLegacyAdapter,
     sourceCount: model.project.migration.sources.length,
@@ -143,7 +121,6 @@ export async function materializeMigrationMetadata(rootInput: string, model: Pro
 
   const migration: MigrationMetadata = {
     schemaVersion: 1,
-    focusId: model.project.migration?.focusId ?? MIGRATION_FOCUS_ID,
     phase: input.phase,
     sources: sources.sort((a, b) => a.path.localeCompare(b.path)),
     artifacts: artifacts.sort((a, b) => a.path.localeCompare(b.path)),
@@ -180,14 +157,14 @@ export function migrationReadinessErrors(model: ProjectModel, migration = model.
   for (const path of projectionTargets) {
     const artifact = artifactByPath.get(path);
     if (!artifact) errors.push(`Projection target has no artifact disposition: ${path}`);
-    else if (!new Set<MigrationArtifactDisposition>(["create_generated", "replace_generated"]).has(artifact.disposition)) errors.push(`Projection target is not approved for generation: ${path}`);
+    else if (!new Set<MigrationArtifactDisposition>(["create_generated", "replace_generated"]).has(artifact.disposition)) errors.push(`Projection target is not designated for generation: ${path}`);
   }
   const candidateAuthority = [
-    ...model.intents.filter(({ state }) => state === "proposed"),
-    ...model.concepts.filter(({ state }) => state === "proposed"),
-    ...model.scenarios.filter(({ state }) => state === "proposed"),
-    ...model.decisions.filter(({ state }) => state === "candidate"),
-    ...model.commitments.filter(({ state }) => ["proposed", "not_reviewed"].includes(state)),
+    ...model.intents.filter(({ state }) => ["proposed", "accepted"].includes(state)),
+    ...model.concepts.filter(({ state }) => ["proposed", "accepted"].includes(state)),
+    ...model.scenarios.filter(({ state }) => ["proposed", "accepted"].includes(state)),
+    ...model.decisions.filter(({ state }) => ["candidate", "accepted"].includes(state)),
+    ...model.commitments.filter(({ state }) => ["proposed", "not_reviewed", "accepted"].includes(state)),
   ];
   if (!candidateAuthority.length) errors.push("Candidate contains no proposed governing project meaning.");
   for (const object of candidateAuthority) if (!object.sourceRefs.length) errors.push(`Proposed governing object lacks source traceability: ${object.id}`);
@@ -202,15 +179,15 @@ export async function assertFreshMigrationReadiness(rootInput: string, model: Pr
   const root = resolve(rootInput);
   for (const source of migration.sources) {
     const current = await hashRepositoryFile(root, source.path, false).catch(() => null);
-    if (current !== source.observedHash) errors.push(`Migration source changed after review: ${source.path}`);
+    if (current !== source.observedHash) errors.push(`Migration source changed after inventory: ${source.path}`);
   }
   for (const artifact of migration.artifacts) {
     const current = await hashRepositoryFile(root, artifact.path, true).catch(() => null);
-    if (current !== artifact.observedHash) errors.push(`Migration artifact changed after review: ${artifact.path}`);
+    if (current !== artifact.observedHash) errors.push(`Migration artifact changed after file transaction preparation: ${artifact.path}`);
   }
   const rendered = new Map(new SpecProjector(root).render(model).map((file) => [file.path, hashBytes(Buffer.from(file.content))]));
   for (const artifact of migration.artifacts.filter(({ disposition }) => ["create_generated", "replace_generated"].includes(disposition))) {
-    if (artifact.generatedHash !== rendered.get(artifact.path)) errors.push(`Generated projection changed after review: ${artifact.path}`);
+    if (artifact.generatedHash !== rendered.get(artifact.path)) errors.push(`Generated projection changed after file transaction preparation: ${artifact.path}`);
     if (artifact.disposition === "create_generated" && artifact.observedHash !== null) errors.push(`Create target already exists: ${artifact.path}`);
     if (artifact.disposition === "replace_generated" && artifact.observedHash === null) errors.push(`Replace target no longer exists: ${artifact.path}`);
   }

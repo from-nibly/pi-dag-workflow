@@ -75,7 +75,7 @@ export default function dagWorkflow(pi: ExtensionAPI, options: { workerRuntime?:
 
   const modelIntegration = registerProjectModelIntegration(pi);
   const workerManager = registerWorkerRuntime(pi, { ...options.workerRuntime, autoRecoverOwned: false });
-  const planningIntegration = registerProductV2(pi, { getActiveFocus: modelIntegration.getActiveFocus, workerManager });
+  const planningIntegration = registerProductV2(pi, { workerManager });
 
   pi.registerCommand("dag", {
     description: "Project-model migration, brainstorming, planning, exact inspection, and session-bound DAG execution",
@@ -91,7 +91,6 @@ export default function dagWorkflow(pi: ExtensionAPI, options: { workerRuntime?:
         return;
       }
       if (await planningIntegration.handleCommand(command, { rest, options, raw: args.trim().slice(command.length).trim() }, ctx)) return;
-      if (modelIntegration.isActive()) modelIntegration.suspend(ctx);
 
       if (command === "chunk") {
         ctx.ui.notify("Chunking is an internal phase of /dag plan, not a separate command.", "info");

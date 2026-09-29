@@ -16,8 +16,38 @@ export const gitOptionsV2 = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmon
   "-c", "merge.directoryRenames=false", "-c", "merge.default=text", "-c", "merge.autoStash=false", "-c", "commit.gpgSign=false",
   "-c", "i18n.commitEncoding=UTF-8", "-c", "i18n.logOutputEncoding=UTF-8", "-c", "core.fsync=committed"];
 export function nativeGitV2(root: string, ...args: string[]): string {
-  try { return execFileSync("git", [...safeGitOptionsV2(root), ...args], { cwd: root, env: gitEnvironmentV2(), encoding: "utf8", timeout: 60000, maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).trim(); }
-  catch (e: any) { throw Error(`GIT_FAILED ${args[0]}: ${String(e.stderr ?? e.message).slice(-8000)}`); }
+  const options = safeGitOptionsV2(root);
+  try { return execFileSync("git", [...options, ...args], { cwd: root, env: gitEnvironmentV2(), encoding: "utf8", timeout: 60000, maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).trim(); }
+  catch (e: any) { throw gitFailureV2(args, e); }
+}
+function gitFailureV2(args: string[], e: any): Error {
+  const command = ["config", "merge-tree", "commit-tree", "merge-base", "rev-parse", "rev-list", "ls-tree", "ls-files", "diff", "status", "worktree", "symbolic-ref", "show-ref", "update-ref", "--version"].includes(args[0]) ? args[0] : "command";
+  const status = Number.isInteger(e.status) ? e.status : "null";
+  const signal = typeof e.signal === "string" && /^SIG[A-Z0-9]{1,12}$/.test(e.signal) ? e.signal : "null";
+  const code = ["ENOBUFS", "ETIMEDOUT", "ENOENT", "ENOTDIR", "ENAMETOOLONG", "EACCES", "EINVAL", "E2BIG", "ENOMEM", "EIO", "EPERM"].includes(e.code ?? e.error?.code) ? (e.code ?? e.error.code) : "null";
+  let truncated = code === "ENOBUFS";
+  const bounded = (text: string) => {
+    // Bound the escaped representation too, without cutting a JSON escape.
+    let value = JSON.stringify(text);
+    while (value.length > 4000) { truncated = true; text = text.slice(0, Math.floor(text.length / 2)); value = JSON.stringify(text); }
+    return value;
+  };
+  const oid = "(?:[0-9a-f]{40}|[0-9a-f]{64})", isOid = (value: string) => new RegExp(`^${oid}$`).test(value);
+  const merge = command === "merge-tree" && args.length === 6 && args[1] === "--write-tree" && args[2] === "--no-messages" && new RegExp(`^--merge-base=${oid}$`).test(args[3]) && args.slice(4).every(isOid);
+  const kind = merge && status === 1 ? "GIT_COMPOSITION_CONFLICT" : "GIT_FAILED";
+  let stdout = "omitted", stderr = "omitted";
+  // Only Git's conflict-stage protocol is public: never generic command output,
+  // configured driver output, argv, environment or execFileSync's Error.message.
+  const output = String(e.stdout ?? "").trim();
+  if (merge && new RegExp(`^${oid}(?:\\n[0-7]{6} ${oid} [123]\\t[^\\n]+)*$`).test(output)) stdout = bounded(output);
+  if (command === "commit-tree") {
+    if (isOid(output)) stdout = bounded(output);
+    const error = String(e.stderr ?? "").trim();
+    if (new RegExp(`^fatal: (?:${oid} is not a valid (?:object|'(?:tree|commit)' object)|not a valid object name ${oid})$`).test(error)) stderr = bounded(error);
+    else if (error.startsWith("Author identity unknown\n")) stderr = JSON.stringify("Author identity unknown");
+    else if (error.startsWith("Committer identity unknown\n")) stderr = JSON.stringify("Committer identity unknown");
+  }
+  return Error(`${kind} ${command} status=${status} signal=${signal} code=${code} argv=omitted stdout=${stdout} stderr=${stderr} truncated=${truncated}`);
 }
 /** Config hooks bypass core.hooksPath in Git 2.54. Discover names afresh,
  * including dormant conditional includes: worktree-add's Git children can have
@@ -25,9 +55,10 @@ export function nativeGitV2(root: string, ...args: string[]): string {
  * so safe config, disabled hooks and unused events remain supported. */
 export function configuredGitHooksV2(root: string, options: readonly string[] = gitOptionsV2): string[] {
   const config = (...args: string[]) => {
-    const bytes = execFileSync("git", [...options, "config", ...args], {
+    let bytes: Buffer;
+    try { bytes = execFileSync("git", [...options, "config", ...args], {
       cwd: root, env: gitEnvironmentV2(), timeout: 60000, maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
-    });
+    }); } catch (e: any) { throw gitFailureV2(["config"], e); }
     const text = bytes.toString("utf8");
     requireV2(Buffer.from(text, "utf8").equals(bytes), "GIT_CONFIG_ENCODING_UNSUPPORTED");
     return text;
@@ -49,7 +80,7 @@ export function configuredGitHooksV2(root: string, options: readonly string[] = 
       for (const path of paths.split("\0").filter(Boolean)) {
         const file = resolve(source ? dirname(source) : root, path);
         if (files.has(file)) continue; files.add(file);
-        try { lstatSync(file); } catch (e: any) { if (e.code === "ENOENT") continue; throw e; }
+        try { lstatSync(file); } catch (e: any) { if (e.code === "ENOENT") continue; throw gitFailureV2(["config"], e); }
         scan(config("--file", file, "--no-includes", "--show-origin", "--null", "--list"));
       }
     }
@@ -74,7 +105,7 @@ export async function bindGitV2(root: string): Promise<GitBindingV2> {
     refBackend: nativeGitV2(root, "rev-parse", "--show-ref-format"), gitVersion: nativeGitV2(root, "--version") };
   requireV2(nativeGitV2(root, "rev-parse", "--show-toplevel") === binding.root.path, "BOUND_ROOT_REQUIRED");
   // This deliberately narrow version profile is tested, not a guessed fallback.
-  requireV2(binding.gitVersion === "git version 2.54.0" && binding.refBackend === "files" && ["sha1", "sha256"].includes(binding.objectFormat), "UNSUPPORTED_GIT_CAPABILITY: requires Git 2.54.0 files backend sha1/sha256");
+  requireV2(binding.gitVersion === "git version 2.54.0" && binding.refBackend === "files" && ["sha1", "sha256"].includes(binding.objectFormat), `UNSUPPORTED_GIT_CAPABILITY: requires Git 2.54.0 files backend sha1/sha256; observed ${JSON.stringify({ gitVersion: binding.gitVersion, refBackend: binding.refBackend, objectFormat: binding.objectFormat })}`);
   return binding as GitBindingV2;
 }
 export async function verifyBindingV2(binding: GitBindingV2): Promise<void> {
@@ -137,8 +168,35 @@ export async function eligibleGitV2(binding: GitBindingV2, candidates: Candidate
   }
   inspectGitTreesV2(root, candidates);
 }
+/** Only the persisted, state-audited accepted chain supplies base authority.
+ * Exit 1 means non-ancestry; missing/corrupt objects and command errors do not. */
+export function acceptedPrefixBaseV2(root: string, receipt: NonNullable<GitOperationV2["composition"]>, candidate: CandidateV2, expected: CandidateV2): CandidateV2 {
+  requireV2(receipt.version === "accepted-prefix-v1", "GIT_COMPOSITION_RECEIPT_REQUIRED");
+  for (const value of [receipt.baseline, candidate, expected, ...receipt.accepted.map(a => a.proposal)]) inspectGitCandidateV2(root, value);
+  const ancestor = (base: CandidateV2, tip: CandidateV2) => {
+    const args = ["merge-base", "--is-ancestor", base.commit, tip.commit];
+    const result = spawnSync("git", [...safeGitOptionsV2(root), ...args], { cwd: root, env: gitEnvironmentV2(), encoding: "utf8", timeout: 60000, maxBuffer: 16 * 1024 * 1024 });
+    if (!result.error && !result.signal && (result.status === 0 || result.status === 1)) return result.status === 0;
+    throw gitFailureV2(args, { ...result, message: result.error?.message });
+  };
+  let previous = receipt.baseline, selected = receipt.baseline;
+  requireV2(ancestor(previous, candidate), "GIT_BASE_NOT_ANCESTOR");
+  const ids = new Set<string>();
+  for (const entry of receipt.accepted) {
+    requireV2(!ids.has(entry.operationId), "GIT_ACCEPTED_CHAIN_MISMATCH"); ids.add(entry.operationId);
+    requireV2(nativeGitV2(root, "rev-list", "--parents", "-n", "1", entry.proposal.commit) === `${entry.proposal.commit} ${previous.commit}`, "GIT_ACCEPTED_CHAIN_MISMATCH");
+    if (ancestor(entry.proposal, candidate)) selected = entry.proposal;
+    previous = entry.proposal;
+  }
+  requireV2(sameV2(previous, expected), "GIT_EXPECTED_PREFIX_MISMATCH");
+  return selected;
+}
 export function composeGitV2(op: GitOperationV2): CandidateV2 {
   const root = op.binding.root.path;
+  if (op.profile === "ordinary-ff-v2-2") {
+    requireV2(op.composition, "GIT_COMPOSITION_RECEIPT_REQUIRED");
+    requireV2(sameV2(op.sourceBase, acceptedPrefixBaseV2(root, op.composition, op.candidate, op.expected)), "GIT_COMPOSITION_BASE_MISMATCH");
+  } else requireV2(op.profile === "ordinary-ff-v2-1" && !op.composition, "GIT_COMPOSITION_PROFILE_MISMATCH");
   assertGitAttributesV2(root); inspectGitTreesV2(root, [op.sourceBase, op.expected, op.candidate]);
   // Git lets a configured driver shadow even the built-in name "text".
   // Pinning merge.default alone does not disable that external execution.
@@ -147,7 +205,11 @@ export function composeGitV2(op: GitOperationV2): CandidateV2 {
   const tree = nativeGitV2(root, "merge-tree", "--write-tree", "--no-messages", `--merge-base=${op.sourceBase.commit}`, op.expected.commit, op.candidate.commit);
   requireV2(new RegExp(`^[0-9a-f]{${op.expected.commit.length}}$`).test(tree), "MERGE_TREE_CONFLICT_OR_UNSUPPORTED");
   const env = { ...gitEnvironmentV2(), GIT_AUTHOR_NAME: "Pi integration", GIT_AUTHOR_EMAIL: "integration@pi.invalid", GIT_COMMITTER_NAME: "Pi integration", GIT_COMMITTER_EMAIL: "integration@pi.invalid", GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z" };
-  const commit = execFileSync("git", [...safeGitOptionsV2(root), "commit-tree", tree, "-p", op.expected.commit, "-m", `V2 integration ${op.operationId}\n\nCandidate: ${op.candidate.commit}\nProfile: ${op.profile}`], { cwd: root, env, encoding: "utf8", timeout: 60000 }).trim();
+  const args = ["commit-tree", tree, "-p", op.expected.commit, "-m", `V2 integration ${op.operationId}\n\nCandidate: ${op.candidate.commit}\nProfile: ${op.profile}`];
+  let commit: string;
+  const options = safeGitOptionsV2(root);
+  try { commit = execFileSync("git", [...options, ...args], { cwd: root, env, encoding: "utf8", timeout: 60000, maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).trim(); }
+  catch (e: any) { throw gitFailureV2(args, e); }
   requireV2(nativeGitV2(root, "rev-list", "--parents", "-n", "1", commit) === `${commit} ${op.expected.commit}`, "COMPOSITION_PARENT_MISMATCH");
   return { commit, tree };
 }

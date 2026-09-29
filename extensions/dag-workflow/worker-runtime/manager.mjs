@@ -35,6 +35,8 @@ import {
   writeImmutableJson,
 } from "./core.mjs";
 
+import { withWorkspaceOwnership, assertWorkspaceLaunch, inspectWorkspaceRoot, inspectNodeWorkspaceBinding, ownershipWorkspacePath, workspacePathsOverlap } from "./workspace-ownership.mjs";
+
 const execFileAsync = promisify(execFile);
 const TERMINAL_STATUSES = new Set(["succeeded", "needs_attention", "failed", "cancelled", "lost"]);
 const extensionPath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "index.ts");
@@ -262,7 +264,8 @@ export class WorkerManager {
     const launchKey = normalizeLaunchKey(input.launchKey ?? `manual-${newNonce()}`);
     const candidateWorkerId = normalizeRuntimeId(input.workerId ?? `worker-${requestHash.slice(7, 19)}-${newNonce(5)}`, "workerId");
     this.#assertGeneration(generation);
-    const reserved = await this.#mutate((draft) => {
+    const reserved = await withWorkspaceOwnership(state.repositoryRoot, request.cwd, async ownership => this.#mutate((draft) => {
+      this.#assertGeneration(generation);
       draft.launchRecords ??= [];
       const existing = draft.launchRecords.find((record) => record.launchKey === launchKey);
       if (existing) {
@@ -274,7 +277,16 @@ export class WorkerManager {
         }
         return { workerId: existing.workerId, existing: true };
       }
+      assertWorkspaceLaunch(ownership, launchKey, request.workingRoot);
       assertWorkingRootApprovalState(draft, request);
+      if (request.workingRoot.kind === "approved_disposable") {
+        const approval = draft.approvedDisposableRoots.find(a => a.approvalId === request.workingRoot.approvalId);
+        if (!approvalLaunchOwnerMatches(approval, draft.owner, launchKey, request.boundConfigRequestHash)) throw new Error("Disposable working-root launch owner changed before reservation");
+        if (canonicalOwnerIdentity(approval.approvedByOwner) !== canonicalOwnerIdentity(draft.owner)) {
+          const handoff = approval.nodeLaunchHandoffs.find(h => h.launchKey === launchKey && h.requestHash === request.boundConfigRequestHash && canonicalOwnerIdentity(h.owner) === canonicalOwnerIdentity(draft.owner));
+          if (!ownership || handoff.nodeId !== ownership.nodeId || handoff.epoch !== ownership.epoch || sha256(handoff.binding) !== sha256(ownership.binding)) throw new Error("Node approval launch handoff no longer owns this workspace");
+        }
+      }
       if (draft.workers[candidateWorkerId]) throw new Error(`Worker already exists: ${candidateWorkerId}`);
       const maxLaunchRecords = Math.max(1, Number(this.options.maxLaunchRecords ?? 4096));
       if (draft.launchRecords.length >= maxLaunchRecords) throw new Error(`Worker session reached the retained launch-record limit of ${maxLaunchRecords}`);
@@ -305,7 +317,7 @@ export class WorkerManager {
       };
       draft.launchRecords.push({ launchKey, requestHash, workerId: candidateWorkerId, reservedAt: createdAt });
       return { workerId: candidateWorkerId, existing: false };
-    });
+    }));
     const { workerId, existing } = reserved.result;
     if (reserved.result.archived) return { workerId, launchKey, attemptNumber: reserved.result.attemptNumber, status: reserved.result.status, asynchronous: true, idempotentReplay: true, archived: true };
     if (!existing) await this.#hitFailpoint("after_launch_reservation", { workerId, launchKey });
@@ -334,6 +346,8 @@ export class WorkerManager {
     if (existingRecord) {
       const existingWorker = state.workers[existingRecord.workerId] ?? (existingRecord.archivedWorkerPath ? await readArchivedWorker(state, existingRecord) : null);
       if (!existingWorker || existingWorker.id !== workerId || existingWorker.task !== String(input.task ?? "").trim() || existingWorker.normalizedRequest?.ownedWorktree?.baseCommit !== baseCommit || existingWorker.normalizedRequest?.boundConfigRequestHash !== input.configRequestHash || Boolean(existingWorker.normalizedRequest?.explicitDispatchRecovery) !== Boolean(input.explicitDispatchRecovery)) throw new Error("Owned-worker launch replay conflicts with its exact durable base/request identity");
+      const borrowed = existingWorker.normalizedRequest?.workingRoot;
+      if (input.nodeWorkspace ? borrowed?.kind !== "borrowed_node" || borrowed.epoch !== input.nodeWorkspace.epoch || sha256(borrowed.workspace) !== sha256(input.nodeWorkspace.workspace) : borrowed?.kind === "borrowed_node") throw Error("Borrowed-node replay conflicts with its immutable capability");
       if (existingWorker.currentAttempt > 0) {
         const pending = existingWorker.attempts.find(a => a.attemptNumber === existingWorker.currentAttempt);
         if (pending?.status === "planned" && existingWorker.normalizedRequest.explicitDispatchRecovery) {
@@ -355,28 +369,59 @@ export class WorkerManager {
       return replay;
     } else {
       const recovered = await recoverUnboundOwnedAttempt(state.repositoryRoot, {
-        launchKey, workerId, expectedAttemptNumber: Number(input.expectedAttemptNumber), configRequestHash: String(input.configRequestHash), baseCommit,
+        launchKey, workerId, expectedAttemptNumber: Number(input.expectedAttemptNumber), configRequestHash: String(input.configRequestHash), baseCommit, nodeWorkspace: input.nodeWorkspace,
         worktreeName: normalizeRuntimeId(input.worktreeKey ?? launchKey, "worktreeKey"), label: String(input.label ?? workerId).trim().slice(0, 256) || workerId, task: String(input.task ?? "").trim(),
       });
       if (recovered) return recovered;
     }
     const worktreeName = normalizeRuntimeId(input.worktreeKey ?? launchKey, "worktreeKey");
     const worktreeRoot = join(state.repositoryRoot, ".ai", "worker-roots", worktreeName);
-    await mkdir(dirname(worktreeRoot), { recursive: true });
-    let worktreeExists = true;
-    try { await stat(worktreeRoot); } catch (error) { if (error?.code === "ENOENT") worktreeExists = false; else throw error; }
-    if (!worktreeExists) await execFileAsync("git", ["worktree", "add", "--detach", worktreeRoot, baseCommit], { cwd: state.repositoryRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024, signal });
-    const exactWorktree = await inspectOwnedWorktreeExact(state.repositoryRoot, worktreeRoot, baseCommit);
-    const canonicalRoot = exactWorktree.realPath;
-    const refreshed = await this.store.load();
-    let approval = (refreshed.approvedDisposableRoots ?? []).find((candidate) => !candidate.retiredAt && candidate.realPath === canonicalRoot && candidate.ownerSessionId === refreshed.ownerSessionId && canonicalOwnerIdentity(candidate.approvedByOwner) === canonicalOwnerIdentity(refreshed.owner));
-    let disposableRootToken;
-    if (!approval) {
-      const created = await this.approveDisposableWorkingRoot(worktreeRoot);
-      disposableRootToken = created.disposableRootToken;
-      approval = (await this.store.load()).approvedDisposableRoots.find((candidate) => candidate.approvalId === created.approvalId);
+    if (input.nodeWorkspace) {
+      const capability = input.nodeWorkspace;
+      const root = { kind: "borrowed_node", path: capability.workspace.cwd, realPath: capability.workspace.cwd,
+        ...capability.workspace.identity.root, nodeId: capability.workspace.nodeId, epoch: capability.epoch, workspace: capability.workspace, requestHash: capability.requestHash };
+      if (root.path !== worktreeRoot || root.requestHash !== input.configRequestHash) throw Error("NODE_WORKSPACE_PATH_MISMATCH");
+      const exactWorktree = await withWorkspaceOwnership(state.repositoryRoot, worktreeRoot, async ownership => {
+        assertWorkspaceLaunch(ownership, launchKey, root);
+        if (sha256(await inspectNodeWorkspaceBinding(worktreeRoot, root.nodeId)) !== sha256(root.workspace)) throw Error("NODE_WORKSPACE_NATIVE_IDENTITY_DRIFT");
+        return inspectOwnedWorktreeExact(state.repositoryRoot, worktreeRoot, baseCommit);
+      });
+      await this.launch({ launchKey, workerId, label: input.label, task: input.task, cwd: worktreeRoot,
+        borrowedNodeWorkspace: root, boundConfigRequestHash: input.configRequestHash, ownedWorktreeBaseCommit: baseCommit,
+        ownedWorktreeCommonDir: exactWorktree.commonDir, ownedWorktreeObjectFormat: exactWorktree.objectFormat,
+        ...(input.explicitDispatchRecovery ? { explicitDispatchRecovery: true } : {}) }, ctx, signal);
+      const exact = await this.attemptIdentityByLaunchKey(launchKey);
+      if (!exact || exact.workerId !== workerId || exact.attemptNumber !== Number(input.expectedAttemptNumber)) throw Error("Borrowed-node launch lacks exact attempt identity");
+      return exact;
     }
-    if (!approval || approval.realPath !== canonicalRoot || approval.dev !== exactWorktree.dev || approval.ino !== exactWorktree.ino) throw new Error("Owned-worker worktree approval does not bind the exact path/device/inode");
+    const { exactWorktree, approval, disposableRootToken } = await withWorkspaceOwnership(state.repositoryRoot, worktreeRoot, async ownership => {
+      assertWorkspaceLaunch(ownership, launchKey, { kind: "approved_disposable" });
+      let worktreeExists = true;
+      try { await stat(worktreeRoot); } catch (error) { if (error?.code === "ENOENT") worktreeExists = false; else throw error; }
+      if (!worktreeExists) {
+        await this.assertNodeWorkspaceAvailable(worktreeRoot);
+        await mkdir(dirname(worktreeRoot), { recursive: true });
+        await execFileAsync("git", ["worktree", "add", "--detach", worktreeRoot, baseCommit], { cwd: state.repositoryRoot, env: gitWorktreeEnvironment(), maxBuffer: 1024 * 1024, signal });
+      }
+      const exactWorktree = await inspectOwnedWorktreeExact(state.repositoryRoot, worktreeRoot, baseCommit);
+      const canonicalRoot = exactWorktree.realPath;
+      const refreshed = await this.store.load();
+      let approval = (refreshed.approvedDisposableRoots ?? []).find((candidate) => !candidate.retiredAt && (candidate.realPath === canonicalRoot || candidate.path === worktreeRoot));
+      let disposableRootToken;
+      if (!approval) {
+        if (ownership?.binding || (refreshed.approvedDisposableRoots ?? []).some(candidate => candidate.realPath === canonicalRoot || candidate.path === worktreeRoot)) throw new Error("Owned-worker retained approval is missing or retired");
+        const created = await this.approveDisposableWorkingRoot(worktreeRoot);
+        disposableRootToken = created.disposableRootToken;
+        approval = (await this.store.load()).approvedDisposableRoots.find((candidate) => candidate.approvalId === created.approvalId);
+      }
+      await this.#assertDisposableParent(refreshed, worktreeRoot);
+      if (!approval || approval.path !== worktreeRoot || approval.realPath !== canonicalRoot || approval.dev !== exactWorktree.dev || approval.ino !== exactWorktree.ino) throw new Error("Owned-worker worktree approval does not bind the exact path/device/inode");
+      if (approval.ownerSessionId !== refreshed.ownerSessionId) throw new Error("Owned-worker approval belongs to another owner session");
+      if (canonicalOwnerIdentity(approval.approvedByOwner) !== canonicalOwnerIdentity(refreshed.owner)) {
+        approval = await this.#handoffNodeApproval(refreshed, approval, ownership, launchKey, input.configRequestHash);
+      }
+      return { exactWorktree, approval, disposableRootToken };
+    });
     await this.launch({ launchKey, workerId, label: input.label, task: input.task, cwd: worktreeRoot, boundConfigRequestHash: input.configRequestHash, ownedWorktreeBaseCommit: baseCommit, ownedWorktreeCommonDir: exactWorktree.commonDir, ownedWorktreeObjectFormat: exactWorktree.objectFormat, ...(input.explicitDispatchRecovery ? { explicitDispatchRecovery: true } : {}), ...(disposableRootToken ? { disposableRootToken } : { disposableApprovalId: approval.approvalId }) }, ctx, signal);
     const exact = await this.attemptIdentityByLaunchKey(launchKey);
     if (!exact || exact.workerId !== workerId || exact.attemptNumber !== Number(input.expectedAttemptNumber)) throw new Error("Owned-worker launch did not bind the exact requested worker/attempt identity");
@@ -452,7 +497,14 @@ export class WorkerManager {
 
   async cleanupOwnedWorktreeForBinding(binding, input = {}, signal) {
     signal?.throwIfAborted?.();
-    return this.#withBindingStore(binding, () => this.#cleanupOwnedWorktreeForCurrentStore(binding, input, signal));
+    return this.#withBindingStore(binding, async () => {
+      const exact = await this.inspectBindingReadOnly(binding);
+      return withWorkspaceOwnership(this.store.repositoryRoot, exact.worker.cwd, async ownership => {
+        if (ownership) throw new Error("NODE_WORKSPACE_CLEANUP_RELINQUISHED");
+        await this.assertNodeWorkspaceAvailable(exact.worker.cwd, { cleanup: true });
+        return this.#cleanupOwnedWorktreeForCurrentStore(binding, input, signal);
+      });
+    });
   }
 
   async #cleanupOwnedWorktreeForCurrentStore(binding, input = {}, signal) {
@@ -526,6 +578,8 @@ export class WorkerManager {
       assertTerminalResult(result, { recovery });
       if (result.storageId !== binding.workerStorageId || result.ownerSessionId !== binding.launchOwnerSessionId || result.workerId !== binding.workerId || result.attemptNumber !== binding.attemptNumber || result.attemptNonce !== binding.attemptNonce || result.configHash !== binding.configHash) throw new Error("Terminal worker result conflicts with exact DAG binding");
       if (!recovery && (result.process?.supervisorPid !== attempt.supervisorPid || result.process?.supervisorStartIdentity !== attempt.supervisorStartIdentity)) throw new Error("Terminal worker process identity conflicts with exact DAG binding");
+      if (options.evidence === true) return { completionId: result.completionId, terminalStatus: result.terminalStatus, resultPath, resultHash: result.resultHash,
+        report: structuredClone(result.report ?? null), reportStatus: result.reportStatus ?? null, diagnostics: result.diagnostics ?? null, runtime: result.runtime ?? null, process: result.process ?? null, artifacts: result.artifacts ?? [] };
       return { completionId: result.completionId, terminalStatus: result.terminalStatus };
     });
   }
@@ -559,6 +613,59 @@ export class WorkerManager {
     return this.#readBindingStore(binding, async ({ worker, attempt, config }) => ({ worker: structuredClone(worker), attempt: structuredClone(attempt), config: structuredClone(config) }));
   }
 
+  /** Transfer mutation/removal rights, not immutable launch/result history. A
+   * crash after publication is an exact replay. No elapsed time grants rights. */
+  async relinquishNodeWorkspace(binding, nodeId) {
+    if (typeof nodeId !== "string" || !nodeId) throw Error("NODE_WORKSPACE_ID_REQUIRED");
+    const terminal = await this.terminalResultForBinding(binding, { reconcile: true });
+    if (!terminal) throw Error("WORKER_SETTLEMENT_REQUIRED");
+    const exact = await this.inspectBindingReadOnly(binding), cwd = exact.worker.cwd;
+    return withWorkspaceOwnership(this.context.cwd, cwd, async (ownership, publish) => {
+      const root = await inspectWorkspaceRoot(cwd), workingRoot = exact.worker.normalizedRequest.workingRoot;
+      if (!workingRoot || root.path !== workingRoot.realPath || root.dev !== workingRoot.dev || root.ino !== workingRoot.ino) throw Error("WORKSPACE_IDENTITY_DRIFT");
+      if (ownership) {
+        if (ownership.workspace && sha256(await inspectNodeWorkspaceBinding(cwd, nodeId)) !== sha256(ownership.workspace)) throw Error("NODE_WORKSPACE_NATIVE_IDENTITY_DRIFT");
+        if (ownership.nodeId !== nodeId || sha256(ownership.root) !== sha256(root)) throw Error("NODE_WORKSPACE_BINDING_CONFLICT");
+        if (sha256(ownership.binding) === sha256(binding) && ownership.launchKey === null) return ownership;
+        if (ownership.launchKey !== exact.worker.launchKey || ownership.execution !== null) throw Error("NODE_WORKSPACE_STALE_ATTEMPT");
+      }
+      await this.assertNodeWorkspaceAvailable(cwd);
+      const current = await this.inspectBindingReadOnly(binding);
+      if (current.worker.currentAttempt !== binding.attemptNumber || !current.attempt.ingestedAt || !current.attempt.resultPath) throw Error("WORKER_SETTLEMENT_REQUIRED");
+      const value = { version: 1, repository: this.context.cwd, cwd, root, nodeId, epoch: (ownership?.epoch ?? 0) + 1,
+        binding: structuredClone(binding), launchKey: null, execution: null,
+        handoffs: [...(ownership?.handoffs ?? []), { binding: structuredClone(binding), completion: terminal, at: nowIso() }],
+        ...(ownership?.workspace ? { workspace: ownership.workspace } : {}) };
+      await publish(value);
+      await this.#hitFailpoint("after_node_workspace_relinquishment", { binding, nodeId });
+      return value;
+    });
+  }
+
+  /** Caller must hold withWorkspaceOwnership through the subsequent publication
+   * or cleanup. The shared admission lock makes this scan atomic with launches,
+   * including reservations/dispatch claims in other manager storage identities. */
+  async assertNodeWorkspaceAvailable(cwd, { cleanup = false } = {}) {
+    cwd = await ownershipWorkspacePath(cwd);
+    for (const storageId of await listDirectories(workerSessionsRoot(this.context.cwd))) {
+      const store = new WorkerSessionStore(this.context.cwd, storageId);
+      if (!await store.exists()) continue;
+      const state = await store.load();
+      if (!cleanup) for (const intent of state.worktreeCleanupIntents ?? []) {
+        if (workspacePathsOverlap(await ownershipWorkspacePath(intent.realPath), cwd)) throw Error("WORKSPACE_CLEANUP_INTENT_EXISTS");
+      }
+      const workers = [...Object.values(state.workers)];
+      for (const record of state.launchRecords ?? []) if (!state.workers[record.workerId] && record.archivedWorkerPath) workers.push(await readArchivedWorker(state, record));
+      for (const worker of workers) {
+        const recorded = worker.normalizedRequest?.workingRoot?.realPath ?? worker.cwd;
+        if (!workspacePathsOverlap(await ownershipWorkspacePath(recorded), cwd)
+          && !workspacePathsOverlap(await ownershipWorkspacePath(worker.cwd), cwd)) continue;
+        const attempt = worker.attempts.find(a => a.attemptNumber === worker.currentAttempt);
+        if (!TERMINAL_STATUSES.has(worker.status) || !attempt?.ingestedAt || !attempt.resultPath) throw Error("WORKSPACE_WORKER_SETTLEMENT_REQUIRED");
+      }
+    }
+  }
+
   async inspectBinding(binding) {
     await this.#withBindingStore(binding, async () => { await this.scan(); });
     const exact = await this.inspectBindingReadOnly(binding);
@@ -578,9 +685,44 @@ export class WorkerManager {
     }, signal);
   }
 
-  async approveDisposableWorkingRoot(cwd) {
-    this.#assertAttached();
-    const state = await this.store.load();
+  // Only an exact settled node binding can carry an existing approval across a
+  // same-session process restart. This does not transfer the raw token or cleanup
+  // rights, and leaves the original approver and historical configs immutable.
+  async #handoffNodeApproval(state, approval, ownership, launchKey, requestHash) {
+    const generation = this.lifecycleGeneration;
+    if (canonicalOwnerIdentity(state.owner) !== canonicalOwnerIdentity(this.#owner(state.ownerSessionId))) throw new Error("Node approval handoff requires the current manager owner");
+    if (!ownership?.binding || ownership.launchKey !== launchKey || ownership.execution !== null
+      || ownership.cwd !== approval.path || ownership.root.path !== approval.realPath || ownership.root.dev !== approval.dev || ownership.root.ino !== approval.ino
+      || ownership.binding.workerStorageId !== state.storageId || ownership.binding.launchOwnerSessionId !== state.ownerSessionId) throw new Error("Node approval handoff conflicts with current workspace ownership");
+    const exact = await this.inspectBindingReadOnly(ownership.binding), root = exact.worker.normalizedRequest?.workingRoot;
+    if (exact.worker.currentAttempt !== ownership.binding.attemptNumber || !exact.attempt.ingestedAt || !exact.attempt.resultPath
+      || !TERMINAL_STATUSES.has(exact.worker.status) || !exact.worker.launchKey.startsWith(`${ownership.nodeId}/`) || root?.approvalId !== approval.approvalId
+      || root.path !== approval.path || root.realPath !== approval.realPath || root.dev !== approval.dev || root.ino !== approval.ino
+      || !approvalLaunchOwnerMatches(approval, exact.attempt.launchOwner, exact.worker.launchKey, exact.worker.normalizedRequest.boundConfigRequestHash)) throw new Error("Node approval handoff lacks the exact settled approval-bound attempt");
+    const terminal = await this.terminalResultForBinding(ownership.binding);
+    if (!terminal || sha256(terminal) !== sha256(ownership.handoffs.at(-1).completion)) throw new Error("Node approval handoff completion conflict");
+    if (!processIdentityIsGone(await processIdentityStatus(approval.approvedByOwner.pid, approval.approvedByOwner.processStartIdentity))) throw new Error("Node approval handoff requires a proven-dead original owner");
+    await this.assertNodeWorkspaceAvailable(ownership.cwd);
+    const receipt = { launchKey, requestHash, owner: structuredClone(state.owner), nodeId: ownership.nodeId, epoch: ownership.epoch, binding: structuredClone(ownership.binding) };
+    const result = await this.#mutate(draft => {
+      this.#assertGeneration(generation);
+      const current = (draft.approvedDisposableRoots ?? []).find(a => a.approvalId === approval.approvalId);
+      if (!current || current.retiredAt || sha256(current) !== sha256(approval) || draft.ownerSessionId !== approval.ownerSessionId
+        || canonicalOwnerIdentity(draft.owner) !== canonicalOwnerIdentity(state.owner)) throw new Error("Node approval changed during handoff");
+      current.nodeLaunchHandoffs ??= [];
+      const prior = current.nodeLaunchHandoffs.find(h => h.launchKey === launchKey && canonicalOwnerIdentity(h.owner) === canonicalOwnerIdentity(state.owner));
+      if (prior && sha256({ ...prior, owner: receipt.owner }) !== sha256(receipt)) throw new Error("Node approval launch handoff conflict");
+      if (!prior) {
+        if (current.nodeLaunchHandoffs.length >= 256) throw new Error("Node approval launch handoff retention bound reached");
+        current.nodeLaunchHandoffs.push(receipt);
+      }
+      return structuredClone(current);
+    });
+    await this.#hitFailpoint("after_node_approval_handoff", { launchKey, approvalId: approval.approvalId });
+    return result.result;
+  }
+
+  async #assertDisposableParent(state, cwd) {
     const resolved = resolve(cwd);
     assertCwdWithin(state.repositoryRoot, resolved);
     const canonicalRoot = await realpath(resolved);
@@ -596,6 +738,13 @@ export class WorkerManager {
       catch (error) { if (error?.code !== "ENOENT") throw error; }
     }
     if (!underApprovedParent) throw new Error("Disposable working root must be below an explicitly approved disposable-root parent");
+    return canonicalRoot;
+  }
+
+  async approveDisposableWorkingRoot(cwd) {
+    this.#assertAttached();
+    const state = await this.store.load(), resolved = resolve(cwd);
+    const canonicalRoot = await this.#assertDisposableParent(state, resolved);
     const info = await stat(canonicalRoot);
     if (!info.isDirectory()) throw new Error("Disposable working root must be a directory");
     const token = newNonce();
@@ -709,7 +858,10 @@ export class WorkerManager {
     assertAttemptConfig(config);
     const paths = attemptPaths(before.repositoryRoot, before.storageId, workerId, attemptNumber);
     this.#assertGeneration(generation);
-    const reservation = await this.#mutate((draft) => {
+    const reservation = await withWorkspaceOwnership(before.repositoryRoot, workerBefore.cwd, async ownership => {
+      this.#assertGeneration(generation);
+      assertWorkspaceLaunch(ownership, workerBefore.launchKey, workerBefore.normalizedRequest.workingRoot);
+      return this.#mutate((draft) => {
       const current = draft.workers[workerId];
       if (!current) throw new Error(`Unknown worker: ${workerId}`);
       assertWorkingRootApprovalState(draft, request);
@@ -750,6 +902,7 @@ export class WorkerManager {
       const launchRecord = (draft.launchRecords ?? []).find((record) => record.workerId === workerId);
       if (launchRecord && !launchRecord.attemptNumber) launchRecord.attemptNumber = attemptNumber;
       return { attemptNumber, existing: false };
+      });
     });
     if (!reservation.result.existing) await this.#hitFailpoint("after_attempt_reservation", { workerId, attemptNumber });
     if (reservation.result.existing) {
@@ -785,7 +938,11 @@ export class WorkerManager {
   async #performReservedAttemptDispatch(workerId, attemptNumber, signal) {
     const generation = this.lifecycleGeneration;
     signal?.throwIfAborted?.();
-    const claimed = await this.#mutate((draft) => {
+    const before = await this.store.load();
+    const claimed = await withWorkspaceOwnership(before.repositoryRoot, before.workers[workerId].cwd, async ownership => {
+      this.#assertGeneration(generation);
+      assertWorkspaceLaunch(ownership, before.workers[workerId].launchKey, before.workers[workerId].normalizedRequest.workingRoot);
+      return this.#mutate((draft) => {
       const worker = draft.workers[workerId];
       const attempt = worker?.attempts.find((candidate) => candidate.attemptNumber === attemptNumber);
       if (!worker || !attempt) throw new Error(`Unknown worker attempt: ${workerId}/${attemptNumber}`);
@@ -796,6 +953,7 @@ export class WorkerManager {
       attempt.dispatchOwner = this.#owner(draft.ownerSessionId);
       attempt.dispatchClaimedAt = nowIso();
       return { dispatch: true };
+      });
     });
     if (!claimed.result.dispatch) return { workerId, attemptNumber, status: claimed.result.status, asynchronous: true, idempotentReplay: true };
     await this.#hitFailpoint("after_dispatch_claim", { workerId, attemptNumber });
@@ -907,10 +1065,18 @@ export class WorkerManager {
     const canonicalCwd = await realpath(cwd);
     if (canonicalCwd !== canonicalRepositoryRoot && !isStrictDescendant(canonicalRepositoryRoot, canonicalCwd)) throw new Error("Worker cwd resolves outside the repository root");
     let workingRoot = { kind: "repository", path: cwd, realPath: canonicalCwd };
+    if (input.borrowedNodeWorkspace !== undefined) {
+      if (input.disposableRootToken !== undefined || input.disposableApprovalId !== undefined) throw Error("Borrowed node workspace cannot carry disposable approval");
+      workingRoot = structuredClone(input.borrowedNodeWorkspace);
+      if (workingRoot.requestHash !== input.boundConfigRequestHash) throw Error("NODE_WORKSPACE_REQUEST_CONFLICT");
+      if (workingRoot.kind !== "borrowed_node" || workingRoot.path !== cwd || workingRoot.realPath !== canonicalCwd) throw Error("NODE_WORKSPACE_CAPABILITY_MISMATCH");
+    }
     if (input.disposableRootToken !== undefined || input.disposableApprovalId !== undefined) {
       const tokenHash = input.disposableRootToken === undefined ? null : sha256(String(input.disposableRootToken));
       const approval = (state.approvedDisposableRoots ?? []).find((candidate) => (tokenHash ? candidate.tokenHash === tokenHash : candidate.approvalId === input.disposableApprovalId) && !candidate.retiredAt);
-      if (!approval || approval.ownerSessionId !== state.ownerSessionId || canonicalOwnerIdentity(approval.approvedByOwner) !== canonicalOwnerIdentity(state.owner) || approval.path !== cwd) throw new Error("Disposable working-root approval is missing, stale, or bound to another owner/path");
+      const ownerMatches = approval && (tokenHash ? canonicalOwnerIdentity(approval.approvedByOwner) === canonicalOwnerIdentity(state.owner)
+        : approvalLaunchOwnerMatches(approval, state.owner, input.launchKey, input.boundConfigRequestHash));
+      if (!approval || approval.ownerSessionId !== state.ownerSessionId || !ownerMatches || approval.path !== cwd) throw new Error("Disposable working-root approval is missing, stale, or bound to another owner/path");
       const canonicalRoot = await realpath(cwd);
       const info = await stat(canonicalRoot);
       if (canonicalRoot !== approval.realPath || String(info.dev) !== approval.dev || String(info.ino) !== approval.ino || !info.isDirectory()) throw new Error("Disposable working-root identity changed after approval");
@@ -949,6 +1115,11 @@ export class WorkerManager {
         const exact = await inspectOwnedWorktreeExact(state.repositoryRoot, request.cwd, request.ownedWorktree.baseCommit);
         if (exact.commonDir !== request.ownedWorktree.commonDir || exact.objectFormat !== request.ownedWorktree.objectFormat) throw new Error("Owned-worker worktree Git identity changed after reservation");
       }
+    } else if (root.kind === "borrowed_node") {
+      if (root.dev !== String(info.dev) || root.ino !== String(info.ino)
+        || sha256(await inspectNodeWorkspaceBinding(request.cwd, root.nodeId)) !== sha256(root.workspace)) throw Error("NODE_WORKSPACE_NATIVE_IDENTITY_DRIFT");
+      const exact = await inspectOwnedWorktreeExact(state.repositoryRoot, request.cwd, request.ownedWorktree.baseCommit);
+      if (exact.commonDir !== request.ownedWorktree.commonDir || exact.objectFormat !== request.ownedWorktree.objectFormat) throw Error("Borrowed-node Git identity drift");
     } else if (root.kind === "repository") {
       const repositoryRoot = await realpath(state.repositoryRoot);
       if (canonicalRoot !== repositoryRoot && !isStrictDescendant(repositoryRoot, canonicalRoot)) throw new Error("Repository working root escaped its canonical repository");
@@ -1825,14 +1996,20 @@ async function recoverUnboundOwnedAttempt(repositoryRootValue, expected) {
       const exactRequest = request.schemaVersion === 1 && request.task === expected.task && worker.task === expected.task && worker.label === expected.label
         && request.requestedWorkerId === expected.workerId && request.requestedLabel === expected.label && request.boundConfigRequestHash === expected.configRequestHash
         && request.cwd === expectedWorktree && worker.cwd === expectedWorktree && request.ownedWorktree?.baseCommit === expected.baseCommit
-        && request.workingRoot?.kind === "approved_disposable" && request.workingRoot.path === expectedWorktree && request.workingRoot.realPath === expectedWorktree;
+        && request.workingRoot?.kind === (expected.nodeWorkspace ? "borrowed_node" : "approved_disposable") && request.workingRoot.path === expectedWorktree && request.workingRoot.realPath === expectedWorktree;
       if (!exactRequest) throw new Error("normalized owned-worker request differs from the exact DAG launch request");
       const approval = (state.approvedDisposableRoots ?? []).find((candidate) => candidate.approvalId === request.workingRoot.approvalId);
       const worktreeInfo = await assertTrustedDirectory(expectedWorktree, expectedWorktree, null, "owned worker worktree");
-      if (!approval || approval.retiredAt || approval.path !== expectedWorktree || approval.realPath !== expectedWorktree || approval.dev !== String(worktreeInfo.dev) || approval.ino !== String(worktreeInfo.ino) || request.workingRoot.dev !== approval.dev || request.workingRoot.ino !== approval.ino) throw new Error("owned worktree approval does not bind the exact path/device/inode");
+      if (expected.nodeWorkspace) {
+        if (request.workingRoot.epoch !== expected.nodeWorkspace.epoch || sha256(request.workingRoot.workspace) !== sha256(expected.nodeWorkspace.workspace)
+          || sha256(await inspectNodeWorkspaceBinding(expectedWorktree, request.workingRoot.nodeId)) !== sha256(request.workingRoot.workspace)) throw Error("Borrowed-node recovery capability differs");
+        await withWorkspaceOwnership(repositoryRoot, expectedWorktree, async ownership => {
+          assertWorkspaceLaunch(ownership, expected.launchKey, request.workingRoot);
+        });
+      } else if (!approval || approval.retiredAt || approval.path !== expectedWorktree || approval.realPath !== expectedWorktree || approval.dev !== String(worktreeInfo.dev) || approval.ino !== String(worktreeInfo.ino) || request.workingRoot.dev !== approval.dev || request.workingRoot.ino !== approval.ino) throw new Error("owned worktree approval does not bind the exact path/device/inode");
       if (!isStrictDescendant(join(repositoryRoot, ".ai", "worker-roots"), expectedWorktree) || !await worktreeListed(repositoryRoot, expectedWorktree) || await gitCommonDir(expectedWorktree) !== await gitCommonDir(repositoryRoot) || await gitObjectFormat(expectedWorktree) !== request.ownedWorktree.objectFormat || request.ownedWorktree.commonDir !== await gitCommonDir(repositoryRoot)) throw new Error("owned worktree escaped or changed its exact Git common-dir/object identity");
       const attempt = worker.attempts.find((candidate) => candidate.attemptNumber === expected.expectedAttemptNumber);
-      if (!attempt || attempt.attemptNonce.length < 16 || attempt.launchKey !== expected.launchKey || attempt.requestHash !== worker.requestHash || attempt.launchSessionId === undefined || approval.ownerSessionId !== attempt.launchSessionId || canonicalOwnerIdentity(approval.approvedByOwner) !== canonicalOwnerIdentity(attempt.launchOwner) || canonicalOwnerIdentity(attempt.dispatchOwner) !== canonicalOwnerIdentity(attempt.launchOwner)) throw new Error("worker attempt does not bind the exact immutable launch/approval/dispatch generation");
+      if (!attempt || attempt.attemptNonce.length < 16 || attempt.launchKey !== expected.launchKey || attempt.requestHash !== worker.requestHash || attempt.launchSessionId === undefined || !expected.nodeWorkspace && (approval.ownerSessionId !== attempt.launchSessionId || !approvalLaunchOwnerMatches(approval, attempt.launchOwner, expected.launchKey, expected.configRequestHash)) || canonicalOwnerIdentity(attempt.dispatchOwner) !== canonicalOwnerIdentity(attempt.launchOwner)) throw new Error("worker attempt does not bind the exact immutable launch/approval/dispatch generation");
       if ((state.quarantinedArtifacts ?? []).some((artifact) => artifact.workerId === worker.id && artifact.attemptNumber === attempt.attemptNumber)) throw new Error("matching attempt has quarantined conflicting artifacts");
       const paths = attemptPaths(repositoryRoot, state.storageId, worker.id, attempt.attemptNumber);
       await assertTrustedDirectory(paths.root, paths.root, rootInfo.dev, "worker attempt root");
@@ -1913,7 +2090,7 @@ async function readTrustedJson(path, trustedRoot, device, maxBytes, label) {
   if (!before.isFile() || before.isSymbolicLink() || before.dev !== device || before.nlink !== 1 || before.size > maxBytes || await realpath(path) !== path) throw new Error(`${label} is a symlink, device escape, hard-link alias, oversized artifact, or noncanonical path`);
   const bytes = await readFile(path);
   const after = await lstat(path);
-  if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || !after.isFile() || after.isSymbolicLink()) throw new Error(`${label} changed during stable read`);
+  if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || after.nlink !== 1 || !after.isFile() || after.isSymbolicLink() || await realpath(path) !== path) throw new Error(`${label} changed during stable read`);
   return JSON.parse(bytes.toString("utf8"));
 }
 
@@ -2046,6 +2223,11 @@ function processIdentityIsGone(disposition) { return disposition === "dead" || d
 
 function cancellationIntentMatches(left, right) {
   return left?.storageId === right.storageId && left?.workerId === right.workerId && left?.attemptNumber === right.attemptNumber && left?.attemptNonce === right.attemptNonce && left?.configHash === right.configHash && left?.reason === right.reason;
+}
+
+function approvalLaunchOwnerMatches(approval, owner, launchKey, requestHash) {
+  return approval.ownerSessionId === owner?.sessionId && (canonicalOwnerIdentity(approval.approvedByOwner) === canonicalOwnerIdentity(owner)
+    || (approval.nodeLaunchHandoffs ?? []).some(h => h.launchKey === launchKey && h.requestHash === requestHash && canonicalOwnerIdentity(h.owner) === canonicalOwnerIdentity(owner)));
 }
 
 function canonicalOwnerIdentity(owner) {

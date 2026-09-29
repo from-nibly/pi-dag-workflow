@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import strictAssert from "node:assert/strict";
+import fs from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
+import { publicationBarrier } from "./fixtures/immutable-publication-barrier.mjs";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile, link, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -25,6 +29,7 @@ import {
 import { ASYNC_COMPLETION_GUIDANCE, registerWorkerRuntime } from "../extensions/dag-workflow/worker-runtime/integration.ts";
 import { WorkerManager } from "../extensions/dag-workflow/worker-runtime/manager.mjs";
 
+await import("./immutable-publication-test.mjs");
 const root = await mkdtemp(join(tmpdir(), "pi-worker-core-"));
 try {
   const registeredPi = createRegistrationPi();
@@ -205,6 +210,47 @@ try {
   assert(fastLaunch.status === "running" && fastStatus.status === "succeeded", "result ingestion preserves the spawn-bound supervisor identity");
   assert(fastAttempt.ingestedAt && fastAttempt.supervisorPid === process.pid && fastAttempt.supervisorStartIdentity === identity, "late supervisor identity facts attach without regressing terminal state");
   const fastAttemptPaths = attemptPaths(root, fastState.storageId, fastLaunch.workerId, 1);
+  const fastBinding = { workerStorageId: fastState.storageId, launchOwnerSessionId: fastAttempt.launchSessionId, workerId: fastLaunch.workerId, attemptNumber: 1, attemptNonce: fastAttempt.attemptNonce, configHash: fastAttempt.configHash };
+  const exactTerminal = await fastManager.terminalResultForBinding(fastBinding, { reconcile: true });
+  strictAssert.equal(exactTerminal.terminalStatus, "succeeded");
+  for (const alias of [join(root, "foreign-terminal-alias"), `${fastAttemptPaths.result}.${process.pid}.0.abcdef.tmp`]) {
+    await link(fastAttemptPaths.result, alias);
+    try { await strictAssert.rejects(fastManager.terminalResultForBinding(fastBinding, { reconcile: true }), /hard-link alias/); }
+    finally { await rm(alias); }
+    strictAssert.deepEqual(await fastManager.terminalResultForBinding(fastBinding), exactTerminal);
+  }
+  const duringReadAlias = join(root, "during-read-alias"), originalReadFile = fs.readFile;
+  try {
+    fs.readFile = async (path, ...args) => {
+      const bytes = await originalReadFile(path, ...args);
+      if (path === fastAttemptPaths.result) await link(path, duringReadAlias);
+      return bytes;
+    };
+    syncBuiltinESMExports();
+    await strictAssert.rejects(fastManager.terminalResultForBinding(fastBinding), /changed during stable read/);
+  } finally { fs.readFile = originalReadFile; syncBuiltinESMExports(); await rm(duringReadAlias, { force: true }); }
+  const savedResult = join(root, "saved-terminal-result");
+  await rename(fastAttemptPaths.result, savedResult);
+  try {
+    await symlink(savedResult, fastAttemptPaths.result);
+    await strictAssert.rejects(fastManager.terminalResultForBinding(fastBinding), /symlink/);
+  } finally { await rm(fastAttemptPaths.result); await rename(savedResult, fastAttemptPaths.result); }
+  // A foreign link acquired before the atomic install must still be rejected;
+  // neither a publisher-shaped filename nor later ingestion grants an exemption.
+  const payload = await readFile(fastAttemptPaths.result, "utf8");
+  await rename(fastAttemptPaths.result, savedResult);
+  const preinstall = await publicationBarrier(root, { point: "before-install" });
+  const publisher = spawn(process.execPath, [resolve("scripts/fixtures/immutable-publisher.mjs"), "json", fastAttemptPaths.result, payload], { env: { ...process.env, ...preinstall.env }, stdio: "ignore" });
+  const publisherExit = new Promise(resolve => publisher.once("exit", resolve));
+  const preinstallAlias = join(root, "preinstall-foreign-alias");
+  try {
+    const publication = await preinstall.reached;
+    await link(join(fastAttemptPaths.root, publication.temporary[0]), preinstallAlias);
+    preinstall.release(); strictAssert.equal(await publisherExit, 0);
+    await strictAssert.rejects(fastManager.terminalResultForBinding(fastBinding, { reconcile: true }), /hard-link alias/);
+  } finally { publisher.kill("SIGKILL"); await publisherExit; await preinstall.close(); await rm(preinstallAlias, { force: true }); await rm(fastAttemptPaths.result, { force: true }); await rename(savedResult, fastAttemptPaths.result); }
+  strictAssert.deepEqual(await fastManager.terminalResultForBinding(fastBinding), exactTerminal);
+  console.log("PASS trusted terminal rejects pre/post publication, publisher-shaped and during-read foreign aliases plus symlinks; exact binding survives");
   const lateRecoveryResult = withResultHash({ schemaVersion: 1, completionId: "completion-late-recovery", storageId: fastState.storageId, ownerSessionId: fastAttempt.launchSessionId, workerId: fastLaunch.workerId, attemptNumber: 1, attemptNonce: fastAttempt.attemptNonce, configHash: fastAttempt.configHash, terminalStatus: "lost", reportStatus: "missing", startedAt: fastAttempt.createdAt, endedAt: new Date().toISOString(), runtime: { recovery: true } });
   await writeImmutableJson(fastAttemptPaths.recoveryResult, lateRecoveryResult);
   await fastManager.scan();
@@ -694,7 +740,7 @@ try {
   await descendantManager.attach(managerContext(descendantRoot, "descendant-parent", detachedDescendantSessionFile));
   const descendantLaunch = await descendantManager.launch({ task: "Spawn a detached descendant.", launchKey: "detached-descendant" });
   await waitFor(async () => { try { return (await readFile(join(descendantRoot, "detached-grandchild-writes.txt"))).length > 0; } catch { return false; } });
-  await descendantManager.scan();
+  await waitFor(async () => { await descendantManager.scan(); return (await descendantManager.status(descendantLaunch.workerId)).status === "succeeded"; });
   const descendantStatus = await descendantManager.status(descendantLaunch.workerId);
   assert(descendantStatus.status === "succeeded" && !("retrySafe" in descendantStatus), "direct Pi-child exit is terminal without ambient descendant discovery");
   const firstDescendantWrites = (await readFile(join(descendantRoot, "detached-grandchild-writes.txt"))).length;
@@ -705,7 +751,7 @@ try {
   process.env.FAKE_WORKER_RPC_MODE = "detached-uninspectable";
   const uninspectableLaunch = await descendantManager.launch({ task: "Spawn an inspectability-denying descendant.", launchKey: "uninspectable-descendant" });
   await waitFor(async () => { try { return (await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length > 0; } catch { return false; } });
-  await descendantManager.scan();
+  await waitFor(async () => { await descendantManager.scan(); return (await descendantManager.status(uninspectableLaunch.workerId)).status === "succeeded"; });
   const uninspectableStatus = await descendantManager.status(uninspectableLaunch.workerId);
   assert(uninspectableStatus.status === "succeeded" && !("retrySafe" in uninspectableStatus), "uninspectable same-UID processes are outside the trusted worker contract");
   const firstUninspectableWrites = (await readFile(join(descendantRoot, "uninspectable-descendant-writes.txt"))).length;
@@ -811,6 +857,9 @@ try {
   }
 
   console.log("Owned worker core, supervisor, and manager tests OK");
+} catch (error) {
+  console.error(error);
+  throw error;
 } finally {
   await rm(root, { recursive: true, force: true });
 }

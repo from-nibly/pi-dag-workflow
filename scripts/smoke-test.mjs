@@ -8,7 +8,7 @@ import { configToDagBase, mergeConfig } from "../extensions/dag-workflow/config.
 import { PACKAGE_DEFAULT_CONFIG } from "../extensions/dag-workflow/defaults.ts";
 import { getNodeFlowName } from "../extensions/dag-workflow/dag.ts";
 import { ensureNodeWorktree, execGit, isConventionalCommitSubject, mergeNode, refreshNodeWorktreeFromParent } from "../extensions/dag-workflow/worktrees.ts";
-import { V2_FOCUSED_SUITES, V2_REQUIRED_PACKAGE_FILES, PRODUCT_PACKAGE_SMOKE_PATH, RELEASE_SUITE_TIMEOUT_MS, runtimePackageSources } from "./release-impact.mjs";
+import { V2_FOCUSED_SUITES, V2_REQUIRED_PACKAGE_FILES, PRODUCT_PACKAGE_SMOKE_PATH, RELEASE_SUITE_TIMEOUT_MS, releaseSuiteTimeoutMs, runtimePackageSources } from "./release-impact.mjs";
 
 const args = process.argv.slice(2);
 if (args.some(arg => !["--package", "--package-static"].includes(arg)) || args.length > 1) throw new Error("Usage: smoke-test.mjs [--package | --package-static]");
@@ -31,6 +31,7 @@ const files = [
   "extensions/dag-workflow/project-model/persistence.ts",
   "extensions/dag-workflow/project-model/projector.ts",
   "extensions/dag-workflow/project-model/domain.ts",
+  "extensions/dag-workflow/project-model/reviews.ts",
   "extensions/dag-workflow/project-model/integration.ts",
   "extensions/dag-workflow/project-model/review-turn.ts",
   "extensions/dag-workflow/project-model/review-renderer.ts",
@@ -65,6 +66,7 @@ const files = [
   "extensions/dag-workflow/worker-runtime/manager.mjs",
   "extensions/dag-workflow/worker-runtime/integration.ts",
   "scripts/project-model-test.mjs",
+  "scripts/project-model-focus-free-test.mjs",
   "scripts/dag-planning-test.mjs",
   "scripts/dag-planning-runtime-test.mjs",
   "scripts/dag-planning-command-test.mjs",
@@ -143,13 +145,14 @@ if (!packageMode) {
   assertIncludes(widgetPrototype.stdout, "DAG widget activity-lane prototype OK", "DAG widget visual prototype evidence still executes");
   const gitIntegration = await execFileAsync(process.execPath, ["scripts/git-integration-test.mjs"]);
   assertIncludes(gitIntegration.stdout, "Exact real-Git integration transaction and failpoint matrix OK", "real-Git integration failpoint matrix passes");
-  const workerRuntime = await execFileAsync(process.execPath, ["scripts/worker-runtime-test.mjs"]);
+  const workerRuntime = await execFileAsync("npm", ["run", "test:workers"]);
   assertIncludes(workerRuntime.stdout, "Owned worker core, supervisor, and manager tests OK", "owned worker runtime tests pass");
+  assertIncludes(workerRuntime.stdout, "Worker activity snapshots and bus lifecycle tests OK", "worker activity tests pass");
   const adapterPrototype = await execFileAsync(process.execPath, ["spec/prototypes/brainstorm-pi-adapter/scenario.mjs"]);
   assertIncludes(adapterPrototype.stdout, "Brainstorm Pi adapter prototype OK", "legacy adapter evidence still executes");
   const lavishPrototype = await execFileAsync(process.execPath, ["spec/prototypes/lavish-turn-renderer/scenario.mjs"]);
   assertIncludes(lavishPrototype.stdout, "Lavish turn-renderer prototype OK", "Lavish turn-renderer prototype scenario passes");
-  for (const script of V2_FOCUSED_SUITES) await execFileAsync("npm", ["run", script]);
+  for (const script of V2_FOCUSED_SUITES) await execFileAsync("npm", ["run", script], { timeout: releaseSuiteTimeoutMs(script) });
 }
 
 const sampleDag = {

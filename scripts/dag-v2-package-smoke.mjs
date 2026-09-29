@@ -7,7 +7,6 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import dagWorkflow from "../extensions/dag-workflow/index.ts";
-import { FocusSessionStore } from "../extensions/dag-workflow/project-model/sessions.ts";
 import { SpecProjector } from "../extensions/dag-workflow/project-model/projector.ts";
 import { semanticHash } from "../extensions/dag-workflow/project-model/model.ts";
 import { selectorV2 } from "../extensions/dag-workflow/planning/v2.ts";
@@ -56,8 +55,6 @@ try {
   await writeFile(join(root, ".gitignore"), ".ai/\n"); await writeFile(join(root, "file"), "baseline\n");
   await writeFile(join(root, "verify.mjs"), "import assert from 'node:assert/strict'; import {readFileSync} from 'node:fs'; assert.equal(readFileSync('file','utf8'),'baseline\\n');\n");
   git("add", "."); git("commit", "-m", "test: package fixture");
-  await new FocusSessionStore(root).create({ id: "focus-smoke", title: "Smoke", workstreamIds: [] });
-  entries.push({ type: "custom", customType: "dag-model-focus-link", data: { repositoryRoot: root, focusSessionId: "focus-smoke", mode: "active" } });
   const role = process.env.PI_DAG_WORKER_ROLE;
   let handles;
   try { delete process.env.PI_DAG_WORKER_ROLE; handles = dagWorkflow(pi); }
@@ -65,7 +62,7 @@ try {
   attached = true; await emit("session_start");
   assert(!tools.has("dag_plan_decide"), "approval writer is still registered");
   for (const [name, tool] of tools) if (name.startsWith("dag_") && !name.startsWith("dag_model")) assert(!JSON.stringify(tool.parameters).includes('"actionId"'), name);
-  const input = { planId: "smoke", expectedPlanRevision: 0, title: "Local verification", sourceRefs: [source, "spec:spec/local/spec.md"], scopeSummary: "Verify fixture locally",
+  const input = { planId: "smoke", expectedPlanRevision: 0, workstreamIds: [], title: "Local verification", sourceRefs: [source, "spec:spec/local/spec.md"], scopeSummary: "Verify fixture locally",
     architecture: { outcomes: [{ id: "bytes", description: "Exact baseline bytes" }], nonGoals: ["Publication"], notes: [], risks: [] },
     workItems: [{ id: "local", title: "Verify local bytes", objective: "Keep baseline and newline", outcomeIds: ["bytes"], context: [], checks: ["Exact bytes"], dependsOn: [], risk: "low", riskNotes: [], resources: {}, gates: [],
       lifecycle: { oracle: { statement: "file contains baseline and newline", sourceRefs: [source], checkIds: ["f2"] },
@@ -80,7 +77,7 @@ try {
   assert(messages.length > 0); assert.deepEqual(await readFile(statePath), beforeShow);
   plan = await call("dag_plan_save", { ...input, expectedPlanRevision: 1, title: "Revised local verification" });
   assert.equal(plan.revision, 2); assert.equal(Object.keys((await product.runtime.store.read()).runs).length, 0);
-  const start = { selection: selectorV2(plan), authority: { scope: ["local"], maxConcurrency: 1, effects: ["repository_local"], expiresAt: Date.now() + 3600000 } };
+  const start = { selection: selectorV2(plan), authority: { scope: ["local"], maxConcurrency: 1, effects: ["repository_local"] } };
   await commands.get("dag").handler(`run ${JSON.stringify(start)}`, ctx);
   const { run } = await product.read(); assert(run); assert.equal(run.start.selection.revision, 2);
   assert.equal(run.nodes.local.status, "pending"); assert.equal(run.nodes.local.reservation, undefined);

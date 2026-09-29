@@ -71,7 +71,7 @@ export interface PreparedDagRunV1 {
 
 interface ResolvedSources {
   model: ProjectModel;
-  governing: Array<{ collection: Exclude<ModelCollectionName, "workstreams" | "evidence" | "assumptions" | "questions" | "tensions" | "proposals" | "discoveries">; id: string; semanticHash: string; acceptanceContentHash: string; object: ModelObject }>;
+  governing: Array<{ collection: Exclude<ModelCollectionName, "workstreams" | "evidence" | "assumptions" | "questions" | "tensions" | "proposals" | "discoveries">; id: string; semanticHash: string; acceptanceContentHash?: string; object: ModelObject }>;
   context: Array<{ collection: "evidence" | "questions" | "proposals" | "discoveries"; id: string; semanticHash: string }>;
   specs: Array<{ projectionId: string; projectionContract: string; modelInputHash: string; contentHash: string }>;
 }
@@ -169,8 +169,8 @@ async function resolveSources(repositoryRoot: string, plan: DagPlanningPlanV1): 
       const exactSemanticHash = semanticHash(collection, object);
       if (source.semanticHash !== exactSemanticHash) throw new Error(`Source mismatch: ${collection}/${object.id} semantic hash differs from the thin plan`);
       if (GOVERNING_COLLECTIONS.has(collection)) {
-        if (object.state !== "accepted" || object.acceptance?.contentHash !== exactSemanticHash) throw new Error(`Planning source ${object.id} is not exact accepted governing model authority`);
-        governing.push({ collection: collection as ResolvedSources["governing"][number]["collection"], id: object.id, semanticHash: exactSemanticHash, acceptanceContentHash: object.acceptance.contentHash, object });
+        if (object.state !== "accepted") throw new Error(`Planning source ${object.id} is not exact accepted governing model authority`);
+        governing.push({ collection: collection as ResolvedSources["governing"][number]["collection"], id: object.id, semanticHash: exactSemanticHash, ...(object.acceptance ? { acceptanceContentHash: object.acceptance.contentHash } : {}), object });
       } else if (CONTEXT_COLLECTIONS.has(collection)) {
         context.push({ collection: collection as ResolvedSources["context"][number]["collection"], id: object.id, semanticHash: exactSemanticHash });
       } else {
@@ -282,7 +282,7 @@ function compileCanonicalPlan(
     prefixValidationProfileId: prefixProfile[1].profileId, prefixValidationProfileHash: prefixProfile[0],
     finalValidationProfileId: finalProfile[1].profileId, finalValidationProfileHash: finalProfile[0],
   });
-  const closureEntries = sources.governing.map(({ collection, id, semanticHash, acceptanceContentHash }) => ({ collection, id, effectiveState: "accepted" as const, semanticHash, acceptanceContentHash }));
+  const closureEntries = sources.governing.map(({ collection, id, semanticHash, acceptanceContentHash }) => ({ collection, id, effectiveState: "accepted" as const, semanticHash, ...(acceptanceContentHash ? { acceptanceContentHash } : {}) }));
   const selectedWorkstreamIds = [...new Set(sources.governing.flatMap(({ object }) => object.scope.kind === "workstreams" ? object.scope.workstreamIds : []))].sort();
   const selectorCore = { version: "thin-plan-source-join-v1", selectedWorkstreamIds, explicitSeedIds: sources.governing.map(({ id }) => id).sort() };
   const modelBindingCore = {
@@ -329,7 +329,7 @@ function buildGenesis(
     stageScopes: Object.fromEntries(input.planningPlan.authorization.scope.map((workItemId) => [workItemId, [...PLAN_STAGE_IDS]])),
     repositoryIds: plan.repositories.map(({ repositoryId }) => repositoryId).sort(), effectScopeIds: [],
     integrationTrainIds: plan.constraints.integrationTrains.map(({ trainId }) => trainId).sort(), retryCeilingsHash: plan.lifecycleBinding.retryPolicyHash,
-    maxActiveNodes, validFrom: input.planningPlan.authorization.at!, validUntil: null,
+    maxActiveNodes, validFrom: input.planningPlan.authorization.at!,
   };
   const authorization: DagRunAuthorizationBindingV1 = { ...authorizationCore, hash: canonicalHash(authorizationCore) };
   const authorizationSetRef = factRef("authorization_set", derivedId("authorization-set", plan.planHash), authorization);

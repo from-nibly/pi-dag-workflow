@@ -37,6 +37,11 @@ export class ProjectModelStore {
     return model;
   }
 
+  async withSnapshot<T>(reader: (model: ProjectModel) => Promise<T>): Promise<T> {
+    await assertNoSymlinkPath(this.root, this.path);
+    return withFileLock(this.path, async () => reader(await this.load()));
+  }
+
   async write(input: ProjectModel, expectedRevision = input.project.revision - 1): Promise<ProjectModel> {
     await assertNoSymlinkPath(this.root, this.path);
     const model = normalizeAndValidate(input);
@@ -47,18 +52,27 @@ export class ProjectModelStore {
     });
   }
 
-  async mutate(mutator: (draft: ProjectModel) => void | Promise<void>): Promise<{ beforeHash: string; afterHash: string; model: ProjectModel }> {
+  async mutate(mutator: (draft: ProjectModel) => void | Promise<void>, options: { onError?: () => void | Promise<void> } = {}): Promise<{ beforeHash: string; afterHash: string; model: ProjectModel }> {
     await assertNoSymlinkPath(this.root, this.path);
     return withFileLock(this.path, async () => {
       const current = await this.loadOptional();
       if (!current) throw new Error(`Project model not found: ${this.path}`);
       const beforeHash = modelHash(current);
       const draft = structuredClone(current);
-      await mutator(draft);
-      draft.project.revision += 1;
-      draft.project.updatedAt = nowIso();
-      const model = await this.writeUnlocked(normalizeAndValidate(draft), current.project.revision, current);
-      return { beforeHash, afterHash: modelHash(model), model };
+      try {
+        await mutator(draft);
+        draft.project.revision += 1;
+        draft.project.updatedAt = nowIso();
+        const model = await this.writeUnlocked(normalizeAndValidate(draft), current.project.revision, current);
+        return { beforeHash, afterHash: modelHash(model), model };
+      } catch (error) {
+        // A post-rename fsync failure may have published the model. Never restore
+        // old derived files over that committed revision or manufacture rollback.
+        const latest = await this.loadOptional();
+        if (latest && latest.project.revision !== current.project.revision) throw new AggregateError([error], "Model replacement may have committed; refusing stale projection restoration");
+        if (options.onError) await options.onError();
+        throw error;
+      }
     });
   }
 

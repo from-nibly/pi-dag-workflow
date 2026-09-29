@@ -1,8 +1,8 @@
 import { resolve, sep } from "node:path";
 import { sha256 } from "./model.ts";
-import type { ReviewPoint } from "./types.ts";
+import type { ReviewPoint, ModelOperationScope } from "./types.ts";
 
-export const TURN_PROJECTION_SCHEMA_VERSION = 1 as const;
+export const TURN_PROJECTION_SCHEMA_VERSION = 2 as const;
 
 export interface PresentationBlock {
   id: string;
@@ -22,16 +22,17 @@ export interface PresentationBlock {
 export interface ModelReviewTurnProjection {
   schemaVersion: typeof TURN_PROJECTION_SCHEMA_VERSION;
   project: { id: string; title: string; revision: number; modelHash: string };
-  focus: { id: string; title: string; workstreamIds: string[] };
+  scope: ModelOperationScope;
   currentUnderstanding: { body: string };
-  delta: { added: number; changed: number; stillUnresolved: number; possibleMisunderstanding?: string; consequences: string[] };
+  context: { createdAtModelRevision: number; pendingPointCount: number };
   frontier: Array<{ id: string; type: string; title: string; state: string; summary: string; badges: string[] }>;
   frontierHandoff?: string;
-  review: { id: string; title: string; semanticHash: string; points: ReviewPoint[] };
+  review: { id: string; title: string; revision: number; artifactDigest: string; points: ReviewPoint[] };
   presentationBlocks?: PresentationBlock[];
 }
 
-export function reviewSemanticHash(review: { id: string; title: string; points: ReviewPoint[] }): string {
+/** Derived presentation cache identity only, never evidence of user agreement. */
+export function reviewArtifactDigest(review: { id: string; title: string; points: ReviewPoint[] }): string {
   return sha256({ id: review.id, title: review.title, points: review.points });
 }
 
@@ -45,16 +46,16 @@ export function validateTurnProjection(value: unknown): string[] {
   requireString(projection.project?.title, "project.title", errors);
   if (!Number.isInteger(projection.project?.revision) || Number(projection.project?.revision) < 0) errors.push("project.revision must be a non-negative integer");
   requireString(projection.project?.modelHash, "project.modelHash", errors);
-  requireRecord(projection.focus, "focus", errors);
-  requireSafeId(projection.focus?.id, "focus.id", errors);
-  requireString(projection.focus?.title, "focus.title", errors);
-  stringArray(projection.focus?.workstreamIds, "focus.workstreamIds", errors);
+  requireRecord(projection.scope, "scope", errors);
+  stringArray(projection.scope?.workstreamIds, "scope.workstreamIds", errors);
   requireRecord(projection.currentUnderstanding, "currentUnderstanding", errors);
   requireString(projection.currentUnderstanding?.body, "currentUnderstanding.body", errors);
   requireRecord(projection.review, "review", errors);
   requireSafeId(projection.review?.id, "review.id", errors);
   requireString(projection.review?.title, "review.title", errors);
-  requireString(projection.review?.semanticHash, "review.semanticHash", errors);
+  requireString(projection.review?.artifactDigest, "review.artifactDigest", errors);
+  if (!Number.isSafeInteger(projection.review?.revision) || Number(projection.review?.revision) < 0) errors.push("review.revision must be a non-negative integer");
+  if (!Number.isSafeInteger(projection.context?.createdAtModelRevision) || Number(projection.context?.createdAtModelRevision) < 0 || !Number.isSafeInteger(projection.context?.pendingPointCount) || Number(projection.context?.pendingPointCount) < 0) errors.push("review context counts are invalid");
 
   const points = array(projection.review?.points, "review.points", errors) as ReviewPoint[];
   const pointIds = new Set<string>();
@@ -79,7 +80,6 @@ export function validateTurnProjection(value: unknown): string[] {
       optionIds.add(option?.id);
       requireString(option?.label, `${optionLabel}.label`, errors);
       requireString(option?.description, `${optionLabel}.description`, errors);
-      requireString(option?.semanticHash, `${optionLabel}.semanticHash`, errors);
     }
   }
 
@@ -110,10 +110,9 @@ export function assertTurnProjection(value: unknown): asserts value is ModelRevi
   if (errors.length) throw new Error(`Invalid ModelReviewTurnProjection:\n- ${errors.join("\n- ")}`);
 }
 
-export function reviewArtifactPaths(root: string, focusId: string, reviewId: string) {
-  requireSafeSegment(focusId, "focusId");
+export function reviewArtifactPaths(root: string, reviewId: string) {
   requireSafeSegment(reviewId, "reviewId");
-  const base = resolve(root, ".ai", "model-sessions", focusId, "lavish");
+  const base = resolve(root, ".ai", "model-reviews", "lavish");
   const html = resolve(base, `${reviewId}.html`);
   const metadata = resolve(base, `${reviewId}.presentation.json`);
   for (const path of [html, metadata]) if (path !== base && !path.startsWith(`${base}${sep}`)) throw new Error(`Unsafe artifact path: ${path}`);

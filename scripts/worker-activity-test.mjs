@@ -7,6 +7,7 @@ import { WorkerManager } from "../extensions/dag-workflow/worker-runtime/manager
 import { connectWorkerActivityBus, WORKER_ACTIVITY_EVENT, WORKER_ACTIVITY_REQUEST_EVENT } from "../extensions/dag-workflow/worker-runtime/activity.mjs";
 import { attemptPaths, withResultHash, writeImmutableJson } from "../extensions/dag-workflow/worker-runtime/core.mjs";
 import { registerWorkerRuntime } from "../extensions/dag-workflow/worker-runtime/integration.ts";
+import { withWorkspaceOwnership } from "../extensions/dag-workflow/worker-runtime/workspace-ownership.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "pi-worker-activity-"));
 const managers = [];
@@ -321,6 +322,30 @@ try {
   await staleLaunch.attach(context(root, "stale-launch"));
   assert.equal(active(staleLaunch)[0].workerId, "stale-launch-worker");
   assert.equal(active(staleLaunch)[0].status, "running");
+
+  // A launch waiting on node/global workspace admission cannot reserve work in
+  // a replacement session when the admission lock finally becomes available.
+  const waitingLaunch = manager();
+  await waitingLaunch.attach(context(root, "workspace-waiter"));
+  const waitingStore = waitingLaunch.store;
+  let releaseAdmission, admissionEntered;
+  const admissionGate = new Promise(done => { releaseAdmission = done; });
+  const admissionReady = new Promise(done => { admissionEntered = done; });
+  const admission = withWorkspaceOwnership(root, root, async () => { admissionEntered(); await admissionGate; });
+  await admissionReady;
+  let normalized;
+  const normalizing = new Promise(done => { normalized = done; });
+  waitingLaunch.pi.getActiveTools = () => { normalized(); return ["read"]; };
+  const rejectedLaunch = assert.rejects(waitingLaunch.launch({ workerId: "stale-admission", task: "old owner only" }), /epoch changed/);
+  await normalizing;
+  await waitingLaunch.attach(context(root, "workspace-replacement"));
+  const replacementRevision = waitingLaunch.activitySnapshot().revision;
+  releaseAdmission();
+  await Promise.all([admission, rejectedLaunch]);
+  assert.equal(waitingLaunch.activitySnapshot().revision, replacementRevision, "retired launch must not publish replacement activity");
+  assert.equal(Object.keys((await waitingStore.load()).workers).length, 0);
+  assert.equal(Object.keys((await waitingLaunch.store.load()).workers).length, 0);
+  assert.equal(waitingLaunch.activitySnapshot().working, false);
 
   const unavailable = manager();
   await assert.rejects(unavailable.attach(context(parentFile, "unavailable")));

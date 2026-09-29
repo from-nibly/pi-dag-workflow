@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile, rm, rename, cp, symlink, chmod, readdir } from "node:fs/promises";
-import { execFileSync, spawnSync, spawn } from "node:child_process";
+import { mkdtemp, mkdir, writeFile, readFile, rm, rename, cp, symlink, chmod, readdir, lstat } from "node:fs/promises";
+import childProcess, { execFileSync, spawnSync, spawn } from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { RuntimeV2, StoreV2, GitDriverV2, selectorV2, gitEnvironmentV2, runArgvV2 } from "../extensions/dag-workflow/runtime-v2/index.ts";
-import { bindGitV2, eligibleGitV2, composeGitV2, assertTargetV2, observeGitV2, makeGuardV2, privateRefV2, nativeGitV2, gitOptionsV2 } from "../extensions/dag-workflow/runtime-v2/git-native.ts";
+import { bindGitV2, eligibleGitV2, composeGitV2, acceptedPrefixBaseV2, assertTargetV2, observeGitV2, makeGuardV2, privateRefV2, nativeGitV2, gitOptionsV2, configuredGitHooksV2 } from "../extensions/dag-workflow/runtime-v2/git-native.ts";
 import { lockGitCommonV2 } from "../extensions/dag-workflow/runtime-v2/git-lock.ts";
 import { fixtureLifecycleV2, fixtureSourceV2, finishLifecycleV2, mutationV2 } from "./fixtures/dag-v2-lifecycle.mjs";
+import { withWorkspaceOwnership, inspectWorkspaceRoot } from "../extensions/dag-workflow/worker-runtime/workspace-ownership.mjs";
 const tests = [], test = (name, fn) => tests.push([name, fn]);
 const env = gitEnvironmentV2();
 async function fixture(format = "sha1") {
@@ -162,7 +164,7 @@ async function runtimeFixture({ nodes = 1, finalFail = false, prefixDelay = 0, p
     source: { governingClosure: `sha256:${"a".repeat(64)}`, refs: [fixtureSourceV2], scopeSummary: "repository local" }, architecture: { outcomes: [{ id: "result", description: "actual integration" }], nonGoals: ["publication"], notes: [], risks: [] },
     workItems: nodes === 2 ? [workItem("a", []), workItem("b", ["a"])] : [workItem("a", [])], constraints: { maxConcurrency: 1, resources: {}, mutexGroups: [], gates: [] },
     integration: { strategy: "serial", checks: ["prefix"], finalChecks: ["final"], prefixCommands: [command("prefix")], finalCommands: [command("final", finalFail)] } }, 0);
-  let run = await runtime.start({ intent: "run", sessionId: "session", selection: selectorV2(plan), authority: { scope: plan.workItems.map(n => n.id), maxConcurrency: 1, effects: ["repository_local"], expiresAt: Date.now() + 600000 } }, 1);
+  let run = await runtime.start({ intent: "run", sessionId: "session", selection: selectorV2(plan), authority: { scope: plan.workItems.map(n => n.id), maxConcurrency: 1, effects: ["repository_local"] } }, 1);
   run = await runtime.acquireLease(run.runId, "session", run.revision);
   const prepare = async (runtime, run, id, candidate) => {
     run = await runtime.reserve(mutationV2(run), id, 1, `implement ${id}`); run = await runtime.dispatch(mutationV2(run), id, 1, { ensure: async () => ({ workerId: `worker-${id}` }) });
@@ -171,6 +173,82 @@ async function runtimeFixture({ nodes = 1, finalFail = false, prefixDelay = 0, p
   run = await prepare(runtime, run, "a", f.candidate);
   return { ...f, store, storeRoot, fresh, runtime, plan, run, prepare, counter, reload: () => new RuntimeV2(new StoreV2(storeRoot), fresh) };
 }
+async function nodeRuntimeFixture(options) {
+  const f = await runtimeFixture(options), cwd = join(f.dir, "node");
+  f.git("worktree", "add", "--detach", cwd, f.candidate.commit);
+  await writeFile(join(f.root, ".git/info/exclude"), ".ai/\ncache/\n");
+  await mkdir(join(cwd, "cache")); await writeFile(join(cwd, "cache/dependency"), "preserved");
+  const node = { cwd, nodeId: `${f.run.runId}/a`, epoch: 1 };
+  const binding = { workerStorageId: "fixture", launchOwnerSessionId: "fixture", workerId: "worker-a", attemptNumber: 1, attemptNonce: "nonce", configHash: `sha256:${"a".repeat(64)}` };
+  await withWorkspaceOwnership(f.root, cwd, async (_owner, publish) => publish({ version: 1, repository: f.root, cwd, root: await inspectWorkspaceRoot(cwd), nodeId: node.nodeId, epoch: 1,
+    binding, launchKey: null, execution: null, handoffs: [{ binding, completion: { completionId: "fixture", terminalStatus: "succeeded" }, at: new Date().toISOString() }] }));
+  return { ...f, node };
+}
+test("same-node configured hooks stay disabled during checkout, checks, restoration and landing", async () => {
+  const f = await nodeRuntimeFixture(); try {
+    const marker = installConfiguredHooks(f);
+    const run = await new GitDriverV2(f.runtime, f.root).integrate(mutationV2(f.run), "a", 1, f.candidate, undefined, f.node);
+    assert.equal(run.status, "complete"); await assert.rejects(readFile(marker), { code: "ENOENT" });
+    assert.equal(await readFile(join(f.node.cwd, "cache/dependency"), "utf8"), "preserved");
+  } finally { await f.cleanup(); }
+});
+test("same-node tracked check tampering blocks restoration and target movement without overwriting user bytes", async () => {
+  const f = await nodeRuntimeFixture({ prefixScript: () => "require('node:fs').writeFileSync('file','USER CHECK EDIT\\n');" }); try {
+    await assert.rejects(new GitDriverV2(f.runtime, f.root).integrate(mutationV2(f.run), "a", 1, f.candidate, undefined, f.node), /GIT_CHECK_NONPASS/);
+    let run = (await f.store.read()).runs[f.run.runId], op = run.gitOperations[0];
+    const job = (await f.store.read()).executions[op.checks[0].id];
+    assert.equal(job.workspace, f.node.cwd); assert.equal(job.result.exitCode, 0); assert.equal(job.result.workspace.cleanAfter, false);
+    await assert.rejects(new GitDriverV2(f.reload(), f.root).closeOperation(mutationV2(run), op.operationId), /GIT_NODE_RESTORE_BLOCKED/);
+    assert.equal(await readFile(join(f.node.cwd, "file"), "utf8"), "USER CHECK EDIT\n"); assert.equal(f.git("rev-parse", "HEAD"), f.old.commit);
+    await withWorkspaceOwnership(f.root, f.node.cwd, owner => assert.equal(owner.execution, op.operationId));
+    await writeFile(join(f.node.cwd, "file"), "integrated a\n");
+    run = (await f.store.read()).runs[f.run.runId]; await new GitDriverV2(f.reload(), f.root).closeOperation(mutationV2(run), op.operationId);
+    assert.equal((await f.store.read()).runs[f.run.runId].gitOperations[0].phase, "closed");
+  } finally { await f.cleanup(); }
+});
+test("same-node closure retains a foreign lock even at the exact original endpoint", async () => {
+  const f = await nodeRuntimeFixture(); try {
+    await assert.rejects(new GitDriverV2(f.runtime, f.root, { failpoint: async point => { if (point === "node-switching-intent") throw Error("before checkout"); } }).integrate(mutationV2(f.run), "a", 1, f.candidate, undefined, f.node), /before checkout/);
+    const lock = join(nativeGitV2(f.node.cwd, "rev-parse", "--absolute-git-dir"), "index.lock"); await writeFile(lock, "foreign lock");
+    let run = (await f.store.read()).runs[f.run.runId], op = run.gitOperations[0];
+    await assert.rejects(new GitDriverV2(f.reload(), f.root).closeOperation(mutationV2(run), op.operationId), /GIT_NODE_LOCK_OR_OPERATION/);
+    assert.equal(await readFile(lock, "utf8"), "foreign lock"); await withWorkspaceOwnership(f.root, f.node.cwd, owner => assert.equal(owner.execution, op.operationId));
+    await rm(lock); run = (await f.store.read()).runs[f.run.runId];
+    await new GitDriverV2(f.reload(), f.root).closeOperation(mutationV2(run), op.operationId);
+    assert.equal((await f.store.read()).runs[f.run.runId].gitOperations[0].phase, "closed");
+  } finally { await f.cleanup(); }
+});
+test("same-node ignored attributes block before checkout without invoking filters or deleting artifacts", async () => {
+  const f = await nodeRuntimeFixture(); try {
+    const marker = join(f.dir, "FILTER-RAN"); f.git("config", "filter.bad.clean", `touch ${marker}; cat`);
+    await writeFile(join(f.root, ".git/info/exclude"), ".ai/\ncache/\n.gitattributes\n");
+    await writeFile(join(f.node.cwd, ".gitattributes"), "* filter=bad\n");
+    await assert.rejects(new GitDriverV2(f.runtime, f.root).integrate(mutationV2(f.run), "a", 1, f.candidate, undefined, f.node), /attributes/);
+    assert.equal(await readFile(join(f.node.cwd, ".gitattributes"), "utf8"), "* filter=bad\n"); await assert.rejects(readFile(marker), { code: "ENOENT" });
+    assert.equal(nativeGitV2(f.node.cwd, "rev-parse", "HEAD"), f.candidate.commit); assert.equal(f.git("rev-parse", "HEAD"), f.old.commit);
+  } finally { await f.cleanup(); }
+});
+for (const point of ["node-switching-intent", "node-switching-exited", "node-composed", "node-restoring-intent", "node-restoring-exited"]) test(`same-node actual owner SIGKILL at ${point} retains claim and reload restores before CAS`, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "v2-node-crash-")), path = join(directory, "fixture.json"); let data;
+  try {
+    const child = spawnSync(process.execPath, [resolve("scripts/dag-v2-git-acceptance-test.mjs"), "--crash-node-owner", point, path], { env, encoding: "utf8", timeout: 120000 });
+    assert.equal(child.signal, "SIGKILL", child.stderr); data = JSON.parse(await readFile(path, "utf8"));
+    const store = new StoreV2(data.storeRoot), fresh = { current: async p => ({ repository: p.repository, source: p.source }) }, runtime = new RuntimeV2(store, fresh);
+    let run = (await store.read()).runs[data.runId];
+    await withWorkspaceOwnership(data.root, data.node.cwd, owner => { assert.equal(owner.execution, `${data.runId}/a/1/integration`); });
+    assert.equal(nativeGitV2(data.root, "rev-parse", "HEAD"), data.old.commit);
+    run = await runtime.acquireLease(run.runId, "session", run.revision);
+    run = await new GitDriverV2(runtime, data.root).integrate(mutationV2(run), "a", 1, data.candidate);
+    assert.equal(run.status, "complete"); assert.equal(run.gitOperations[0].workspace.phase, "restored");
+    assert.equal(nativeGitV2(data.node.cwd, "rev-parse", "HEAD"), data.candidate.commit);
+    assert.equal(await readFile(join(data.node.cwd, "cache/dependency"), "utf8"), "preserved");
+    assert.equal(nativeGitV2(data.root, "worktree", "list", "--porcelain").split("\n").filter(l => l.startsWith("worktree ")).length, 2);
+    await withWorkspaceOwnership(data.root, data.node.cwd, owner => { assert.equal(owner.execution, null); });
+    for (const request of run.gitOperations[0].checks) {
+      const job = (await store.read()).executions[request.id]; assert.equal(job.workspace, data.node.cwd); assert.equal(job.result.disposition, "PASS");
+    }
+  } finally { if (data) await rm(data.dir, { recursive: true, force: true }); await rm(directory, { recursive: true, force: true }); }
+});
 function installConfiguredHooks(f, enabled = "true") {
   const marker = join(f.dir, "CONFIG-HOOK-RAN");
   for (const event of ["post-index-change", "reference-transaction", "post-checkout", "post-merge"]) {
@@ -335,8 +413,204 @@ test("real two-node integration across fresh services: isolated prefix/final, ex
     const b = { ...f.old, commit: f.git("commit-tree", f.old.tree, "-p", f.old.commit, "-m", "unchanged candidate b") };
     run = await f.prepare(runtime, run, "b", b); run = await new GitDriverV2(f.reload(), f.root).integrate(mutationV2(run), "b", 1, b);
     assert.equal(run.status, "complete"); assert.equal((await f.store.read()).runs[run.runId].status, "complete");
+    assert.equal(run.gitOperations[1].sourceBase.commit, f.old.commit); assert.equal(run.gitOperations[1].composition.accepted.length, 1);
     assert.equal(await readFile(f.counter, "utf8"), "prefix\nfinal\nprefix\nfinal\n");
     for (const op of run.gitOperations) for (const check of op.checks) { const result = (await f.store.read()).executions[check.id].result; assert.equal(result.disposition, "PASS"); assert.match(result.stdout, new RegExp(op.proposal.commit)); assert.equal(result.workspace.isolated, true); }
+  } finally { await f.cleanup(); }
+});
+test("accepted-prefix composition: sequential overlapping W1/W2 uses incorporated accepted proposal", async () => {
+  const f = await runtimeFixture({ nodes: 2 }); try {
+    let run = await new GitDriverV2(f.runtime, f.root).integrate(mutationV2(f.run), "a", 1, f.candidate);
+    const first = JSON.stringify(run.gitOperations[0]), prefix = run.nodes.a.integration.target;
+    await writeFile(join(f.root, "file"), "integrated b\n"); f.git("add", "file");
+    const tree = f.git("write-tree"), b = { tree, commit: f.git("commit-tree", tree, "-p", prefix.commit, "-m", "W2 overlaps W1") };
+    f.git("restore", "--source=HEAD", "--staged", "--worktree", ".");
+    run = await f.prepare(f.reload(), run, "b", b);
+    run = await new GitDriverV2(f.reload(), f.root).integrate(mutationV2(run), "b", 1, b);
+    assert.equal(run.status, "complete"); assert.deepEqual({ ...run.gitOperations[1].sourceBase }, prefix);
+    assert.equal(run.gitOperations[1].proposal.tree, b.tree); assert.equal(JSON.stringify(run.gitOperations[0]), first);
+    assert.equal(await readFile(f.counter, "utf8"), "prefix\nfinal\nprefix\nfinal\n");
+  } finally { await f.cleanup(); }
+});
+test("accepted-prefix native authority: retained unlanded repair, parallel earlier prefix, genuine conflicts and tampering", async () => {
+  const f = await fixture(); try {
+    const p = f.op.proposal;
+    const commit = async (parent, text, label) => {
+      await writeFile(join(f.root, "file"), text); f.git("add", "file"); const tree = f.git("write-tree");
+      const value = { tree, commit: f.git("commit-tree", tree, "-p", parent.commit, "-m", label) };
+      f.git("restore", "--source=HEAD", "--staged", "--worktree", "."); return value;
+    };
+    const c = await commit(p, "integrated b\n", "unlanded C"), repair = await commit(c, "integrated c\n", "repair on unlanded C");
+    const receipt = { version: "accepted-prefix-v1", baseline: f.old, accepted: [{ operationId: "run/a/1/integration", proposal: p }] };
+    const op = { ...f.op, profile: "ordinary-ff-v2-2", composition: receipt, candidate: repair, expected: p, sourceBase: p };
+    assert.equal(acceptedPrefixBaseV2(f.root, receipt, repair, p).commit, p.commit);
+    assert.equal(composeGitV2(op).tree, repair.tree); assert.throws(() => composeGitV2({ ...op, sourceBase: c }), /BASE_MISMATCH/);
+    assert.throws(() => composeGitV2({ ...op, sourceBase: f.old }), /BASE_MISMATCH/);
+    const q = await commit(p, "integrated d\n", "accepted Q conflicts with C");
+    const chain = { ...receipt, accepted: [...receipt.accepted, { operationId: "run/q/1/integration", proposal: q }] };
+    assert.equal(acceptedPrefixBaseV2(f.root, chain, c, q).commit, p.commit);
+    assert.throws(() => composeGitV2({ ...op, composition: chain, expected: q, candidate: c }), /GIT_COMPOSITION_CONFLICT/);
+    assert.throws(() => composeGitV2({ ...op, composition: chain, expected: q, candidate: c, sourceBase: q }), /BASE_MISMATCH/);
+    assert.equal(acceptedPrefixBaseV2(f.root, chain, f.candidate, q).commit, f.old.commit);
+    f.git("read-tree", p.tree); await writeFile(join(f.root, "parallel"), "latest prefix only\n"); f.git("add", "parallel");
+    const parallelTree = f.git("write-tree"), parallel = { tree: parallelTree, commit: f.git("commit-tree", parallelTree, "-p", p.commit, "-m", "disjoint later prefix") };
+    f.git("restore", "--source=HEAD", "--staged", "--worktree", ".");
+    const parallelReceipt = { ...receipt, accepted: [...receipt.accepted, { operationId: "run/parallel/1/integration", proposal: parallel }] };
+    const combined = composeGitV2({ ...op, composition: parallelReceipt, candidate: c, expected: parallel });
+    assert.equal(f.git("show", `${combined.commit}:file`), "integrated b"); assert.equal(f.git("show", `${combined.commit}:parallel`), "latest prefix only");
+    assert.throws(() => acceptedPrefixBaseV2(f.root, { ...receipt, accepted: [{ operationId: "fake", proposal: repair }] }, c, repair), /CHAIN_MISMATCH/);
+    assert.throws(() => composeGitV2({ ...op, composition: { ...receipt, baseline: { ...f.old, tree: c.tree } } }), /NATIVE_CANDIDATE_MISMATCH/);
+    assert.throws(() => composeGitV2({ ...op, profile: "ordinary-ff-v2-1" }), /PROFILE/);
+    assert.deepEqual(composeGitV2(f.op), f.op.proposal);
+  } finally { await f.cleanup(); }
+});
+test("accepted-prefix state binds exact accepted chain; historical blocked operation closes then fresh generation, never reopens", async () => {
+  const f = await runtimeFixture({ nodes: 2 }); try {
+    // Manufacture a historical fixture at its initial intent, not a recovery action.
+    const historical = id => new GitDriverV2(f.reload(), f.root, { failpoint: async point => {
+      if (point !== "intent") return;
+      await f.store.transaction(async (s, publish) => { const op = s.runs[f.run.runId].gitOperations.find(o => o.itemId === id); op.profile = "ordinary-ff-v2-1"; delete op.composition; op.sourceBase = f.old; await publish(); });
+      throw Error("historical fixture saved");
+    } });
+    await assert.rejects(historical("a").integrate(mutationV2(f.run), "a", 1, f.candidate), /historical fixture/);
+    let run = (await f.store.read()).runs[f.run.runId];
+    run = await new GitDriverV2(f.reload(), f.root).integrate(mutationV2(run), "a", 1, f.candidate);
+    const first = JSON.stringify(run.gitOperations[0]), p = run.gitOperations[0].proposal;
+    await writeFile(join(f.root, "file"), "integrated b\n"); f.git("add", "file"); const tree = f.git("write-tree");
+    const c = { tree, commit: f.git("commit-tree", tree, "-p", p.commit, "-m", "unlanded W2") }; f.git("restore", "--source=HEAD", "--staged", "--worktree", ".");
+    run = await f.prepare(f.reload(), run, "b", c);
+    await assert.rejects(historical("b").integrate(mutationV2(run), "b", 1, c), /historical fixture/);
+    run = (await f.store.read()).runs[f.run.runId];
+    await assert.rejects(new GitDriverV2(f.reload(), f.root).integrate(mutationV2(run), "b", 1, c), /GIT_COMPOSITION_CONFLICT/);
+    run = (await f.store.read()).runs[f.run.runId]; const blocked = JSON.stringify(run.gitOperations[1]);
+    await assert.rejects(new GitDriverV2(f.reload(), f.root).integrate(mutationV2(run), "b", 1, c), /GIT_OPERATION_BLOCKED/);
+    assert.equal(JSON.stringify((await f.store.read()).runs[run.runId].gitOperations[1]), blocked);
+    await new GitDriverV2(f.reload(), f.root).closeOperation(mutationV2(run), run.gitOperations[1].operationId);
+    run = (await f.store.read()).runs[f.run.runId]; const closed = JSON.stringify(run.gitOperations[1]);
+    await assert.rejects(new GitDriverV2(f.reload(), f.root).integrate(mutationV2(run), "b", 1, c), /GIT_OPERATION_BLOCKED/);
+    const runtime = f.reload(); run = await runtime.replace(mutationV2(run), "b", 1, async () => {}, JSON.stringify({ baseCommit: c.commit, repair: true }));
+    run = await runtime.dispatch(mutationV2(run), "b", 2, { ensure: async () => ({ workerId: "repair-b" }) });
+    run = await finishLifecycleV2(runtime, f.plan, run, "b", c, f.root);
+    run = await new GitDriverV2(runtime, f.root, { failpoint: async (point, op) => {
+      if (point !== "composed") return;
+      const bytes = await readFile(f.store.statePath, "utf8");
+      for (const mutate of [o => { o.sourceBase = c; }, o => { o.composition.accepted[0].operationId = "unaccepted"; }, o => { o.composition.accepted.push({ operationId: "unaccepted", proposal: c }); }, o => { o.composition.baseline = c; }]) {
+        await assert.rejects(f.store.transaction(async (s, publish) => { mutate(s.runs[run.runId].gitOperations.at(-1)); await publish(); }), /COMPOSITION/);
+        assert.equal(await readFile(f.store.statePath, "utf8"), bytes);
+      }
+      assert.equal(op.sourceBase.commit, p.commit);
+    } }).integrate(mutationV2(run), "b", 2, c);
+    assert.equal(run.status, "complete"); assert.equal(run.gitOperations[2].profile, "ordinary-ff-v2-2");
+    assert.equal(JSON.stringify(run.gitOperations[0]), first); assert.equal(JSON.stringify(run.gitOperations[1]), closed);
+    assert.equal(run.gitOperations[2].proposal.tree, c.tree);
+  } finally { await f.cleanup(); }
+});
+for (const code of ["ENOTDIR", "ENAMETOOLONG"]) for (const api of ["configuredGitHooksV2", "nativeGitV2"]) test(`diagnostics sanitize dormant include ${code} through ${api}`, async () => {
+  const f = await fixture(); try {
+    const secret = "INCLUDE_DIAGNOSTIC_SYNTHETIC_SECRET", config = join(f.root, ".git", "config");
+    await writeFile(join(f.root, "not-a-directory"), "ordinary file\n");
+    const path = code === "ENOTDIR" ? join(f.root, "not-a-directory", `Authorization: Bearer ${secret}`)
+      : join(f.root, `Authorization: Bearer ${secret}-${"x".repeat(12000)}`);
+    await assert.rejects(lstat(path), { code });
+    await writeFile(config, `${await readFile(config, "utf8")}\n[includeIf "gitdir:/nonexistent-include-diagnostic-condition/"]\n path = "${path}"\n`);
+    // Git itself skips the dormant include; our discovery must inspect it and fail closed.
+    assert.equal(f.git("rev-parse", "HEAD"), f.old.commit);
+    const call = () => api === "configuredGitHooksV2" ? configuredGitHooksV2(f.root) : nativeGitV2(f.root, "rev-parse", "HEAD");
+    assert.throws(call, error => {
+      assert.equal(error.message, `GIT_FAILED config status=null signal=null code=${code} argv=omitted stdout=omitted stderr=omitted truncated=false`);
+      assert(error.message.length < 256); assert(!/[\x00-\x1f]/.test(error.message));
+      for (const value of [secret, "Authorization", path, f.root, "lstat"]) assert(!error.message.includes(value));
+      assert.equal(error.path, undefined); assert.equal(error.cause, undefined); return true;
+    });
+  } finally { await f.cleanup(); }
+});
+test("diagnostics preserve dormant include ENOENT skip through discovery and native wrapper", async () => {
+  const f = await fixture(); try {
+    const config = join(f.root, ".git", "config"), path = join(f.root, "absent-include.config");
+    await assert.rejects(lstat(path), { code: "ENOENT" });
+    await writeFile(config, `${await readFile(config, "utf8")}\n[includeIf "gitdir:/nonexistent-include-diagnostic-condition/"]\n path = "${path}"\n`);
+    assert.deepEqual(configuredGitHooksV2(f.root), []);
+    assert.equal(nativeGitV2(f.root, "rev-parse", "HEAD"), f.old.commit);
+  } finally { await f.cleanup(); }
+});
+test("diagnostics suppress synthetic Authorization on real config output overflow", async () => {
+  const f = await fixture(); try {
+    const secret = "DIAGNOSTIC_SYNTHETIC_SECRET", config = join(f.root, ".git", "config"), original = await readFile(config, "utf8");
+    const oversized = `\n[http]\n extraHeader = Authorization: Bearer ${secret}\n[diagnostic]\n huge = ${"x".repeat(17 * 1024 * 1024)}\n`;
+    const check = fn => assert.throws(fn, error => {
+      assert(!error.message.includes(secret)); assert(!error.message.includes("Authorization"));
+      assert.match(error.message, /^GIT_FAILED config status=null signal=SIGTERM code=ENOBUFS/);
+      assert.match(error.message, /stdout=omitted/); assert.match(error.message, /truncated=true/);
+      assert(error.message.length < 9000); assert(!/[\x00-\x1f]/.test(error.message)); return true;
+    });
+    await writeFile(config, original + oversized);
+    check(() => nativeGitV2(f.root, "rev-parse", "HEAD"));
+    check(() => configuredGitHooksV2(f.root));
+    check(() => composeGitV2(f.op));
+    await writeFile(config, original);
+    const external = join(f.dir, "oversized.config"); await writeFile(external, oversized);
+    check(() => nativeGitV2(f.root, "config", "--file", external, "--null", "--list"));
+  } finally { await f.cleanup(); }
+});
+test("diagnostics omit arbitrary argv, stdout, stderr and fallback message", async () => {
+  const f = await fixture(); try {
+    const secret = "DIAGNOSTIC_SYNTHETIC_SECRET", header = `Authorization: Bearer ${secret}`;
+    f.git("config", "diagnostic.value", header);
+    for (const args of [
+      ["config", "--type=bool", "--get", "diagnostic.value"],
+      ["rev-parse", header], [secret], ["-c", `http.extraHeader=${header}`, secret],
+      ["merge-tree", header], ["commit-tree", header],
+    ]) assert.throws(() => nativeGitV2(f.root, ...args), error => {
+      assert(!error.message.includes(secret)); assert(!error.message.includes("Authorization"));
+      assert.match(error.message, /^GIT_FAILED .*status=\d+/); assert.match(error.message, /argv=omitted/); return true;
+    });
+    // Exercise empty-stderr Error.message fallback and unstructured stream payloads
+    // without reading real credentials or relying on platform-specific spawn errors.
+    const original = childProcess.execFileSync;
+    try {
+      childProcess.execFileSync = (_file, args) => {
+        if (args.includes("config")) return Buffer.alloc(0);
+        throw Object.assign(Error(header), { status: null, signal: "SIGTERM", code: "ETIMEDOUT", stdout: header, stderr: "" });
+      }; syncBuiltinESMExports();
+      for (const args of [["rev-parse", "HEAD"], ["merge-tree", "--write-tree", "--no-messages", `--merge-base=${f.old.commit}`, f.old.commit, f.candidate.commit], ["commit-tree", f.old.tree, "-p", f.old.commit, "-m", header]]) {
+        assert.throws(() => nativeGitV2(f.root, ...args), error => {
+          assert(!error.message.includes(secret)); assert(!error.message.includes("Authorization"));
+          assert.match(error.message, /status=null signal=SIGTERM code=ETIMEDOUT/); return true;
+        });
+      }
+    } finally { childProcess.execFileSync = original; syncBuiltinESMExports(); }
+  } finally { await f.cleanup(); }
+});
+test("diagnostics preserve safe commit-tree object errors and bounded merge conflict records", async () => {
+  const f = await fixture(); try {
+    const missing = "0".repeat(40);
+    assert.throws(() => nativeGitV2(f.root, "commit-tree", missing, "-p", f.old.commit, "-m", "synthetic message"), error => {
+      assert.match(error.message, /^GIT_FAILED commit-tree status=128/);
+      assert.match(error.message, /stderr=.*not a valid object/); assert(!error.message.includes("synthetic message")); return true;
+    });
+    const paths = Array.from({ length: 80 }, (_, i) => `conflict-${String(i).padStart(3, "0")}-${"x".repeat(100)}`);
+    const commit = async (parent, content) => {
+      f.git("read-tree", parent.tree);
+      for (const path of paths) await writeFile(join(f.root, path), content);
+      f.git("add", "--", ...paths); const tree = f.git("write-tree");
+      return { tree, commit: f.git("commit-tree", tree, "-p", parent.commit, "-m", content) };
+    };
+    const base = await commit(f.old, "base\n"), left = await commit(base, "left\n"), right = await commit(base, "right\n");
+    assert.throws(() => nativeGitV2(f.root, "merge-tree", "--write-tree", "--no-messages", `--merge-base=${base.commit}`, left.commit, right.commit), error => {
+      assert.match(error.message, /^GIT_COMPOSITION_CONFLICT merge-tree status=1 signal=null/);
+      assert.match(error.message, /stdout=.*conflict-000/); assert.match(error.message, /truncated=true/);
+      assert(error.message.length < 9000); assert(!/[\x00-\x1f]/.test(error.message)); return true;
+    });
+  } finally { await f.cleanup(); }
+});
+test("empty-stderr merge conflicts preserve status and conflict paths without a proposal", async () => {
+  const f = await fixture(); try {
+    await writeFile(join(f.root, "file"), "divergent\n"); f.git("add", "file"); const tree = f.git("write-tree");
+    const expected = { tree, commit: f.git("commit-tree", tree, "-p", f.old.commit, "-m", "conflicting prefix") };
+    const raw = spawnSync("git", [...gitOptionsV2, "merge-tree", "--write-tree", "--no-messages", `--merge-base=${f.old.commit}`, expected.commit, f.candidate.commit], { cwd: f.root, env, encoding: "utf8" });
+    assert.equal(raw.status, 1); assert.equal(raw.stderr, "");
+    assert.throws(() => composeGitV2({ ...f.op, expected }), /GIT_COMPOSITION_CONFLICT.*status=1.*stdout=.*file/s);
+    assert.equal(f.git("rev-parse", "HEAD"), f.old.commit);
   } finally { await f.cleanup(); }
 });
 test("actual final nonPASS blocks landing, retains exact results on replay, cannot bypass lifecycle or generation", async () => {
@@ -467,6 +741,12 @@ for (const point of ["landing-intent", "git-exited"]) test(`real owner SIGKILL a
     const refs = nativeGitV2(data.root, "reflog", "show", "--format=%H", "main").split("\n"); assert.equal(refs.filter(oid => oid === run.nodes.a.integration.target.commit).length, 1);
   } finally { if (data) await rm(data.dir, { recursive: true, force: true }); await rm(directory, { recursive: true, force: true }); }
 });
+if (process.argv[2] === "--crash-node-owner") {
+  const f = await nodeRuntimeFixture();
+  await writeFile(process.argv[4], JSON.stringify({ dir: f.dir, root: f.root, storeRoot: f.storeRoot, candidate: f.candidate, old: f.old, node: f.node, runId: f.run.runId }));
+  await new GitDriverV2(f.runtime, f.root, { failpoint: async point => { if (point === process.argv[3]) process.kill(process.pid, "SIGKILL"); } }).integrate(mutationV2(f.run), "a", 1, f.candidate, undefined, f.node);
+  throw Error("node owner crash failpoint not reached");
+}
 if (process.argv[2] === "--crash-owner") {
   const f = await runtimeFixture(); await writeFile(process.argv[4], JSON.stringify({ dir: f.dir, root: f.root, storeRoot: f.storeRoot, candidate: f.candidate, runId: f.run.runId }));
   await new GitDriverV2(f.runtime, f.root, { failpoint: async point => { if (point === process.argv[3]) process.kill(process.pid, "SIGKILL"); } }).integrate(mutationV2(f.run), "a", 1, f.candidate);

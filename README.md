@@ -20,14 +20,14 @@ It may contain both governing and non-authoritative objects:
 - decisions and commitments;
 - discoveries from research, prototypes, repository inspection, or later execution.
 
-Human authority is explicit. Accepted intent, concepts, scenarios, decisions, and commitments carry content-bound receipts. Agent findings and derived implications remain non-authoritative until accepted.
+Human direction is interpreted explicitly in conversation context, whether in chat or Lavish. Governing object state records settled direction without semantic hashes or consent receipts. Questions, silence and agent-derived implications do not grant blanket authorization. Historical receipts remain readable, not required or treated as proof of new agreement.
 
 Tracked Markdown under `spec/` is a deterministic readable projection of accepted model-owned prose, not another source of truth. Rendered review turns, frontiers, deltas, ledgers, and consequence views remain ephemeral by default.
 
 ## Install
 
 ```nu
-pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.4.0
+pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.5.0
 ```
 
 ## Project-model migration
@@ -36,25 +36,21 @@ pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.4.0
 /dag migrate                            # create or resume a reviewed candidate migration
 ```
 
-Run `/dag migrate` in a repository that does not yet have an authoritative project model. The command inventories relevant repository orientation, specifications, decision records, and plans; uses a supported legacy snapshot as a deterministic fast path when available; creates `project-model/model.json` in candidate mode; and activates a dedicated migration focus over the existing model tools.
+Run `/dag migrate` in a repository that does not yet have an authoritative project model. The command inventories relevant repository orientation, specifications, decision records, and plans; uses a supported legacy snapshot as a deterministic fast path when available; creates `project-model/model.json` in candidate mode; and supplies contextual migration guidance without creating a focus.
 
-Migration never overwrites existing specifications while building the candidate. The agent records source mappings and omissions, generated projection previews, blockers, and an explicit disposition for every relevant artifact. It then opens a Lavish audit covering inferred project meaning, unresolved questions, source coverage, generated-spec consequences, and the exact cutover/coexistence choice.
+Migration never overwrites existing specifications while building the candidate. The agent records source mappings and omissions, generated projection previews, blockers, and an explicit disposition for every relevant artifact. It then reviews, in chat or optionally Lavish, inferred project meaning, unresolved questions, source coverage, generated-spec consequences, and the exact cutover/coexistence choice.
 
-Cutover requires a fresh hash binding the candidate and artifact manifest. It replaces only approved generated-projection collisions. Existing spec directories and required documents may remain side by side as linked references or evidence; if a retained document must remain governing semantic authority, cutover stays blocked. Re-running `/dag migrate` resumes the candidate, while an already-authoritative model fails closed.
+Cutover follows context-informed explicit direction (`cutover: true`), not a semantic hash ceremony. Internal file digests still protect exact source inventory and generated-file replacements; structural readiness and blockers remain enforced. It replaces only designated generated-projection collisions. Existing spec directories and required documents may remain side by side as linked references or evidence; if a retained document must remain governing semantic authority, cutover stays blocked. Re-running `/dag migrate` resumes the candidate, while an already-authoritative model fails closed.
 
 ## Model brainstorming commands
 
 ```text
-/dag brainstorm                         # interactive New/Resume selector
-/dag brainstorm new <name>              # create a resumable focus session
-/dag brainstorm resume <focus-id>       # resume an exact focus
-/dag brainstorm list                    # list focus sessions
-/dag brainstorm stop                    # suspend model mode
+/dag brainstorm [topic]                 # contextual exploration with available tools
 ```
 
-A focus session is ignored presentation state under `.ai/model-sessions/`. It contains selected workstreams, one active review turn, and one replaceable previous-review snapshot. Optional Lavish HTML and adjacent lifecycle metadata live under `<focus-id>/lavish/`. None of these files owns unique project meaning.
+There is no active durable focus, New/Resume ceremony, or restored focus link. Model calls use explicit `scope: { workstreamIds, objectIds? }`; `[]` selects repository scope for model objects. Reviews are independent records in `project.reviews`, addressed by exact review ID and revision, with scope, pending points and durable outcomes. They share the model's process-shared lock and atomic replacement so outcomes and semantic changes cannot be split across files. Multiple pending reviews are discoverable through `dag_model_context` with `view: "reviews"`; an empty workstream filter discovers all reviews. Review CAS conflicts fail rather than lose an update.
 
-Reloading, resuming, forking, or cloning a linked Pi conversation restores the exact focus. A new unlinked Pi session starts inactive. Model and focus snapshots use process-shared locking, expected integer revisions, and durable atomic replacement; conflicting concurrent mutations fail rather than losing an update.
+Historical `.ai/model-sessions/` files are read-only. Pending legacy reviews are discoverable and readable with exact `legacyFocusId` plus `reviewId`; they are never activated or rewritten. Optional derived Lavish artifacts live in `.ai/model-reviews/lavish/`. Their digests identify presentation cache versions, not user consent.
 
 ## Planning, inspection, and execution
 
@@ -62,7 +58,7 @@ The registered extension writes V2 plans and runs in ignored
 `.ai/dag-workflow-v2/state.json`. Saving, previewing and revising are inert. An
 explicit request to run the exact current saved content accepts that content;
 there is no separate plan approval tool, field, command or hidden receipt.
-Project-model semantic acceptance remains unchanged.
+Model agreement likewise uses context-informed explicit direction, not consent tokens.
 
 ```text
 /dag plan [goal]
@@ -73,44 +69,66 @@ Project-model semantic acceptance remains unchanged.
 /dag run                              # reopen only the existing session binding
 ```
 
-`dag_plan_save` requires the exact active focus and expected content revision
-(`0` for creation). It independently reads tracked model/spec bytes and a clean
+`dag_plan_save` requires explicit `workstreamIds` and expected content revision
+(`0` for creation), not a brainstorm session or saved focus. The agent chooses
+scope from user intent and model context; an explicit empty array means repository
+scope only, never an unknown-scope fallback. It independently reads tracked model/spec bytes and a clean
 native Git baseline. Sources use `model:<collection>/<objectId>` and
-`spec:<repository-relative-path>`. The persisted focus/workstream selector drives
-a fresh walk of **all** applicable, receipt-valid, non-superseded governing
+`spec:<repository-relative-path>`. The persisted `workstream_scope_v2` selector drives
+a fresh walk of **all** applicable, accepted-state, non-superseded governing
 objects, including newly accepted objects—not just the caller's submitted refs.
 Repository-wide authority always applies; an empty workstream set starts from
 repository-wide objects. The closure also follows accepted governing relationships
 conservatively in both directions (excluding context-only `related_to` and
 historical `supersedes` links); drafts and contextual objects do not gain authority.
-An unaccepted governing dependency blocks. No submitted digest is trusted.
-Before new worker/check/integration dispatch, freshness is rechecked against the
-actual accepted native Git prefix (not the original HEAD after legitimate
-landings). Worker candidates cannot alter the frozen model/requested-spec paths.
+An unaccepted governing dependency blocks saving; at run assessment it is an
+advisory observation. No submitted digest grants consent. New runs capture their
+current native baseline separately from saved provenance. Worker/check/integration
+dispatch checks that baseline plus the accepted Git prefix, not outdated saved
+source equality. Worker candidates cannot alter model/requested-spec paths.
 
 `dag_plan_list` enumerates exact current-head selectors without choosing a plan.
+It lists repository heads, optionally filtered by explicit `workstreamIds` (an empty list is normal).
+`/dag run` without a bound run asks the agent to discover and inspect a saved V2
+plan, call `dag_plan_assess`, judge observations using the conversation, and start
+or ask only about material unresolved concerns—or report “No active DAG to run”.
+Content, non-head revision, source/baseline freshness, unresolved model directions, recommended
+concurrency are observations, not consent gates. No extra
+approval receipt, acknowledgement token or user-supplied hash is required.
 `dag_plan_show` and `/dag show` expose plan, graph, exact node and lineage views.
-Implicit plan selection requires an exact session plan binding or one matching
-active-focus head. No timestamps, prefixes, or inferred latest selection. Reads
+Implicit plan selection requires an exact session plan binding or one unique
+repository head. No timestamps, prefixes, or inferred latest selection. Reads
 never acquire a lease, ingest results, repair bindings or create the V2 store.
+
+Before dispatch, the agent must review relevant unresolved questions/directions and
+pending reviews, using existing conversation for already-settled meaning. Assessment
+surfaces unresolved model objects as `REVIEW_REQUIRED` findings, not token gates.
+User intent is channel-neutral; Lavish is optional. Necessary scoped dependency
+setup/feature edits and low-risk local prototypes are allowed; network, scripts,
+credentials and external effects still need separate consideration.
+
+Model operations, reviews, migration and V2 planning are focus-free. Historical
+focus-bearing plans remain readable with original hashes; no history is rewritten.
 
 Use `dag_run_start` (or the identical `/dag run` JSON payload):
 
 ```json
 {
-  "selection": {"planId": "delivery", "revision": 1, "planHash": "sha256:<exact saved hash>"},
+  "selection": {"planId": "delivery", "revision": 1},
   "authority": {
     "scope": ["first", "second"],
     "maxConcurrency": 1,
-    "effects": ["repository_local"],
-    "expiresAt": 1800000000000
+    "effects": ["repository_local"]
   }
 }
 ```
 
-Choose an explicit future expiry. Scope, concurrency and local-effect authority
-are independent of accepting content; unspecified or ambiguous authority needs
-clarification. Dependency scopes must be closed; serial integration scopes must
+Use the same payload with `dag_plan_assess` before start. Authority is concrete
+agent-supplied execution configuration, not tool-verifiable consent evidence.
+Use existing conversation to resolve findings; ask only for material unresolved
+concerns. Start recomputes and retains observations in `run.acceptance`, including
+the current execution baseline; historical plans are never rewritten. Execution authority has no wall-clock deadline. Concurrency is bounded to 1–512; exceeding
+the plan recommendation is advisory, while resource/mutex limits remain enforced. Dependency scopes must be closed; serial integration scopes must
 be prefixes. Excluded nodes cannot occupy lanes or dispatch. Restricted effects
 (publication, credentials, deployment) are unsupported, never implied. Reopening
 the same frozen run cannot expand authority or implicitly resume paused work.
@@ -142,34 +160,45 @@ IDs are rejected by product save: custom semantic worker-backed evaluators are a
 library adapter capability, not a shipped product implementation. Runtime gates
 require a current durable PASS check with the same check ID as the declared gate.
 
-Native `GitDriverV2.integrate` performs explicit-base composition, isolated real
-prefix/final checks, guarded target CAS, and old/new/third-target recovery.
+Native `GitDriverV2.integrate` performs explicit-base composition, real prefix/final
+checks in the same node worktree, guarded target CAS, and old/new/third-target recovery.
 `dag_recover_dispatch`, `dag_recover_execution`, and `dag_close_git_operation`
 provide exact recovery operations; missing extinction or ambiguous Git/workspace
 settlement remains blocked. Cancellation fences first, then signals workers and
 waits for actual settlement. Retry budgets and failure evidence survive reload.
 Worker repair uses a new keyed generation based on the inspected prior candidate,
 with frozen actual failure observations; all affected checks must run again.
-Implementation worktrees remain retained for diagnosis, not force-cleaned;
-generic worker/storage retention limits can require operator maintenance.
+Implementation, node lifecycle checks, and clean committed repairs reuse one
+persistent node worktree, preserving ignored dependencies and build caches.
+Exact settled legacy roots are adopted in place; durable handoff fences old
+manager launch/retry/cleanup rights. Dirty or ambiguous roots block repair
+without cloning, resetting, or deleting artifacts. Per-execution journals and
+fresh contexts provide independent evidence, not different cwd paths. Native
+integration temporarily checks out the exact combined proposal in that same root,
+including accepted predecessor changes, under continuous durable ownership.
+Ignored/untracked collisions block without overwriting user bytes. The original
+candidate is restored and verified before target CAS or ownership release.
+Historical sandbox requests/results remain readable and closable unchanged;
+new product attempts use the node root. Generic worker/storage retention limits
+can require operator maintenance.
 The passive TUI widget shows stable current state and remounts for a successor;
 headless modes never mount it. It has no fabricated V1 hash fields.
 
 ## Model tools
 
-The seven tools register once and are activated only after Pi's extension runtime has initialized and a model brainstorming focus is active:
+The seven tools register once and remain enabled after Pi's extension runtime initializes, without any model-mode prerequisite:
 
-- `dag_model_context` — read narrow orientation, migration, entity, frontier, delta, review, or governing projections.
+- `dag_model_context` — read scoped orientation, migration, entities, frontier, governing objects, pending review IDs, or an exact current/historical review.
 - `dag_model_update` — record non-authoritative findings, relationships, routing metadata, migration source/artifact dispositions, or Current understanding. It cannot grant authority or rewrite accepted semantics.
-- `dag_model_record_direction` — record unambiguous direct user authority with content-bound receipts.
-- `dag_model_review` — create an exact hash-bound review turn with **For awareness** and **Decisions needed**; its exact visible tool result records successful presentation.
-- `dag_model_present_review` — optionally render and `present`, `resume`, or `end` the active review through Lavish while returning bounded feedback for agent interpretation.
-- `dag_model_resolve_review` — apply independent fresh outcomes while preserving stale, omitted, or ambiguous points.
+- `dag_model_record_direction` — record explicit user direction understood from available context; no ephemeral current-turn marker or semantic receipt.
+- `dag_model_review` — create an independently addressed review with **For awareness** and **Decisions needed** without replacing other pending reviews.
+- `dag_model_present_review` — optionally `present`, `collect`, `resume`, or `end` an exact `reviewId` through Lavish.
+- `dag_model_resolve_review` — apply explicit per-point outcomes with exact `reviewId` and `expectedRevision`; omitted and ambiguous points remain pending. Inspect changed context before choosing an outcome.
 - `dag_model_specs` — preview, check, or explicitly recover deterministic generated specs.
 
-Routine successful semantic mutations automatically synchronize affected current specs without making a Git commit. Accepted objects explicitly superseded by another receipt-valid accepted object stop rendering while retaining stable historical model identity. A direct direction that exactly matches an active review disposition reconciles that disposable review point without requiring a second authority receipt.
+Routine successful model mutations synchronize current specs without making a Git commit. Accepted objects superseded by another accepted object stop rendering while retaining stable identity. Direct direction does not silently resolve independent reviews: record their explicit contextual outcomes by ID. Current understanding references object IDs without requiring matching semantic hashes.
 
-Lavish presentation uses the pinned optional dependency `lavish-axi@0.1.43`; it never falls back to ambient `npx`. The generated shell supports multiple independent decision points, complete visible option prose, an explicit **Other** radio, and a separate response box. The renderer does not resolve semantic state automatically: the agent validates returned review/point/option hashes and invokes `dag_model_resolve_review` from a bound human turn.
+Lavish presentation uses the pinned optional dependency `lavish-axi@0.1.43`; it never falls back to ambient `npx`. The generated shell supports multiple independent decision points, complete visible option prose, an explicit **Other** radio, and a separate response box. The renderer does not resolve semantic state automatically. The agent interprets feedback in context, verifies the exact review/point/option and current revision, and resolves only settled decisions. Presentation cache digests never authorize model changes.
 
 ## Mixed-initiative loop
 
@@ -186,7 +215,7 @@ Orient
 
 Direct, unambiguous user direction commits once. Silence, generic praise, ambiguity, and agent-derived consequences never commit. Reconsidering accepted content does not revoke it automatically; generated specs retain still-governing content with an **Under review** marker until it is explicitly suspended, retired, or superseded.
 
-New behavioral prototypes require explicit user request. Hand-authored prototype evidence lives under `spec/prototypes/<slug>/` and is protected from spec generation.
+Low-risk local prototypes within the user's scope are allowed; assess destructive, network, credential and external effects separately. Hand-authored prototype evidence lives under `spec/prototypes/<slug>/` and is protected from spec generation.
 
 ## Generated specifications
 
@@ -270,9 +299,11 @@ required for hostile same-UID code, namespace tampering or escaped effects.
 
 ## Runtime-v2 local command capability
 
+Worker immutable artifacts also require Linux `renameat2(RENAME_NOREPLACE)` exported by libc and `python3` on `PATH` (stdlib `ctypes`). The packaged `worker-runtime/rename-no-replace.py` helper installs a synced temporary file atomically without overwriting an existing result or exposing a transient hard-link alias. Directory fsync precedes acknowledgement, including identical-content replay after interruption. Unsupported kernels/filesystems or missing helpers fail closed; trusted readers still reject foreign hard links. The install syscall is the atomic publication point: before it, only the uncommitted temporary exists, but a surviving helper can still complete an interrupted publisher's install. Installation exposes the complete, single-link inode; exact replay finishes directory durability if acknowledgement was interrupted.
+
 The runtime-v2 `CommandRunnerV2` requires Linux in the same PID namespace, readable `/proc`, and `python3` on `PATH` (Python 3.9+ stdlib `ctypes`, `os.pidfd_open`, `signal.pidfd_send_signal`; Linux `PR_SET_CHILD_SUBREAPER` and pidfds). Missing Python, denied kernel capabilities, or an unavailable packaged helper fail closed before command launch. No Python package or installation is performed. The helper is shipped under `extensions/dag-workflow/runtime-v2/command-supervisor.py` and resolved relative to the importing module, not the candidate or current directory.
 
-A detached, gated subreaper announces its boot/start identity only after enabling subreaping. The runner syncs a request/identity/nonce launch journal and rechecks the current intent under the store lock before sending argv launch permission. The supervisor records the actual argv exit independently, adopts/reaps orphan descendants, and publishes a synced nonce/identity/workspace-bound extinction receipt **only after `waitpid(-1)` returns `ECHILD`**. A finite fork/exit handoff cannot disappear between observations. `/proc` enumeration is used only for positive cancellation signaling via pidfds, never as an extinction proof. Abort, authority expiry, and owner pipe loss start TERM then KILL escalation; the supervisor continues after argv/owner exit and does not kill itself during escalation.
+A detached, gated subreaper announces its boot/start identity only after enabling subreaping. The runner syncs a request/identity/nonce launch journal and rechecks the current intent under the store lock before sending argv launch permission. The supervisor records the actual argv exit independently, adopts/reaps orphan descendants, and publishes a synced nonce/identity/workspace-bound extinction receipt **only after `waitpid(-1)` returns `ECHILD`**. A finite fork/exit handoff cannot disappear between observations. `/proc` enumeration is used only for positive cancellation signaling via pidfds, never as an extinction proof. Abort, per-command timeout, and owner pipe loss start TERM then KILL escalation; the supervisor continues after argv/owner exit and does not kill itself during escalation.
 
 No durable extinction receipt after launch means no lifecycle result, PASS, retry, or workspace cleanup. The job and workspace remain unresolved, including when a supervisor dies and `/proc` appears empty. Recovery never relaunches the natural request. `reconcileInterrupted` still requires an independent process-tree/**effect** settlement callback, even with a receipt; without one, supervisor death is ambiguity, not settlement. A live supervisor without a receipt must finish reaping first. Successful reconciliation emits infrastructure BLOCKED, retains the workspace, and requires an explicit bounded retry. This is trusted local command process management, **not a sandbox**: hostile same-UID receipt tampering, session/namespace escape, and effects delegated to unrelated services are outside containment. Trusted producer callbacks retain their own effect protocols.
 
@@ -306,11 +337,11 @@ npm run release:full               # uncached full dogfood/portfolio certificati
 node scripts/migrate-brainstorm-to-project-model.mjs --force
 ```
 
-`release:ready` compares `HEAD` with the latest prior semantic release tag (or `--base <ref>` / `PI_RELEASE_BASE`), classifies every changed path through a fail-closed impact map, and runs only affected focused suites, dogfood groups, portfolio templates, and recovery drills. It then runs one package-mode smoke pass against the extracted npm artifact to verify contents, entrypoint loading, release-impact policy, and direct package helpers without repeating the focused process/Git matrices. Unknown paths and broad canonical primitives escalate to the full gate. Successful expensive gates are reused only through hash-validated local receipts under `$XDG_CACHE_HOME/pi-dag-workflow/release-evidence-v1` (or `~/.cache/...`) bound to the exact relevant Git tree, command, executable hashes, Node/Git toolchain, kernel/platform, locale, and timezone; use `--no-cache` to bypass them. Broad smoke runs once against the extracted npm artifact. `release:full` remains the periodic uncached certification path.
+`release:ready` compares `HEAD` with the latest prior semantic release tag (or `--base <ref>` / `PI_RELEASE_BASE`), classifies every changed path through a fail-closed impact map, and runs only affected focused suites, dogfood groups, portfolio templates, and recovery drills. It then runs one package-mode smoke pass against the extracted npm artifact to verify contents, entrypoint loading, release-impact policy, and direct package helpers without repeating the focused process/Git matrices. Unknown paths and broad canonical primitives escalate to the full gate. Successful expensive gates are reused only through hash-validated local receipts under `$XDG_CACHE_HOME/pi-dag-workflow/release-evidence-v1` (or `~/.cache/...`) bound to the exact relevant Git tree, command, executable hashes, Node/Git toolchain, kernel/platform, locale, and timezone; use `--no-cache` to bypass them. Broad smoke runs once against the extracted npm artifact. `release:full` remains the periodic uncached certification path. Allow at least 28,800 seconds for the outer full-release command. The full V2 product suite has a 7,200-second nested budget in both release readiness and source smoke; other suite budgets remain 3,600 seconds.
 
 `dag-v2-product-test.mjs` is registered V2 end-to-end coverage. The older V1
 planning/runtime/dogfood/evaluation suites remain compatibility coverage, not
 substitutes for V2 product certification. Full uncached release readiness and
 extracted-package smoke must run on the joined clean candidate.
 
-The test suites cover model validation, acceptance boundaries, concurrent model/focus CAS, sparse/stale review resolution, deterministic plan projections and lineage, exact command selection, real-Git source/baseline validation, crash-recoverable prepared start, canonical runtime compilation, whole-run replanning, Pi activation and fork restoration, legacy read-only compatibility, generic migration bootstrap/resume, no-overwrite staging, source and manifest freshness, preserved side-by-side specs, approved projection collisions, legacy-adapter dispatch, and authoritative-model refusal.
+The test suites cover structural model validation, explicit-direction boundaries, concurrent model/review CAS, independent sparse review resolution, no-focus CRUD and migration, historical read-only focus records, deterministic plan projections and lineage, exact command selection, real-Git source/baseline validation, crash-recoverable prepared start, canonical runtime compilation, whole-run replanning, always-enabled Pi tools across forks, legacy read-only compatibility, generic migration bootstrap/resume, no-overwrite staging, source and file-transaction freshness, preserved side-by-side specs, approved projection collisions, legacy-adapter dispatch, and authoritative-model refusal.

@@ -150,7 +150,7 @@ export function validateTimestampFields(value: unknown, issues: ValidationIssue[
   if (!value || typeof value !== "object") return;
   for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
     const childPath = `${path}/${key}`;
-    if ((key.endsWith("At") || key === "validFrom" || key === "validUntil" || key === "expiresAt") && item !== null) {
+    if ((key.endsWith("At") || key === "validFrom" || key === "validUntil") && item !== null) {
       pushIssue(issues, childPath, typeof item === "string" && isValidUtcTimestamp(item), "must be a valid UTC RFC 3339 timestamp");
     } else validateTimestampFields(item, issues, childPath);
   }

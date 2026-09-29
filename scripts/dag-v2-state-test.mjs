@@ -11,7 +11,7 @@ import { fixtureLifecycleV2, fixtureSourceV2, fixtureGitV2, finishLifecycleV2 } 
 import { createDagPlanningPlanV1 } from "../extensions/dag-workflow/planning/artifact.ts";
 
 const tests = [], test = (name, fn) => tests.push([name, fn]);
-const NOW = 1000, EXPIRES = Date.now() + 86400000;
+const NOW = 1000;
 const moduleUrl = pathToFileURL(resolve("extensions/dag-workflow/runtime-v2/index.ts")).href;
 function input(planId = "plan-a") {
   const node = (id, dependsOn = []) => ({ id, title: id, objective: `Implement ${id}`, outcomeIds: ["outcome"], context: [], checks: ["actual check"], dependsOn, risk: "low", riskNotes: [], resources: { cpu: 1 }, gates: [], lifecycle: fixtureLifecycleV2() });
@@ -22,7 +22,7 @@ function input(planId = "plan-a") {
 }
 const fresh = { current: async p => ({ repository: p.repository, source: p.source }) };
 const mutation = r => ({ runId: r.runId, expectedRevision: r.revision, lease: r.lease });
-const request = (p, scope = p.workItems.map(n => n.id), sessionId = "session") => ({ intent: "run", sessionId, selection: selectorV2(p), authority: { scope, maxConcurrency: 2, effects: ["repository_local"], expiresAt: EXPIRES } });
+const request = (p, scope = p.workItems.map(n => n.id), sessionId = "session") => ({ intent: "run", sessionId, selection: selectorV2(p), authority: { scope, maxConcurrency: 2, effects: ["repository_local"] } });
 async function fixture(options = {}) {
   const dir = await mkdtemp(join(tmpdir(), "dag-v2-"));
   const store = new StoreV2(dir, options), runtime = new RuntimeV2(store, fresh, () => NOW);
@@ -52,7 +52,7 @@ test("save/show/revise are inert; current explicit run has no extra plan transit
     assert.match(renderPlanV2(await f.runtime.show()), /V2 test plan/);
     assert.equal(Object.keys((await f.store.read()).runs).length, 0);
     const p2 = await f.runtime.save({ ...input(), title: "Revised" }, 1);
-    await assert.rejects(f.runtime.start(request(f.plan), 2), /PLAN_SELECTION_STALE/);
+    assert((await f.runtime.assess(request(f.plan).selection, request(f.plan).authority)).findings.some(x => x.startsWith("PLAN_NOT_CURRENT_HEAD")));
     await assert.rejects(f.runtime.start({ ...request(p2), intent: "preview" }, 2), /INVALID_V2/);
     const run = await f.runtime.start(request(p2), 2);
     assert.equal(run.status, "active"); assert.equal(run.revision, 0);
@@ -115,17 +115,33 @@ test("every snapshot record is closed and semantic output failures preserve byte
     assert.equal((await f.store.read()).revision, before.revision);
   } finally { await f.cleanup(); }
 });
-test("freshness, closed scope and restricted effects fail before creation", async () => {
+test("freshness observations are advisory; execution scope and effects remain structural", async () => {
   const f = await fixture(); try {
     const stale = new RuntimeV2(f.store, { current: async p => ({ repository: { ...p.repository, baselineCommit: "9".repeat(40) }, source: p.source }) }, () => NOW);
-    await assert.rejects(stale.start(request(f.plan), 1), /PLAN_STALE/);
+    assert((await stale.assess(request(f.plan).selection, request(f.plan).authority)).findings.some(x => x.startsWith("BASELINE_CHANGED")));
+    const wrongRepository = new RuntimeV2(f.store, { current: async p => ({ repository: { ...p.repository, repositoryId: "other-repository" }, source: p.source }) }, () => NOW);
+    await assert.rejects(wrongRepository.start(request(f.plan), 1), /PRODUCT_NATIVE_REPOSITORY_DRIFT/);
+    await assert.rejects(f.runtime.start({ ...request(f.plan), selection: { ...request(f.plan).selection, planHash: `sha256:${"0".repeat(64)}` } }, 1), /PLAN_SELECTION_STALE_OR_MISSING/);
     await assert.rejects(f.runtime.start(request(f.plan, ["b"]), 1), /SCOPE_NOT_DEPENDENCY_CLOSED/);
     await assert.rejects(f.runtime.start({ ...request(f.plan), authority: { ...request(f.plan).authority, effects: ["publish"] } }, 1), /INVALID_V2/);
-    await assert.rejects(f.runtime.start({ ...request(f.plan), authority: { ...request(f.plan).authority, expiresAt: NOW } }, 1), /AUTHORITY_EXPIRED/);
     let r = await start(f, ["a"]);
     await assert.rejects(f.runtime.reserve(mutation(r), "c", 1, "excluded"), /ITEM_NOT_ADMISSIBLE/);
     assert.deepEqual(await f.runtime.frontier(r.runId), ["a"]);
     assert.equal(r.nodes.c.status, "excluded");
+  } finally { await f.cleanup(); }
+});
+test("new concurrency cap does not rewrite or invalidate historical execution configuration", async () => {
+  const f = await fixture(); try {
+    const data = input(); data.constraints.maxConcurrency = 1024;
+    f.plan = await f.runtime.save(data, 1);
+    const payload = request(f.plan); payload.authority.maxConcurrency = 1024;
+    await assert.rejects(f.runtime.start(payload, 2), /CONCURRENCY_LIMIT_EXCEEDED/);
+    const run = await start(f), snapshot = structuredClone(await f.store.read());
+    delete snapshot.runs[run.runId].acceptance;
+    snapshot.runs[run.runId].start.authority.maxConcurrency = 1024;
+    assert.doesNotThrow(() => auditSnapshotV2(snapshot));
+    snapshot.runs[run.runId].acceptance = structuredClone(run.acceptance);
+    assert.throws(() => auditSnapshotV2(snapshot), /CONCURRENCY_LIMIT_EXCEEDED/);
   } finally { await f.cleanup(); }
 });
 test("dependencies, sticky concurrency, resources, mutexes and gates govern admission", async () => {

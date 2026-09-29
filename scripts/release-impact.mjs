@@ -15,6 +15,10 @@ export const V2_FOCUSED_SUITES = [
   "test:dag-v2-git-attributes", "test:dag-v2-git-hooks", "test:dag-v2-workspace", "test:dag-v2-product",
 ];
 export const RELEASE_SUITE_TIMEOUT_MS = 3_600_000;
+export const RELEASE_PRODUCT_TIMEOUT_MS = 7_200_000;
+export function releaseSuiteTimeoutMs(script) {
+  return script === "test:dag-v2-product" ? RELEASE_PRODUCT_TIMEOUT_MS : RELEASE_SUITE_TIMEOUT_MS;
+}
 export const RELEASE_AGGREGATE_BUDGET_SECONDS = 28_800;
 // Broad cache closure includes product wiring, V2/native/Python, planning, workers,
 // fixtures and gate policy. Full/dirty runs still bypass every cached receipt.
@@ -91,7 +95,7 @@ function classifyOne(path, plan) {
     plan.reasons.push(`${path}: ${reason}`); plan.focused.push(...focused); plan.dogfoodGroups.push(...dogfood); plan.portfolioTemplates.push(...templates); plan.recoveryDrills.push(...drills); plan.portfolioIdentity ||= portfolioIdentity;
   };
   if (/^(package\.json|scripts\/release-(readiness|impact)(-test)?\.mjs)$/.test(path)) return add("release/package policy; packed smoke and release-impact tests", { focused: ["test:release-impact"] });
-  if (/^(project-model\/(model\.json|migrations\/)|extensions\/dag-workflow\/project-model\/|scripts\/(project-model-test|migrate-brainstorm-to-project-model)\.mjs|spec\/(mixed-initiative-project-model|model-aware-dag-runtime|structured-brainstorming)\/|spec\/spec\.md)/.test(path)) return add("project-model semantics", { focused: ["test:model"] });
+  if (/^(project-model\/(model\.json|migrations\/)|extensions\/dag-workflow\/project-model\/|scripts\/(project-model(?:-focus-free)?-test|migrate-brainstorm-to-project-model)\.mjs|spec\/(mixed-initiative-project-model|model-aware-dag-runtime|structured-brainstorming)\/|spec\/spec\.md)/.test(path)) return add("project-model semantics", { focused: ["test:model"] });
   if (/^extensions\/dag-workflow\/runtime-v2\//.test(path)) { plan.full = true; return add("V2 runtime/product/native primitive; full gate including V2 required"); }
   if (/^scripts\/(dag-v2-.*-test|dag-v2-package-smoke|fixtures\/dag-v2-.*)\.mjs$/.test(path) || /^scripts\/fixtures\/command-.*\.py$/.test(path)) {
     if (path === "scripts/dag-v2-git-test.mjs") { plan.full = true; return add("unsafe Git characterization changed; require actual V2 acceptance (characterization is not certification)"); }

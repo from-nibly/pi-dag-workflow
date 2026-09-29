@@ -11,10 +11,12 @@ export const FindingV2Schema = StrictObject({ id: IdV2,
   materiality: Type.Union([Type.Literal("local"), Type.Literal("plan_affecting")]),
   subject: TextV2, fingerprint: TextV2, detail: TextV2,
 });
+export const NodeWorkspaceV2Schema = StrictObject({ cwd: TextV2, nodeId: TextV2, epoch: CountV2 });
+export type NodeWorkspaceV2 = Static<typeof NodeWorkspaceV2Schema>;
 export const ExecutionRequestV2Schema = StrictObject({ id: IdV2, plan: PlanSelectorV2Schema, runId: IdV2, itemId: IdV2,
   generation: CountV2, attempt: TextV2, round: CountV2, stage: StageV2Schema, candidate: CandidateV2Schema,
-  implementationWorkerId: TextV2, check: LifecycleCheckV2Schema,
-  authority: StrictObject({ effect: Type.Literal("repository_local"), expiresAt: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) }),
+  implementationWorkerId: TextV2, check: LifecycleCheckV2Schema, nodeWorkspace: Type.Optional(NodeWorkspaceV2Schema),
+  authority: StrictObject({ effect: Type.Literal("repository_local") }),
 });
 export const ExecutionResultV2Schema = StrictObject({ request: ExecutionRequestV2Schema,
   startedAt: nat, endedAt: nat, durationMs: nat,
@@ -24,7 +26,7 @@ export const ExecutionResultV2Schema = StrictObject({ request: ExecutionRequestV
   environment: StrictObject({ profile: TextV2, platform: TextV2, runtime: TextV2 }),
   executor: StrictObject({ kind: Type.Union([Type.Literal("command"), Type.Literal("producer")]), identity: TextV2,
     contextId: TextV2, lineage: Type.Array(TextV2, { maxItems: 32 }), invoked: Type.Boolean() }),
-  workspace: StrictObject({ candidate: CandidateV2Schema, cleanBefore: Type.Boolean(), cleanAfter: Type.Boolean(), isolated: Type.Boolean() }),
+  workspace: StrictObject({ candidate: CandidateV2Schema, cleanBefore: Type.Boolean(), cleanAfter: Type.Boolean(), isolated: Type.Boolean(), node: Type.Optional(NodeWorkspaceV2Schema) }),
   findings: Type.Array(FindingV2Schema, { maxItems: 32 }),
 });
 export const ExecutionV2Schema = StrictObject({ request: ExecutionRequestV2Schema,
@@ -45,7 +47,7 @@ const directoryIdentity = StrictObject({ path: TextV2, dev: TextV2, ino: TextV2 
 export const WorkspaceIdentityV2Schema = StrictObject({ root: directoryIdentity, common: directoryIdentity, admin: directoryIdentity });
 export const CommandJobV2Schema = StrictObject({ request: ExecutionRequestV2Schema, owner: StrictObject({ pid: Type.Integer({ minimum: 1, maximum: 2147483647 }), processStart: TextV2 }),
   status: Type.Union([Type.Literal("running"), Type.Literal("settled"), Type.Literal("ambiguous")]),
-  workspace: Type.Optional(TextV2), workspaceIdentity: Type.Optional(WorkspaceIdentityV2Schema),
+  workspace: Type.Optional(TextV2), workspaceIdentity: Type.Optional(WorkspaceIdentityV2Schema), protocolDirectory: Type.Optional(TextV2),
   result: Type.Optional(ExecutionResultV2Schema),
 });
 export type CandidateV2 = Static<typeof CandidateV2Schema>;

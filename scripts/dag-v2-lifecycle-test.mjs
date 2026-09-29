@@ -18,7 +18,7 @@ async function fixture(change = () => {}, producers = new Map()) {
   const root = await mkdtemp(join(tmpdir(), "dag-lifecycle-test-")), actual = await fixtureGitV2(root), store = new StoreV2(root), rt = new RuntimeV2(store, fresh);
   const data = input(actual.candidate); change(data.workItems[0].lifecycle, data);
   const plan = await rt.save(data, 0);
-  let run = await rt.start({ intent: "run", sessionId: "session", selection: selectorV2(plan), authority: { scope: plan.workItems.map(n => n.id), maxConcurrency: plan.constraints.maxConcurrency, effects: ["repository_local"], expiresAt: Date.now() + 86400000 } }, 1);
+  let run = await rt.start({ intent: "run", sessionId: "session", selection: selectorV2(plan), authority: { scope: plan.workItems.map(n => n.id), maxConcurrency: plan.constraints.maxConcurrency, effects: ["repository_local"] } }, 1);
   run = await rt.acquireLease(run.runId, "session", run.revision); run = await rt.reserve(m(run), "item", 1, "Implement fixture");
   run = await rt.dispatch(m(run), "item", 1, { ensure: async () => {
     const beforeLaunch = (await store.read()).runs[run.runId].nodes.item.lifecycle;

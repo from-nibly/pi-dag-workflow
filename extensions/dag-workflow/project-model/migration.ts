@@ -236,7 +236,7 @@ export async function migrateLegacyBrainstorm(root: string, legacy: LegacyState)
       relationships: [],
     });
     legacyToNew.set(decision.id, object.id);
-    mappings.push(mapped(decision.id, collection, object.id, collection === "decisions" ? "Shared-model-era accepted choice is a candidate decision pending cutover receipt." : rewritten ? "Legacy contract was semantically rewritten into model-native candidate commitment prose." : "Current behavioral commitment retained pending cutover receipt."));
+    mappings.push(mapped(decision.id, collection, object.id, collection === "decisions" ? "Shared-model-era accepted choice is a candidate decision pending contextual cutover direction." : rewritten ? "Legacy contract was semantically rewritten into model-native candidate commitment prose." : "Current behavioral commitment retained pending contextual cutover direction."));
   }
 
   for (const tangent of (legacy.tangents ?? []).filter(({ status }) => typeof status !== "string" || !["closed", "out_of_scope"].includes(status))) {
@@ -340,13 +340,13 @@ export async function migrateLegacyBrainstorm(root: string, legacy: LegacyState)
       generatedAt: legacy.currentUnderstanding.updatedAt ?? new Date().toISOString(),
       sourceObjects: sourceIds.map((id) => {
         const found = findMappedObject(model, id)!;
-        return { id, semanticHash: semanticHash(found.collection, found.object) };
+        return { id };
       }),
     };
   }
 
   const specFiles = await listSpecMarkdown(root);
-  warnings.push("Candidate objects intentionally have no human acceptance receipts; cutover acceptance must bind their final semantic hashes.");
+  warnings.push("Candidate objects have no acceptance receipts; review unresolved decisions and use explicit contextual direction for cutover.");
   warnings.push("Seven intent/concept/scenario objects were semantically derived from accepted legacy decisions and require explicit audit alongside one-to-one mappings.");
   warnings.push("Generated candidate specs restructure legacy supporting documents; semantic coverage must be reviewed before those files are retired.");
   const report = renderMigrationReport(model, mappings, warnings, specFiles);
@@ -436,7 +436,7 @@ function renderMigrationReport(model: ProjectModel, mappings: MigrationMapping[]
     "1. Confirm candidate intent/decision/commitment classification.",
     "2. Confirm every omitted active contract is truly superseded or redundant.",
     "3. Compare generated candidate specs with each current functional/supporting spec.",
-    "4. Resolve contradictory or missing behavior before creating migration-cutover receipts.",
+    "4. Resolve contradictory or missing behavior before directing migration cutover.",
     "5. Confirm prototype links remain evidence rather than authority.",
     "",
     "## Warnings",

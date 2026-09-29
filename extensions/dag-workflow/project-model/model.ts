@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
+import { pendingPoints, validateModelReviews, validateOperationScope } from "./reviews.ts";
 import {
   PROJECT_MODEL_SCHEMA_VERSION,
-  type AcceptanceReceipt,
   type ModelCollectionName,
   type ModelObject,
   type ModelObjectBase,
@@ -75,7 +75,7 @@ const ALLOWED_STATES: Record<ModelCollectionName, ReadonlySet<string>> = {
   discoveries: new Set(["untriaged", "investigating", "integrated", "dismissed", "deferred"]),
 };
 
-const RECEIPT_REQUIRED_STATES: Partial<Record<ModelCollectionName, ReadonlySet<string>>> = {
+const GOVERNING_STATES: Partial<Record<ModelCollectionName, ReadonlySet<string>>> = {
   intents: new Set(["accepted", "superseded", "retired"]),
   concepts: new Set(["accepted", "superseded", "retired"]),
   scenarios: new Set(["accepted", "superseded", "retired"]),
@@ -176,6 +176,7 @@ export function semanticPayload(collection: ModelCollectionName, object: ModelOb
   return canonicalize(payload);
 }
 
+/** Derived source/cache identity; never a claim that a person accepted this content. */
 export function semanticHash(collection: ModelCollectionName, object: ModelObject): string {
   return sha256(semanticPayload(collection, object));
 }
@@ -184,6 +185,7 @@ export function modelHash(model: ProjectModel): string {
   return sha256(normalizeModel(model));
 }
 
+/** Retained migration report identity, not an input or gate for cutover. */
 export function candidateManifestHash(model: ProjectModel): string {
   const normalized = normalizeModel(model);
   const migration = normalized.project.migration
@@ -196,25 +198,8 @@ export function candidateManifestHash(model: ProjectModel): string {
   });
 }
 
-export function requiresAcceptance(collection: ModelCollectionName, state: string): boolean {
-  return RECEIPT_REQUIRED_STATES[collection]?.has(state) ?? false;
-}
-
-export function createAcceptance(
-  collection: ModelCollectionName,
-  object: ModelObject,
-  mode: AcceptanceReceipt["mode"],
-  interactionRef?: string,
-  batchRef?: string,
-): AcceptanceReceipt {
-  return {
-    mode,
-    actor: "user",
-    acceptedAt: nowIso(),
-    contentHash: semanticHash(collection, object),
-    ...(interactionRef ? { interactionRef } : {}),
-    ...(batchRef ? { batchRef } : {}),
-  };
+export function isGoverningState(collection: ModelCollectionName, state: string): boolean {
+  return GOVERNING_STATES[collection]?.has(state) ?? false;
 }
 
 function normalizeObject(input: ModelObject): ModelObject {
@@ -247,7 +232,6 @@ export function normalizeModel(input: ProjectModel): ProjectModel {
 }
 
 function hasAcceptedSpecAuthority(collection: ModelCollectionName, object: ModelObject): boolean {
-  if (!object.acceptance || object.acceptance.contentHash !== semanticHash(collection, object)) return false;
   if (collection === "intents" || collection === "concepts" || collection === "scenarios") return object.state === "accepted";
   if (collection === "decisions") return object.state === "accepted";
   if (collection === "commitments") return object.state === "accepted";
@@ -307,7 +291,6 @@ export function validateProjectModel(model: ProjectModel): string[] {
       if (!new Set(["user", "agent", "repository", "external", "prototype", "migration", "execution"]).has(object?.introducedBy)) errors.push(`${label}.introducedBy is invalid`);
       if (object?.confidence !== undefined && !new Set(["low", "medium", "high"]).has(object.confidence)) errors.push(`${label}.confidence is invalid`);
       if (!validIso(object?.createdAt) || !validIso(object?.updatedAt)) errors.push(`${label} timestamps must be ISO dates`);
-      if (requiresAcceptance(collection, object?.state) && !object.acceptance) errors.push(`${label} requires an acceptance receipt`);
       if (object?.acceptance) validateAcceptance(collection, object, label, errors);
     }
   }
@@ -343,6 +326,26 @@ export function validateProjectModel(model: ProjectModel): string[] {
   validateSupersessionCycles(objectById, errors);
   validateProjections(model, objectById, errors);
   validateCurrentUnderstanding(model, objectById, errors);
+  validateModelReviews(model.project?.reviews, errors, ALLOWED_STATES);
+  if (!errors.length) for (const review of model.project.reviews ?? []) {
+    if (review.status !== "pending") continue;
+    try { validateOperationScope(model, review.scope); } catch (error) { errors.push(`${review.id}: ${String(error)}`); }
+    for (const point of pendingPoints(review)) {
+      for (const id of [...point.objectRefs.map((ref) => ref.id), ...point.options.flatMap((option) => option.objectId ? [option.objectId] : [])]) {
+        if (!objectById.has(id)) errors.push(`${review.id}/${point.id}: missing subject ${id}`);
+      }
+      for (const direction of [...point.options.map((option) => option.direction), point.rejectDirection, point.deferDirection].filter(Boolean)) {
+        // Pending alternatives retain references, not a veto over later canonical direction.
+        const target = direction!.id ? objectById.get(direction!.id) : undefined;
+        if (direction!.id && (!target || target.collection !== direction!.collection)) errors.push(`${review.id}: missing direction target ${direction!.id}`);
+        for (const ref of direction!.value?.relationships ?? []) if (!objectById.has(ref.targetId) && ref.targetId !== direction!.newId) errors.push(`${review.id}: missing direction relationship target ${ref.targetId}`);
+        for (const field of ["answerObjectIds", "poleObjectIds", "resolutionObjectIds", "selectedProposalIds", "resolvesQuestionIds"]) {
+          for (const id of (direction!.value?.[field] ?? []) as string[]) if (!objectById.has(id) && id !== direction!.newId) errors.push(`${review.id}: missing direction ${field} reference ${id}`);
+        }
+        if (direction!.value?.scope?.kind === "workstreams") for (const id of direction!.value.scope.workstreamIds) if (!model.workstreams.some(object => object.id === id)) errors.push(`${review.id}: missing direction workstream ${id}`);
+      }
+    }
+  }
   return errors;
 }
 
@@ -352,17 +355,13 @@ function validIso(value: unknown): boolean {
 
 function validateAcceptance(collection: ModelCollectionName, object: ModelObject, label: string, errors: string[]) {
   const receipt = object.acceptance!;
-  if (!RECEIPT_REQUIRED_STATES[collection]) errors.push(`${label} cannot carry an acceptance receipt`);
+  if (!GOVERNING_STATES[collection]) errors.push(`${label} cannot carry an acceptance receipt`);
   if (!new Set(["direct_direction", "accepted_existing", "migration_cutover"]).has(receipt.mode)) errors.push(`${label}.acceptance.mode is invalid`);
   if (receipt.actor !== "user") errors.push(`${label}.acceptance.actor must be user`);
   if (!validIso(receipt.acceptedAt)) errors.push(`${label}.acceptance.acceptedAt must be an ISO date`);
-  if (!receipt.interactionRef?.trim()) errors.push(`${label}.acceptance.interactionRef is required`);
+  if (receipt.interactionRef !== undefined && !receipt.interactionRef.trim()) errors.push(`${label}.acceptance.interactionRef must be non-empty`);
   if (receipt.batchRef !== undefined && !receipt.batchRef.trim()) errors.push(`${label}.acceptance.batchRef must be non-empty`);
   if (!/^sha256:[a-f0-9]{64}$/.test(receipt.contentHash)) errors.push(`${label}.acceptance.contentHash is invalid`);
-  else {
-    try { if (receipt.contentHash !== semanticHash(collection, object)) errors.push(`${label}.acceptance does not match semantic content`); }
-    catch { errors.push(`${label}.acceptance cannot hash malformed semantic content`); }
-  }
 }
 
 function validateCollectionShape(
@@ -475,20 +474,16 @@ function validateCurrentUnderstanding(model: ProjectModel, objectById: Map<strin
   if (!validIso(understanding.generatedAt)) errors.push("project.currentUnderstanding.generatedAt must be an ISO date");
   const sources = Array.isArray(understanding.sourceObjects) ? understanding.sourceObjects : (errors.push("project.currentUnderstanding.sourceObjects must be an array"), []);
   for (const source of sources) {
-    if (!source || typeof source.id !== "string" || typeof source.semanticHash !== "string") { errors.push("currentUnderstanding source is invalid"); continue; }
+    if (!source || typeof source.id !== "string" || (source.semanticHash !== undefined && typeof source.semanticHash !== "string")) { errors.push("currentUnderstanding source is invalid"); continue; }
     const found = objectById.get(source.id);
     if (!found) errors.push(`currentUnderstanding references missing object ${source.id}`);
-    else {
-      try { if (semanticHash(found.collection, found.object) !== source.semanticHash) errors.push(`currentUnderstanding source is stale: ${source.id}`); }
-      catch { errors.push(`currentUnderstanding source is malformed: ${source.id}`); }
-    }
   }
 }
 
 function validateMigrationMetadata(migration: ProjectModel["project"]["migration"], errors: string[]) {
   if (migration === undefined) return;
   if (migration?.schemaVersion !== 1) errors.push("project.migration.schemaVersion must be 1");
-  if (typeof migration?.focusId !== "string" || !migration.focusId.startsWith("focus-")) errors.push("project.migration.focusId must start with focus-");
+  if (migration?.focusId !== undefined && (typeof migration.focusId !== "string" || !migration.focusId.startsWith("focus-"))) errors.push("project.migration.focusId must start with focus-");
   if (!new Set(["inventory", "draft", "ready"]).has(migration?.phase)) errors.push("project.migration.phase is invalid");
   if (!validIso(migration?.updatedAt)) errors.push("project.migration.updatedAt must be an ISO date");
   if (!Array.isArray(migration?.sources)) errors.push("project.migration.sources must be an array");

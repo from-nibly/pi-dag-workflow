@@ -9,12 +9,13 @@ import { fixtureLifecycleV2, fixtureSourceV2, finishLifecycleV2, mutationV2 as m
 const tests = [], test = (name, fn) => tests.push([name, fn]);
 const env = gitEnvironmentV2(), fresh = { current: async p => ({ repository: p.repository, source: p.source }) };
 const gitAt = (cwd, ...args) => execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-async function fixture({ phase = "prefix", body = "", lifecycleBody, format = "sha1", extraFiles = false } = {}) {
+async function fixture({ phase = "prefix", body = "", lifecycleBody, lifecycleProcedure, format = "sha1", extraFiles = false, ignoredArtifacts = false } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "v2-workspace-test-")), root = join(dir, "repo"), storeRoot = join(dir, "store");
   await mkdir(root); await mkdir(storeRoot);
   const git = (...args) => gitAt(root, ...args);
   git("init", "-b", "main", `--object-format=${format}`); git("config", "user.name", "fixture"); git("config", "user.email", "fixture@example.invalid");
   await writeFile(join(root, "file"), "baseline\n");
+  if (ignoredArtifacts) await writeFile(join(root, ".gitignore"), "node_modules/\ndist/\n.svelte-kit/\ncodedb.snapshot\n");
   if (extraFiles) {
     await mkdir(join(root, "nested")); await writeFile(join(root, "nested", "white\tspace\nfile"), "raw\0bytes\n");
     await writeFile(join(root, "executable"), "#!/bin/sh\nexit 0\n"); await chmod(join(root, "executable"), 0o755);
@@ -28,6 +29,7 @@ async function fixture({ phase = "prefix", body = "", lifecycleBody, format = "s
   const store = new StoreV2(storeRoot), runtime = new RuntimeV2(store, fresh), counter = join(dir, "count"), lifecycle = fixtureLifecycleV2();
   const command = (id, code) => ({ id, argv: [process.execPath, "-e", `require('node:fs').appendFileSync(${JSON.stringify(counter)},${JSON.stringify(id + "\n")}); ${code}`] });
   if (lifecycleBody !== undefined) lifecycle.checks[0].procedure = { kind: "command", argv: command("static", lifecycleBody).argv };
+  if (lifecycleProcedure) lifecycle.checks[0].procedure = lifecycleProcedure;
   const plan = await runtime.save({ planId: "workspace", title: "Workspace no-edit verification",
     repository: { repositoryId: "workspace", baselineCommit: old.commit, baselineTree: old.tree, targetBranch: "refs/heads/main" },
     source: { governingClosure: `sha256:${"a".repeat(64)}`, refs: [fixtureSourceV2], scopeSummary: "disposable repository" },
@@ -35,7 +37,7 @@ async function fixture({ phase = "prefix", body = "", lifecycleBody, format = "s
     workItems: [{ id: "a", title: "a", objective: "a", outcomeIds: ["result"], context: [], checks: ["actual verification"], dependsOn: [], risk: "low", riskNotes: [], resources: {}, gates: [], lifecycle }],
     constraints: { maxConcurrency: 1, resources: {}, mutexGroups: [], gates: [] },
     integration: { strategy: "serial", checks: ["prefix"], finalChecks: ["final"], prefixCommands: [command("prefix", phase === "prefix" ? body : "")], finalCommands: [command("final", phase === "final" ? body : "")] } }, 0);
-  let run = await runtime.start({ intent: "run", sessionId: "session", selection: selectorV2(plan), authority: { scope: ["a"], maxConcurrency: 1, effects: ["repository_local"], expiresAt: Date.now() + 3600000 } }, 1);
+  let run = await runtime.start({ intent: "run", sessionId: "session", selection: selectorV2(plan), authority: { scope: ["a"], maxConcurrency: 1, effects: ["repository_local"] } }, 1);
   run = await runtime.acquireLease(run.runId, "session", run.revision);
   run = await runtime.reserve(m(run), "a", 1, "implement a"); run = await runtime.dispatch(m(run), "a", 1, { ensure: async () => ({ workerId: "worker-a" }) });
   return { dir, root, git, old, candidate, store, storeRoot, runtime, plan, run, counter, reload: () => new RuntimeV2(new StoreV2(storeRoot), fresh), cleanup: async () => {
@@ -164,6 +166,54 @@ for (const point of ["before-verification", "before-cleanup"]) test(`${point}: a
     assert.match(result.diagnostic, point === "before-cleanup" ? /cleanup retained/ : /UNCLEAN_EXECUTION_WORKSPACE/);
     if (point === "before-verification") await assert.rejects(readFile(f.counter), { code: "ENOENT" });
   } finally { if (workspace) await rm(dirname(workspace), { recursive: true, force: true }); await f.cleanup(); }
+});
+
+test("candidate source intake permits ignored artifacts but rejects tracked/index/untracked drift", async () => {
+  const f = await fixture({ ignoredArtifacts: true }), cwd = join(f.dir, "intake");
+  try {
+    f.git("worktree", "add", "--detach", cwd, f.candidate.commit);
+    for (const path of ["node_modules/pkg/index.js", "dist/index.html", ".svelte-kit/output/client.js", "codedb.snapshot"]) {
+      await mkdir(dirname(join(cwd, path)), { recursive: true }); await writeFile(join(cwd, path), "retained ignored data\n");
+    }
+    const runner = new CommandRunnerV2(f.store, f.root);
+    await runner.inspectCleanWorkspace(f.candidate, cwd);
+    assert.equal(await runner.clean(cwd, f.candidate), false, "source admission is not cleanup permission");
+    for (const flag of ["--assume-unchanged", "--skip-worktree"]) {
+      gitAt(cwd, "update-index", flag, "file"); await writeFile(join(cwd, "file"), "hidden tamper\n");
+      assert.equal(gitAt(cwd, "status", "--porcelain"), "");
+      await assert.rejects(runner.inspectCleanWorkspace(f.candidate, cwd), /UNCLEAN_CANDIDATE_WORKSPACE/);
+      gitAt(cwd, "update-index", flag.replace("--", "--no-"), "file"); gitAt(cwd, "restore", "file");
+    }
+    await writeFile(join(cwd, "unexpected"), "nonignored\n");
+    await assert.rejects(runner.inspectCleanWorkspace(f.candidate, cwd), /UNCLEAN_CANDIDATE_WORKSPACE/);
+    await rm(join(cwd, "unexpected"));
+    await writeFile(join(cwd, "file"), "unstaged\n");
+    await assert.rejects(runner.inspectCleanWorkspace(f.candidate, cwd), /UNCLEAN_CANDIDATE_WORKSPACE/);
+    gitAt(cwd, "add", "file");
+    await assert.rejects(runner.inspectCleanWorkspace(f.candidate, cwd), /UNCLEAN_CANDIDATE_WORKSPACE/);
+    gitAt(cwd, "restore", "--source=HEAD", "--staged", "--worktree", "file");
+    await runner.inspectCleanWorkspace(f.candidate, cwd);
+    assert.equal(await readFile(join(cwd, "node_modules/pkg/index.js"), "utf8"), "retained ignored data\n");
+  } finally { await f.cleanup(); }
+});
+
+for (const kind of ["command", "producer"]) test(`${kind} ignored unknown artifacts remain nonPASS and are never removed`, async () => {
+  const body = "const fs=require('node:fs'); fs.mkdirSync('dist'); fs.writeFileSync('dist/user-data','unknown retained data')";
+  const f = await fixture({ ignoredArtifacts: true, lifecycleBody: body, ...(kind === "producer" ? { lifecycleProcedure: { kind: "producer", producerId: "artifact-writer" } } : {}) });
+  try {
+    const producers = new Map([["artifact-writer", { run: async ({ cwd }) => {
+      await mkdir(join(cwd, "dist")); await writeFile(join(cwd, "dist/user-data"), "unknown retained data");
+      return { disposition: "PASS", observation: "wrote ignored artifact", findings: [] };
+    } }]]);
+    const runner = new CommandRunnerV2(f.store, f.root, producers);
+    const request = await lifecycleRequest(f, runner); await runner.ensure(request);
+    const result = await runner.read(request), job = (await f.store.read()).executions[request.id];
+    assert.equal(result.executor.invoked, true); assert.equal(result.disposition, "FAIL"); assert.equal(result.workspace.cleanAfter, false);
+    assert.equal(await readFile(join(job.workspace, "dist/user-data"), "utf8"), "unknown retained data");
+    await runner.inspectCleanWorkspace(request.candidate, job.workspace);
+    await runner.ensure(request); assert.deepEqual(await runner.read(request), result);
+    assert.equal(await readFile(join(job.workspace, "dist/user-data"), "utf8"), "unknown retained data");
+  } finally { await f.cleanup(); }
 });
 
 let failed = 0;

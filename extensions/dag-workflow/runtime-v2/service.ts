@@ -1,23 +1,37 @@
 import { randomUUID } from "node:crypto";
 import { createPlanV2, parsePlanV2, PlanInputV2Schema, PlanSelectorV2Schema, requireV2, sameV2, validateShapeV2, type PlanInputV2, type PlanSelectorV2, type PlanV2 } from "../planning/v2.ts";
-import { admissibleV2, assertScopeV2, IntegrationV2Schema, StartV2Schema, runPlanV2, type IntegrationV2, type LeaseV2, type ReservationV2, type RunV2, type SnapshotV2, type StartV2, type WorkerBindingV2 } from "./state.ts";
+import { AuthorityV2Schema, WorkerDirectionV2Schema, type WorkerDirectionV2, admissibleV2, assertScopeV2, executionRepositoryV2, type AcceptanceV2, type AuthorityV2, IntegrationV2Schema, StartV2Schema, runPlanV2, type IntegrationV2, type LeaseV2, type ReservationV2, type RunV2, type SnapshotV2, type StartV2, type WorkerBindingV2, type NodeWorkspaceBindingV2 } from "./state.ts";
 import { processIdentityV2, StoreV2 } from "./store.ts";
 import { CandidateV2Schema, ExecutionResultV2Schema, type CandidateV2, type RetryDimensionV2 } from "./lifecycle-schema.ts";
 import { assertReadyV2, assertStageV2, auditResultV2, consumeRetryV2, contextReusedV2, rejectedContextResultV2, currentExecutionV2, executionRequestV2, frameV2, invalidateLifecycleV2, stageChecksV2 } from "./lifecycle.ts";
 import type { CandidateInspectorV2, ResultsV2 } from "./command-runner.ts";
 import { unresolvedGitV2 } from "./git-state.ts";
+import { historicalResultViewV2 } from "./historical-authority.ts";
 
-/** Hydrate from the repository/model, not from the submitted plan. Called inside
- * the start consistency guard; N05 owns concrete product adapters. */
-export interface FreshnessV2 { current(plan: Readonly<PlanV2>): Promise<Pick<PlanV2, "repository" | "source">> }
+/** Hydrate from the repository/model, not from the submitted plan. Semantic
+ * differences are observations; native identity and races remain hard errors. */
+export interface FreshnessV2 {
+  current(plan: Readonly<PlanV2>): Promise<Pick<PlanV2, "repository" | "source">>;
+  observe?(plan: Readonly<PlanV2>): Promise<Omit<AcceptanceV2, "observedAt">>;
+}
 /** The generic worker manager must durably key creation by operationId and compare
  * the entire request. Repeated ensure after acknowledgement loss must return the
  * same worker, never create a second process. No caller-generated action ID. */
-export interface WorkersV2 { ensure(reservation: Readonly<ReservationV2>): Promise<{ workerId: string; binding?: WorkerBindingV2 }> }
+export interface WorkersV2 {
+  prepareWorkspace?(reservation: Readonly<ReservationV2>, workspace?: NodeWorkspaceBindingV2): Promise<NodeWorkspaceBindingV2>;
+  ensure(reservation: Readonly<ReservationV2>, workspace?: NodeWorkspaceBindingV2): Promise<{ workerId: string; binding?: WorkerBindingV2 }>;
+}
 /** Native Git boundary (N04): independently hydrate the reconciled landing.
  * Internal lifecycle checks run first; a worker claim is not landing evidence. */
 export interface IntegrationsV2 { verify(run: Readonly<RunV2>, plan: Readonly<PlanV2>, integration: Readonly<IntegrationV2>): Promise<void> }
 export interface MutationV2 { runId: string; expectedRevision: number; lease: LeaseV2 }
+function boundedFindings(findings: string[]): string[] {
+  // Stay below both the persisted 512-item schema and the product text budget.
+  const shown = findings.slice(0, 64).map(f => f.length > 512 ? `${f.slice(0, 512)} [detail shortened; use dag_plan_findings]` : f);
+  const omitted = findings.length - shown.length;
+  return omitted ? [`FINDINGS_TRUNCATED: omitted ${omitted} of ${findings.length} findings; use dag_plan_findings with the same selection/authority and offset/limit for current full details`, ...shown] : shown;
+}
+
 export class RuntimeV2 {
   readonly store: StoreV2;
   readonly freshness: FreshnessV2;
@@ -34,31 +48,60 @@ export class RuntimeV2 {
         if (sameV2(content, input)) return previous;
       }
       const plan = createPlanV2(input, (previous?.revision ?? 0) + 1);
-      if (plan.predecessor) this.select(s, plan.predecessor, false);
+      if (plan.predecessor) this.select(s, plan.predecessor);
       (s.plans[plan.planId] ??= []).push(plan); await publish(); return plan;
     });
   }
   async show(selection?: PlanSelectorV2): Promise<PlanV2> {
     const s = await this.store.read();
-    if (selection) return this.select(s, selection, false);
+    if (selection) return this.select(s, selection);
     const plans = Object.values(s.plans).map(p => p.at(-1)!);
     requireV2(plans.length === 1, `PLAN_SELECTION_REQUIRED: ${plans.slice(0, 8).map(p => `${p.planId}@${p.revision}`).join(", ")}`);
     return plans[0];
   }
-  async start(request: StartV2, expectedStoreRevision: number): Promise<RunV2> {
+  async assess(selection: PlanSelectorV2, authority: AuthorityV2, contextFindings: string[] = []): Promise<AcceptanceV2> {
+    const s = await this.store.read(), plan = this.select(s, selection);
+    const assessment = await this.assessment(plan, authority, s.plans[plan.planId].at(-1)!);
+    assessment.findings = boundedFindings([...assessment.findings, ...contextFindings]);
+    return assessment;
+  }
+  async findingDetails(selection: PlanSelectorV2, authority: AuthorityV2, offset = 0, limit = 32, contextFindings: string[] = []) {
+    requireV2(Number.isSafeInteger(offset) && offset >= 0 && Number.isSafeInteger(limit) && limit > 0 && limit <= 64, "INVALID_FINDINGS_PAGE");
+    const s = await this.store.read(), plan = this.select(s, selection);
+    const assessment = await this.assessment(plan, authority, s.plans[plan.planId].at(-1)!);
+    const findings = [...assessment.findings, ...contextFindings];
+    return { observedAt: assessment.observedAt, repository: assessment.repository, total: findings.length, offset, nextOffset: offset + limit < findings.length ? offset + limit : null, findings: findings.slice(offset, offset + limit) };
+  }
+  private async assessment(plan: PlanV2, authority: AuthorityV2, head: PlanV2): Promise<AcceptanceV2> {
+    validateShapeV2(AuthorityV2Schema, authority);
+    assertScopeV2(plan, authority);
+    requireV2(authority.maxConcurrency <= 512, "CONCURRENCY_LIMIT_EXCEEDED");
+    const observed = this.freshness.observe ? await this.freshness.observe(structuredClone(plan))
+      : { ...await this.freshness.current(structuredClone(plan)), findings: [] as string[] };
+    requireV2(observed.repository.repositoryId === plan.repository.repositoryId, "PRODUCT_NATIVE_REPOSITORY_DRIFT");
+    const findings = [...observed.findings];
+    findings.push(`CONTENT_REVIEW: inspect ${plan.planId}@${plan.revision}; content and user agreement require conversation judgment, not a receipt`);
+    if (head.revision !== plan.revision) findings.push(`PLAN_NOT_CURRENT_HEAD: selected ${plan.revision}, current ${head.revision}`);
+    if (!sameV2(observed.repository, plan.repository)) findings.push("BASELINE_CHANGED: execution uses the captured current repository baseline, not the saved plan baseline");
+    if (observed.source && !sameV2(observed.source, plan.source)) findings.push("SOURCE_CHANGED: saved provenance differs from currently observed governing sources");
+    if (authority.maxConcurrency > plan.constraints.maxConcurrency) findings.push(`CONCURRENCY_EXCEEDS_PLAN: requested ${authority.maxConcurrency}, recommended ${plan.constraints.maxConcurrency}`);
+    if (authority.scope.length !== plan.workItems.length) findings.push("PARTIAL_SCOPE: requested execution excludes plan items");
+    return { observedAt: this.now(), findings, repository: observed.repository, ...(observed.source ? { source: observed.source } : {}) };
+  }
+  async start(request: StartV2, expectedStoreRevision: number, contextFindings: string[] = []): Promise<RunV2> {
     validateShapeV2(StartV2Schema, request);
     return this.store.transaction(async (s, publish) => {
       this.cas(s.revision, expectedStoreRevision);
-      const plan = this.select(s, request.selection, true);
-      assertScopeV2(plan, request.authority, this.now());
-      requireV2(sameV2(await this.freshness.current(structuredClone(plan)), { repository: plan.repository, source: plan.source }), "PLAN_STALE_SOURCE_OR_BASELINE");
+      const plan = this.select(s, request.selection);
+      const acceptance = await this.assessment(plan, request.authority, s.plans[plan.planId].at(-1)!);
+      acceptance.findings = boundedFindings([...acceptance.findings, ...contextFindings]);
       const previous = s.runs[s.bindings[request.sessionId]];
       if (previous && sameV2(previous.start, request)) return previous;
       if (previous) {
         requireV2(["complete", "cancelled"].includes(previous.status), "ACTIVE_BINDING_CONFLICT");
         requireV2(plan.predecessor && sameV2(plan.predecessor, previous.start.selection), "SUCCESSOR_PREDECESSOR_REQUIRED");
       }
-      const run: RunV2 = { kind: "dag_run_v2", schemaVersion: 2, runId: `run-${randomUUID()}`, revision: 0, start: structuredClone(request), status: "active", releasedGates: [],
+      const run: RunV2 = { kind: "dag_run_v2", schemaVersion: 2, runId: `run-${randomUUID()}`, revision: 0, start: structuredClone(request), acceptance, status: "active", releasedGates: [],
         nodes: Object.fromEntries(plan.workItems.map(n => [n.id, { generation: 1, status: request.authority.scope.includes(n.id) ? "pending" : "excluded" }])) };
       if (previous) run.predecessorRunId = previous.runId;
       s.runs[run.runId] = run; s.bindings[request.sessionId] = run.runId;
@@ -82,9 +125,27 @@ export class RuntimeV2 {
   }
   async frontier(runId: string): Promise<string[]> {
     const s = await this.store.read(), r = this.run(s, runId);
-    assertScopeV2(runPlanV2(s, r), r.start.authority, this.now()); return admissibleV2(runPlanV2(s, r), r);
+    assertScopeV2(runPlanV2(s, r), r.start.authority); return admissibleV2(runPlanV2(s, r), r);
   }
-  async reserve(mutation: MutationV2, itemId: string, generation: number, request: string): Promise<RunV2> {
+  async setWorkerDirection(m: MutationV2, itemId: string, generation: number, direction: WorkerDirectionV2): Promise<RunV2> {
+    validateShapeV2(WorkerDirectionV2Schema, direction);
+    return this.change(m, async run => {
+      requireV2(["active", "paused"].includes(run.status), "RUN_NOT_DIRECTION_EDITABLE");
+      const node = this.node(run, itemId, generation);
+      requireV2(["pending", "active"].includes(node.status), "ITEM_NOT_DIRECTION_EDITABLE");
+      if (sameV2(node.direction ?? null, direction)) return false;
+      node.direction = structuredClone(direction); return true;
+    });
+  }
+  async recordIntakeRejection(m: MutationV2, itemId: string, generation: number, completionId: string, diagnostic: string): Promise<RunV2> {
+    return this.change(m, async run => {
+      const reservation = this.node(run, itemId, generation).reservation;
+      requireV2(reservation?.completion?.completionId === completionId, "EXACT_WORKER_COMPLETION_REQUIRED");
+      reservation.intakeRejection = diagnostic.slice(0, 4000); return true;
+    });
+  }
+  async reserve(mutation: MutationV2, itemId: string, generation: number, request: string, direction?: WorkerDirectionV2): Promise<RunV2> {
+    if (direction) validateShapeV2(WorkerDirectionV2Schema, direction);
     requireV2(typeof request === "string" && request.length > 0 && request.length <= 65536, "INVALID_WORKER_REQUEST");
     return this.change(mutation, async (run, plan) => {
       this.dispatchGuard(run, plan);
@@ -92,10 +153,12 @@ export class RuntimeV2 {
       if (node.reservation) { requireV2(node.reservation.request === request, "RESERVATION_REQUEST_CONFLICT"); return false; }
       requireV2(admissibleV2(plan, run).includes(itemId), "ITEM_NOT_ADMISSIBLE");
       node.status = "active";
+      if (direction) node.direction = structuredClone(direction);
       node.reservation = { operationId: `${run.runId}/${itemId}/${generation}`, runId: run.runId, itemId, generation, request, state: "reserved" };
-      // F0 precedes implementation dispatch. Start already hydrated the immutable
-      // baseline/source; a worker may author only after this computed frame exists.
-      node.lifecycle = frameV2(run, plan, itemId, { commit: plan.repository.baselineCommit, tree: plan.repository.baselineTree }, this.now(), false);
+      // F0 binds the captured execution baseline separately from saved provenance;
+      // a worker may author only after this computed frame exists.
+      const repository = executionRepositoryV2(run, plan);
+      node.lifecycle = frameV2(run, plan, itemId, { commit: repository.baselineCommit, tree: repository.baselineTree }, this.now(), false);
       return true;
     });
   }
@@ -109,23 +172,36 @@ export class RuntimeV2 {
       requireV2(node.lifecycle?.passed.includes(0) && !node.lifecycle.stop, "F0_PREFLIGHT_REQUIRED");
       if (reservation.state === "bound") return run;
       if (reservation.state === "reserved") { reservation.state = "dispatching"; run.revision++; await publish(); }
-      const worker = await workers.ensure(structuredClone(reservation));
+      if (workers.prepareWorkspace) {
+        const workspace = await workers.prepareWorkspace(structuredClone(reservation), node.workspace);
+        requireV2(!node.workspace || sameV2(node.workspace, workspace), "NODE_WORKSPACE_BINDING_IMMUTABLE");
+        if (!node.workspace) { node.workspace = structuredClone(workspace); run.revision++; await publish(); }
+      }
+      const worker = await workers.ensure(structuredClone(reservation), node.workspace);
       requireV2(typeof worker.workerId === "string" && worker.workerId.length > 0 && worker.workerId.length <= 65536, "INVALID_WORKER_BINDING");
       reservation.workerId = worker.workerId; reservation.state = "bound";
       if (worker.binding) reservation.binding = structuredClone(worker.binding);
       run.revision++; await publish(); return run;
     });
   }
+  async bindNodeWorkspace(m: MutationV2, itemId: string, generation: number, workspace: NodeWorkspaceBindingV2): Promise<RunV2> {
+    return this.change(m, run => {
+      const node = this.node(run, itemId, generation);
+      requireV2(workspace.nodeId === `${run.runId}/${itemId}` && (!node.workspace || sameV2(node.workspace, workspace)), "NODE_WORKSPACE_BINDING_IMMUTABLE");
+      if (node.workspace) return false;
+      node.workspace = structuredClone(workspace); return true;
+    });
+  }
   /** Recover a lost dispatch acknowledgement by read-only exact manager lookup.
    * Unlike dispatch, this may bind an already-fenced generation but cannot launch. */
   async recoverWorkerBinding(m: MutationV2, itemId: string, generation: number,
-    read: (reservation: Readonly<ReservationV2>) => Promise<WorkerBindingV2>): Promise<RunV2> {
+    read: (reservation: Readonly<ReservationV2>, workspace?: NodeWorkspaceBindingV2) => Promise<WorkerBindingV2>): Promise<RunV2> {
     return this.change(m, async run => {
       const node = run.nodes[itemId], reservation = node?.reservation;
       requireV2(reservation && reservation.generation === generation && ["active", "cancelled"].includes(node.status), "EXACT_RESERVATION_REQUIRED");
       if (reservation.state === "bound") return false;
       requireV2(reservation.state === "dispatching", "DISPATCH_INTENT_REQUIRED");
-      const binding = await read(structuredClone(reservation));
+      const binding = await read(structuredClone(reservation), node.workspace);
       reservation.workerId = binding.workerId; reservation.binding = structuredClone(binding); reservation.state = "bound"; return true;
     });
   }
@@ -181,7 +257,8 @@ export class RuntimeV2 {
   }
   /** Generation replacement only after the worker adapter proves the old natural
    * operation settled, within retained retry limits and evidence invalidation. */
-  async replace(m: MutationV2, itemId: string, generation: number, settled: (reservation: Readonly<ReservationV2>) => Promise<void>, request?: string): Promise<RunV2> {
+  async replace(m: MutationV2, itemId: string, generation: number, settled: (reservation: Readonly<ReservationV2>) => Promise<void>, request?: string, direction?: WorkerDirectionV2): Promise<RunV2> {
+    if (direction) validateShapeV2(WorkerDirectionV2Schema, direction);
     if (request !== undefined) requireV2(typeof request === "string" && request.length > 0 && request.length <= 65536, "INVALID_WORKER_REQUEST");
     return this.change(m, async run => {
       requireV2(!["complete", "cancelling", "cancelled"].includes(run.status), "RUN_TERMINAL_OR_CANCELLING");
@@ -193,9 +270,11 @@ export class RuntimeV2 {
       consumeRetryV2(run, itemId, "replacement", 0, "worker", "replacement");
       invalidateLifecycleV2(run, itemId, "worker replacement");
       if (node.lifecycle) node.lifecycle.candidateReady = false;
+      (node.archivedReservations ??= []).push(structuredClone(node.reservation));
+      if (direction) node.direction = structuredClone(direction);
       node.generation++;
       node.reservation = { ...node.reservation, ...(request === undefined ? {} : { request }), operationId: `${run.runId}/${itemId}/${node.generation}`, generation: node.generation, state: "reserved" };
-      delete node.reservation.workerId; delete node.reservation.binding; delete node.reservation.completion;
+      delete node.reservation.workerId; delete node.reservation.binding; delete node.reservation.completion; delete node.reservation.intakeRejection;
       return true;
     });
   }
@@ -246,10 +325,12 @@ export class RuntimeV2 {
         consumeRetryV2(run, itemId, "product", 1, "candidate", "candidate-change");
         invalidateLifecycleV2(run, itemId, "candidate changed");
       }
-      node.lifecycle = frameV2(run, plan, itemId, candidate, this.now()); return true;
+      node.lifecycle = frameV2(run, plan, itemId, candidate, this.now());
+      delete node.reservation.intakeRejection;
+      return true;
     });
   }
-  async prepareCheck(m: MutationV2, itemId: string, generation: number, checkId: string, expectedAttempt?: { stage: number; round: number }): Promise<RunV2> {
+  async prepareCheck(m: MutationV2, itemId: string, generation: number, checkId: string, expectedAttempt?: { stage: number; round: number }, nodeWorkspace?: import("./lifecycle-schema.ts").NodeWorkspaceV2): Promise<RunV2> {
     return this.change(m, async (run, plan) => {
       this.dispatchGuard(run, plan); const node = this.node(run, itemId, generation), l = node.lifecycle;
       requireV2(node.status === "active" && l?.candidateReady && !l.stop, "LIFECYCLE_NOT_EXECUTABLE");
@@ -258,7 +339,7 @@ export class RuntimeV2 {
       const check = stageChecksV2(plan, itemId, l.stage).find(c => c.id === checkId);
       requireV2(check, "CHECK_NOT_APPLICABLE_TO_STAGE");
       if (l.executions.some(e => e.request.stage === l.stage && e.request.check.id === checkId && e.status !== "quarantined" && currentExecutionV2(run, e.request))) return false;
-      l.executions.push({ request: executionRequestV2(run, itemId, check), status: "intent" }); return true;
+      l.executions.push({ request: { ...executionRequestV2(run, itemId, check), ...(nodeWorkspace ? { nodeWorkspace } : {}) }, status: "intent" }); return true;
     });
   }
   /** Hydrate only a durable execution result from a trusted executor. There is no
@@ -268,7 +349,7 @@ export class RuntimeV2 {
       const l = run.nodes[itemId]?.lifecycle, execution = l?.executions.find(e => e.request.id === executionId);
       requireV2(l && execution, "EXECUTION_NOT_FOUND");
       const result = await results.read(structuredClone(execution.request));
-      requireV2(result, "EXECUTION_RESULT_NOT_DURABLE"); validateShapeV2(ExecutionResultV2Schema, result); auditResultV2(execution.request, result);
+      requireV2(result, "EXECUTION_RESULT_NOT_DURABLE"); validateShapeV2(ExecutionResultV2Schema, historicalResultViewV2(result)); auditResultV2(execution.request, result);
       if (execution.result) { requireV2(sameV2(execution.contextRejection?.observed ?? execution.result, result), "EXECUTION_RESULT_CONFLICT"); return false; }
       const reused = contextReusedV2(run, result), job = snapshot.executions?.[executionId];
       // A reader cannot replace the concrete executor's durable observation.
@@ -353,14 +434,14 @@ export class RuntimeV2 {
     const run = this.run(s, m.runId); this.cas(run.revision, m.expectedRevision);
     requireV2(run.lease && sameV2(run.lease, m.lease) && run.lease.pid === process.pid && run.lease.processStart === await processIdentityV2(), "STALE_LEASE"); return run;
   }
-  private dispatchGuard(run: RunV2, plan: PlanV2): void { requireV2(run.status === "active", "RUN_NOT_ACTIVE"); assertScopeV2(plan, run.start.authority, this.now()); }
+  private dispatchGuard(run: RunV2, plan: PlanV2): void { requireV2(run.status === "active", "RUN_NOT_ACTIVE"); assertScopeV2(plan, run.start.authority); }
   private node(run: RunV2, id: string, generation: number) { const node = run.nodes[id]; requireV2(node && node.generation === generation, "STALE_GENERATION"); return node; }
   private run(s: SnapshotV2, id: string): RunV2 { const run = s.runs[id]; requireV2(run, "RUN_NOT_FOUND"); return run; }
   private cas(actual: number, expected: number): void { requireV2(Number.isSafeInteger(expected) && actual === expected, `STALE_REVISION: expected ${expected}, current ${actual}`); }
-  private select(s: SnapshotV2, selection: PlanSelectorV2, current: boolean): PlanV2 {
+  private select(s: SnapshotV2, selection: PlanSelectorV2): PlanV2 {
     validateShapeV2(PlanSelectorV2Schema, selection);
     const versions = s.plans[selection.planId];
     const plan = versions?.find(p => p.revision === selection.revision && p.planHash === selection.planHash);
-    requireV2(plan && (!current || plan === versions.at(-1)), "PLAN_SELECTION_STALE_OR_MISSING"); return parsePlanV2(plan);
+    requireV2(plan, "PLAN_SELECTION_STALE_OR_MISSING"); return parsePlanV2(plan);
   }
 }
