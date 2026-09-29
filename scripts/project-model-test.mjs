@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import dagWorkflow from "../extensions/dag-workflow/index.ts";
 import { ProjectModelDomain } from "../extensions/dag-workflow/project-model/domain.ts";
 import { migrateLegacyBrainstorm } from "../extensions/dag-workflow/project-model/migration.ts";
@@ -677,20 +678,25 @@ async function testPiIntegration() {
     assert((await domain.sessions.load("focus-schema-focus")).activeReview.presentedAt, "visible exact review tool result enables resolution without manual marker recovery");
     assert(pi.activeTools.has("dag_model_present_review"), "brainstorm mode activates the optional presentation adapter tool");
 
-    await pi.emit("session_start", { reason: "fork" }, ctx);
-    assert(pi.activeTools.has("dag_model_context"), "fork restores exact linked focus automatically");
-    await withTemp("other-repository", async (otherRoot) => {
-      const otherCtx = pi.context(otherRoot);
-      await pi.emit("session_start", { reason: "switch-repository" }, otherCtx);
-      assert(!pi.activeTools.has("dag_model_context"), "focus link cannot activate in another repository");
-    });
-    await pi.runCommand("dag", "brainstorm resume focus-schema-focus", ctx);
-    await pi.runCommand("dag", "plan", ctx);
-    assert(pi.activeTools.has("dag_model_context"), "planning keeps the exact model focus active instead of suspending it");
-    assert(!ctx.ui.notifications.some(({ message }) => message.includes("deferred")), "planning is routed to the product integration rather than the legacy deferral");
-    await pi.runCommand("dag", "brainstorm stop", ctx);
-    await pi.emit("session_start", { reason: "reload" }, ctx);
-    assert(!pi.activeTools.has("dag_model_context") && !pi.activeTools.has("dag_model_present_review"), "suspended focus is not restored by an older active session link");
+    try {
+      await pi.emit("session_start", { reason: "fork" }, ctx);
+      assert(pi.activeTools.has("dag_model_context"), "fork restores exact linked focus automatically");
+      await withTemp("other-repository", async (otherRoot) => {
+        const otherCtx = pi.context(otherRoot);
+        await pi.emit("session_start", { reason: "switch-repository" }, otherCtx);
+        assert(!pi.activeTools.has("dag_model_context"), "focus link cannot activate in another repository");
+      });
+      await pi.runCommand("dag", "brainstorm resume focus-schema-focus", ctx);
+      await pi.runCommand("dag", "plan", ctx);
+      assert(pi.activeTools.has("dag_model_context"), "planning keeps the exact model focus active instead of suspending it");
+      assert(!ctx.ui.notifications.some(({ message }) => message.includes("deferred")), "planning is routed to the product integration rather than the legacy deferral");
+      await pi.runCommand("dag", "brainstorm stop", ctx);
+      await pi.emit("session_start", { reason: "reload" }, ctx);
+      assert(!pi.activeTools.has("dag_model_context") && !pi.activeTools.has("dag_model_present_review"), "suspended focus is not restored by an older active session link");
+    } finally {
+      await pi.emit("session_shutdown", { reason: "quit" }, ctx);
+      assert(pi.bus.eventNames().length === 0, "session shutdown removes bus subscriptions");
+    }
   });
 }
 
@@ -699,6 +705,15 @@ function base(title, body) {
 }
 
 class FakePi {
+  bus = new EventEmitter();
+  events = {
+    emit: (name, data) => { this.bus.emit(name, data); },
+    on: (name, listener) => {
+      const handler = (data) => listener(data);
+      this.bus.on(name, handler);
+      return () => { this.bus.off(name, handler); };
+    },
+  };
   constructor() {
     this.tools = new Map(); this.commands = new Map(); this.handlers = new Map(); this.activeTools = new Set(["read", "bash"]); this.entries = []; this.messages = []; this.loading = true;
   }

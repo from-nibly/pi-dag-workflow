@@ -218,6 +218,12 @@ Top-level generic-worker tools (canonical DAG work uses `dag_start_work` and `da
 
 Equivalent user commands are `/workers list|inspect|tail|cancel|retry`.
 
+TUI status integrations can subscribe to the generic
+[`pi-dag-workflow:worker-activity` snapshot bus](spec/worker-activity.md). It reports
+current attempts and pending completion delivery even when the parent is idle,
+with an owner/epoch-safe request handshake for extension load order and reload.
+It adds no scanner and never publishes task text or headless terminal ownership.
+
 Runtime state lives under `.ai/worker-sessions/`. One atomic `worker-session.json` belongs to each top-level Pi session; detached supervisors write bounded mailboxes, a diagnostic log capped at 50 MiB, and immutable terminal results. Child processes inherit ordinary active tools but omit `subagent*`, `dag_*`, and `dag_model_*` orchestration surfaces except for `subagent_report`. Full transcripts and cumulative `message_update` events are never persisted.
 
 A worker becomes terminal only after its supervisor observes the exact Pi child exit and publishes the bound immutable result. Report delivery initiates shutdown but is not itself completion. Cancellation escalates from RPC abort to `SIGTERM` and `SIGKILL` against the exact child identity; failure is reported to the parent and blocks automatic retry. Retry and owned-worktree cleanup require the exact terminal result, not machine-wide proof that no unrelated process can edit the repository. The manager checks known attempt artifacts only while workers are active and never discovers workers by scanning process cwd or environments.

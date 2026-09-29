@@ -1,6 +1,7 @@
 // Bounded packed-product check: actual registration and durable start, no worker
 // launch or full lifecycle matrix. All mutable state lives in a disposable repo.
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,7 +16,16 @@ import { gitEnvironmentV2 } from "../extensions/dag-workflow/runtime-v2/command-
 const root = await mkdtemp(join(tmpdir(), "dag-v2-package-smoke-"));
 const tools = new Map(), commands = new Map(), handlers = new Map(), entries = [], messages = [];
 let active = ["read", "bash", "write", "edit"], attached = false;
+const bus = new EventEmitter();
 const pi = {
+  events: {
+    emit(name, data) { bus.emit(name, data); },
+    on(name, listener) {
+      const handler = (data) => listener(data);
+      bus.on(name, handler);
+      return () => { bus.off(name, handler); };
+    },
+  },
   registerTool(tool) { assert(!tools.has(tool.name)); tools.set(tool.name, tool); active.push(tool.name); },
   registerCommand(name, command) { commands.set(name, command); },
   on(name, handler) { handlers.set(name, [...(handlers.get(name) ?? []), handler]); },
@@ -79,6 +89,6 @@ try {
   assert.equal(Object.keys((await product.runtime.store.read()).runs).length, 1);
   console.log("Packed V2 product smoke OK: actual default registration, inert save/show/revision, explicit durable run; no worker launched.");
 } finally {
-  try { if (attached) await emit("session_shutdown"); }
+  try { if (attached) await emit("session_shutdown"); assert.deepEqual(bus.eventNames(), [], "session shutdown leaked bus subscriptions"); }
   finally { await rm(root, { recursive: true, force: true }); }
 }

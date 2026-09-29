@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { WorkerManager } from "./manager.mjs";
+import { connectWorkerActivityBus } from "./activity.mjs";
 
 export const ASYNC_COMPLETION_GUIDANCE = [
   "async dependency rule:",
@@ -16,6 +17,7 @@ export const ASYNC_COMPLETION_GUIDANCE = [
 export function registerWorkerRuntime(pi: ExtensionAPI, options: Record<string, unknown> = {}) {
   const manager = new WorkerManager(pi, options);
   let attachError: string | null = null;
+  let disconnectActivity: (() => void) | undefined;
 
   pi.registerTool({
     name: "subagent",
@@ -174,6 +176,8 @@ export function registerWorkerRuntime(pi: ExtensionAPI, options: Record<string, 
   });
 
   pi.on("session_start", async (_event: any, ctx: any) => {
+    disconnectActivity?.();
+    disconnectActivity = connectWorkerActivityBus(pi.events, manager);
     try {
       await manager.attach(ctx);
       attachError = null;
@@ -184,7 +188,10 @@ export function registerWorkerRuntime(pi: ExtensionAPI, options: Record<string, 
       ctx.ui.notify(`Worker runtime unavailable: ${error.message}`, "error");
     }
   });
-  pi.on("session_shutdown", async () => { await manager.detach(); });
+  pi.on("session_shutdown", async () => {
+    try { await manager.detach(); }
+    finally { disconnectActivity?.(); disconnectActivity = undefined; }
+  });
   pi.on("agent_settled", async () => { await manager.onAgentSettled(); });
 
   return manager;

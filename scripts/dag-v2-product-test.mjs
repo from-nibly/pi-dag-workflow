@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -7,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import dagWorkflow from "../extensions/dag-workflow/index.ts";
+import { WORKER_ACTIVITY_EVENT, WORKER_ACTIVITY_REQUEST_EVENT } from "../extensions/dag-workflow/worker-runtime/activity.mjs";
 import { FocusSessionStore } from "../extensions/dag-workflow/project-model/sessions.ts";
 import { SpecProjector } from "../extensions/dag-workflow/project-model/projector.ts";
 import { semanticHash } from "../extensions/dag-workflow/project-model/model.ts";
@@ -23,6 +25,15 @@ import { canonicalHash, canonicalStringify } from "../extensions/dag-workflow/da
 const tests = [], test = (name, run) => tests.push([name, run]);
 const AT = "2026-01-01T00:00:00.000Z", source = "model:decisions/DEC-delivery";
 class Pi {
+  bus = new EventEmitter();
+  events = {
+    emit: (name, data) => { this.bus.emit(name, data); },
+    on: (name, listener) => {
+      const handler = (data) => listener(data);
+      this.bus.on(name, handler);
+      return () => { this.bus.off(name, handler); };
+    },
+  };
   tools = new Map(); commands = new Map(); handlers = new Map(); entries = []; messages = []; active = ["read", "bash", "write", "edit"];
   registerTool(t) { assert(!this.tools.has(t.name), `duplicate tool ${t.name}`); this.tools.set(t.name, t); this.active.push(t.name); }
   registerCommand(n, c) { this.commands.set(n, c); }
@@ -67,8 +78,8 @@ async function fixture(name, options = {}) {
     service: () => handles.planningIntegration.product(ctx),
     async call(name, params, signal) { const t = pi.tools.get(name); assert(t, `missing ${name}`); return (await t.execute("fixture", params, signal, undefined, ctx)).details; },
     async command(text) { await pi.commands.get("dag").handler(text, ctx); },
-    async reload() { await pi.emit("session_shutdown", ctx); await load(); },
-    async cleanup() { await pi.emit("session_shutdown", ctx); if (process.env.DAG_V2_PRODUCT_KEEP) console.log(`Retained fixture ${root}`); else await rm(root, { recursive: true, force: true }); } };
+    async reload() { await pi.emit("session_shutdown", ctx); assert.equal(pi.bus.listenerCount(WORKER_ACTIVITY_REQUEST_EVENT), 0); await load(); },
+    async cleanup() { try { await pi.emit("session_shutdown", ctx); assert.equal(pi.bus.listenerCount(WORKER_ACTIVITY_REQUEST_EVENT), 0); } finally { if (process.env.DAG_V2_PRODUCT_KEEP) console.log(`Retained fixture ${root}`); else await rm(root, { recursive: true, force: true }); } } };
 }
 function planInput(planId = "delivery", ids = ["a", "b"]) {
   return { planId, expectedPlanRevision: 0, title: planId, sourceRefs: [source, "spec:spec/delivery/spec.md"], scopeSummary: "Repository-wide accepted product delivery",
@@ -119,6 +130,28 @@ function loseCommandResultPublication(root, request) {
       const result = spawnSync(process.execPath, ["--input-type=module", "-e", code, root, JSON.stringify(request)], { encoding: "utf8", timeout: 120000 });
       assert.equal(result.signal, "SIGKILL", result.stderr); assert.match(result.stdout, /actual-result-publication-boundary/);
 }
+
+test("registered worker activity bus replays snapshots and removes retired session listeners", async () => {
+  const f = await fixture("activity-bus", { tui: true });
+  const retired = f.pi, snapshots = [];
+  const unsubscribe = retired.events.on(WORKER_ACTIVITY_EVENT, (snapshot) => snapshots.push(snapshot));
+  const request = { schemaVersion: 1, ownerSessionId: f.ctx.sessionManager.getSessionId(), requestId: "product-replay" };
+  try {
+    assert.equal(retired.bus.listenerCount(WORKER_ACTIVITY_REQUEST_EVENT), 1);
+    retired.events.emit(WORKER_ACTIVITY_REQUEST_EVENT, request);
+    assert.equal(snapshots.at(-1).requestId, request.requestId);
+    assert.equal(snapshots.at(-1).phase, "attached");
+    await f.reload();
+    assert.equal(snapshots.at(-1).phase, "detached");
+    const count = snapshots.length;
+    retired.events.emit(WORKER_ACTIVITY_REQUEST_EVENT, request);
+    assert.equal(snapshots.length, count, "retired producer must not answer requests");
+    assert.equal(f.pi.bus.listenerCount(WORKER_ACTIVITY_REQUEST_EVENT), 1);
+    unsubscribe(); unsubscribe();
+    retired.events.emit(WORKER_ACTIVITY_EVENT, { phase: "test" });
+    assert.equal(snapshots.length, count, "consumer unsubscribe is effective and idempotent");
+  } finally { unsubscribe(); await f.cleanup(); }
+});
 
 test("registered V2 writer: inert save/show/revise, exact explicit run JSON, no approval or action-ID prerequisite", async () => {
   const f = await fixture("explicit"); try {
