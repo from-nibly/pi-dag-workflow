@@ -26,7 +26,12 @@ export const LifecyclePlanV2Schema = StrictObject({
   checks: Type.Array(LifecycleCheckV2Schema, { minItems: 7, maxItems: 128 }),
 });
 export type LifecycleCheckV2 = Static<typeof LifecycleCheckV2Schema>;
-export const SourceScopeV2Schema = StrictObject({ kind: Type.Literal("model_scope_v2"), focusId: IdV2, workstreamIds: ids });
+export const WorkstreamScopeV2Schema = StrictObject({ kind: Type.Literal("workstream_scope_v2"), workstreamIds: ids });
+// Retained revisions keep their original selector and content hash unchanged.
+export const SourceScopeV2Schema = Type.Union([
+  WorkstreamScopeV2Schema,
+  StrictObject({ kind: Type.Literal("model_scope_v2"), focusId: IdV2, workstreamIds: ids }),
+]);
 export const PlanInputV2Schema = StrictObject({
   planId: IdV2,
   predecessor: Type.Optional(PlanSelectorV2Schema), title: TextV2,

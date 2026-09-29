@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-structured-brainstorming; contract: 1; input: sha256:c416254464fd769dc08f760e4c548e72fde875286a4b474f2972a67c711fe842 -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-structured-brainstorming; contract: 1; input: sha256:bd29009891a8cd0ff09160245c4dc0455a8764e1ea882f6fd7418b7c860d2ba9 -->
 
 # Structured brainstorming behavior
 
@@ -48,11 +48,11 @@ Generated specifications and oversight surfaces are projections of selected proj
 
 <a id="obj-com-single-agent"></a>
 
-### Use single-agent model brainstorming
+### Serialize model writes without a focus-level exclusion rule
 
-Brainstorming is single-agent and single-writer. Concurrent use of one focus receives no lock/merge UX, but canonical model writes use Pi's file-mutation queue and review outcomes enforce object-level semantic-hash freshness.
+Model operations use explicit scope and process-shared writer locking with revision CAS. Independent reviews have exact IDs and revisions; model changes and recorded outcomes publish atomically together. Concurrent interactions do not share a singleton active focus or require semantic-hash agreement as consent. Preserve actual canonical-model structural consistency and reject stale mutable writes.
 
-**Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-com-inline-rationale"></a>
 
@@ -168,11 +168,11 @@ A focus session's selected workstreams remain active until the user redirects or
 
 <a id="obj-com-user-requests-prototypes"></a>
 
-### Create prototypes only on user request
+### Allow scoped local experiments without separate prototype permission
 
-The agent may recommend or discuss a prototype, but creates one only after the user explicitly requests it.
+Ordinary low-risk disposable local experiments or prototypes within an already-requested task may proceed when useful for investigation. Ask about materially new product deliverables, costly experiments, ambiguous scope or restricted external effects rather than requiring a separate request using the word prototype. Preserve user files and keep experiment conclusions distinct from verified product behavior.
 
-**Rationale.** Prototype creation is a user-directed brainstorming activity rather than an autonomous agent choice.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-com-prototypes-start-under-spec"></a>
 
@@ -256,11 +256,11 @@ Prototype slug directories use hand-authored `README.md` as their evidence entry
 
 <a id="obj-com-compact-resume-orientation"></a>
 
-### Show a compact current-state orientation on resume
+### Orient from current context and independent reviews
 
-On resume, show the selected workstreams/focus, Current understanding, any active review turn, the unresolved question/tension frontier, material model delta since the previous-review baseline, and governing items under review. Load deeper model slices or generated specs only as needed.
+On resume, show relevant workstream/object scope inferred from conversation, Current understanding, applicable pending review IDs and unresolved question/tension frontier. Use actual recorded revisions and current state; do not require an old saved-focus link or invent a previous-review delta. Load deeper model slices and specs only as needed.
 
-**Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-com-refresh-selected-focus-on-resume"></a>
 
@@ -330,17 +330,17 @@ Keep `project-model/model.json` and model-tool inputs as JSON with compact domai
 
 ### Use the judgment, structure, direction, and transport ownership matrix
 
-Agents own research, synthesis, semantic classification, and response interpretation. Tools own model schema/invariants, atomic writes, content hashes, receipts, references, type-specific transitions, and deterministic projections. Humans own outcomes, priorities, values, focus, and acceptance or replacement of governing direction.
+Agents own research, synthesis, semantic classification and interpretation of contextual user direction. Tools own structural schema/reference validation, revision CAS, atomic writes, explicit state transitions and derived projections. Humans own outcomes, priorities, values and governing direction. Semantic hashes and consent receipts are not required to prove that direction; exact internal execution identities protect races rather than human intent.
 
 **Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
 
 <a id="obj-com-four-layer-tool-output"></a>
 
-### Separate datastore, model content, tool details, and user rendering
+### Separate shared meaning, bounded tool views and presentation
 
-Separate the authoritative project model, narrow model-facing tool projections/receipts, ephemeral focus and review presentation state, and generated user-facing views. Routine tool results do not return the complete model or generated documents; review is the bounded exception that returns exact hash-bound context and options.
+Separate the governing model with independent review records, narrow model-facing tool results, derived presentation artifacts and generated user-facing specs. Routine tools return bounded scoped context rather than the whole model. Reviews expose explicit point/option IDs and actual content for conversation-informed judgment, not semantic-hash consent payloads.
 
-**Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-com-context-before-review-decisions"></a>
 
@@ -354,7 +354,7 @@ Each substantive review point first provides concise context and explanation of 
 
 ### Infer mechanics through typed defaults and explicit references
 
-Tools generate and validate mechanical fields—typed IDs, timestamps, semantic hashes, receipts, derived reverse links, projection links, and explicitly requested type-specific transitions. Agents author and classify meaning, rationale, recommendations, user interpretation, and semantic relationships; tools do not infer them from prose.
+Tools generate mechanical typed IDs, timestamps, revision counters, reverse links and projections for explicitly requested changes. Agents author meaning, rationale, recommendations, contextual user interpretation and semantic relationships. Do not generate semantic acceptance hashes or approval receipts as a permission ceremony. Keep actual structural and filesystem/transaction integrity checks distinct from interpreting consent.
 
 **Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
 
@@ -424,11 +424,11 @@ Before the first decisions-needed review, present an Initial understanding synth
 
 <a id="obj-com-single-current-proof"></a>
 
-### Keep one structured mutable current proof
+### Keep one explanatory current understanding
 
-Keep one latest project-level Current understanding synthesis in tracked metadata. It is agent-authored, non-authoritative, carries source object IDs/hashes, and is replaced rather than accumulated as review history. Its Markdown must make the goal, relevant current state or mechanism, and governing accepted direction easy to find. Add unresolved frontier, boundaries, constraints, evidence, risks, or other sections when they materially help the user verify alignment. Headings may adapt to the subject; Current understanding describes present state rather than duplicating the separate model-delta or acknowledgement receipt.
+Keep one latest project-level Current understanding synthesis in tracked metadata. It is agent-authored explanation, not governing direction or acceptance proof, and refers to source object IDs without required semantic-hash equality. Make the goal, relevant current state and accepted direction easy to find; include unresolved frontier, risks and evidence when useful. Replace the synthesis rather than treating it as review history or an acknowledgement receipt.
 
-**Rationale.** A mandatory semantic core makes the synthesis auditable, while adaptive headings preserve useful judgment and avoid template noise.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-com-structural-proof-validation"></a>
 
@@ -440,11 +440,11 @@ Require agent guidance to produce scannable Markdown and contextual synthesis fo
 
 <a id="obj-com-mode-system-prompt-plus-kickoff"></a>
 
-### Use mode-specific system guidance plus a compact kickoff
+### Keep model tools enabled across activities
 
-While model brainstorming is active, inject the operational behavior contract and send one compact kickoff naming the repository model, exact focus session, selected workstreams/seed, orientation, and immediate action. Dynamically activate the six model tools without duplicating the contract in verbose tool guidance.
+Keep model tools enabled regardless of brainstorming, planning or execution activity. Inject concise contextual guidance and use `/dag brainstorm [topic]` as a research kickoff, not a durable-mode or focus activation command. Operate with explicit scope and discover relevant pending review IDs; do not prohibit planning or execution because model guidance is present.
 
-**Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-com-retire-grillme"></a>
 

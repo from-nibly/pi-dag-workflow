@@ -1,6 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { constants as fsConstants } from "node:fs";
-import { access, link, mkdir, open, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, open, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { StringDecoder } from "node:string_decoder";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -86,6 +89,14 @@ export async function atomicWriteJson(path, value, options = {}) {
   await syncDirectory(dirname(path));
 }
 
+const execFileAsync = promisify(execFile);
+const renameNoReplaceHelper = fileURLToPath(new URL("./rename-no-replace.py", import.meta.url));
+
+async function installImmutable(temporary, path) {
+  try { await execFileAsync("python3", ["-I", "-B", renameNoReplaceHelper, temporary, path]); }
+  catch (error) { if (error.code === 17) error.code = "EEXIST"; throw error; }
+}
+
 export async function writeImmutableJson(path, value, options = {}) {
   const text = `${JSON.stringify(value, null, 2)}\n`;
   const maxBytes = options.maxBytes ?? MAX_RESULT_BYTES;
@@ -94,6 +105,7 @@ export async function writeImmutableJson(path, value, options = {}) {
   try {
     const existing = await readFile(path, "utf8");
     if (existing !== text) throw new Error(`Immutable artifact already exists with different content: ${path}`);
+    await syncDirectory(dirname(path));
     return false;
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
@@ -107,13 +119,16 @@ export async function writeImmutableJson(path, value, options = {}) {
     await handle.close();
   }
   try {
-    await link(temporary, path);
+    // The final name must never expose the publisher's temporary hard link:
+    // trusted readers require a single-link inode even before this fsync returns.
+    await installImmutable(temporary, path);
     await syncDirectory(dirname(path));
     return true;
   } catch (error) {
     if (error?.code !== "EEXIST") throw error;
     const existing = await readFile(path, "utf8");
     if (existing !== text) throw new Error(`Immutable artifact race produced different content: ${path}`);
+    await syncDirectory(dirname(path));
     return false;
   } finally {
     await unlink(temporary).catch(() => {});
@@ -128,6 +143,7 @@ export async function writeImmutableBytes(path, bytes, options = {}) {
   try {
     const existing = await readFile(path);
     if (!existing.equals(buffer)) throw new Error(`Immutable artifact already exists with different bytes: ${path}`);
+    await syncDirectory(dirname(path));
     return false;
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
@@ -136,13 +152,14 @@ export async function writeImmutableBytes(path, bytes, options = {}) {
   const handle = await open(temporary, "wx", 0o600);
   try { await handle.writeFile(buffer); await handle.sync(); } finally { await handle.close(); }
   try {
-    await link(temporary, path);
+    await installImmutable(temporary, path);
     await syncDirectory(dirname(path));
     return true;
   } catch (error) {
     if (error?.code !== "EEXIST") throw error;
     const existing = await readFile(path);
     if (!existing.equals(buffer)) throw new Error(`Immutable artifact race produced different bytes: ${path}`);
+    await syncDirectory(dirname(path));
     return false;
   } finally { await unlink(temporary).catch(() => {}); }
 }
@@ -316,6 +333,15 @@ export function validateWorkerSession(state) {
     if (Object.keys(state.workers).some((key) => ["__proto__", "prototype", "constructor"].includes(key))) errors.push("workers contains a dangerous key");
     for (const [workerId, worker] of Object.entries(state.workers)) {
       if (!worker || typeof worker !== "object" || worker.id !== workerId) { errors.push(`worker identity is invalid: ${workerId}`); continue; }
+      const borrowed = worker.normalizedRequest?.workingRoot;
+      if (borrowed?.kind === "borrowed_node" && (borrowed.path !== worker.cwd || borrowed.realPath !== worker.cwd
+        || typeof borrowed.nodeId !== "string" || !worker.launchKey?.startsWith(`${borrowed.nodeId}/`)
+        || borrowed.requestHash !== worker.normalizedRequest.boundConfigRequestHash || !/^sha256:[0-9a-f]{64}$/.test(borrowed.requestHash)
+        || !Number.isSafeInteger(borrowed.epoch) || borrowed.epoch < 1 || borrowed.approvalId !== undefined
+        || borrowed.workspace?.nodeId !== borrowed.nodeId || borrowed.workspace?.cwd !== worker.cwd
+        || borrowed.workspace?.identity?.root?.path !== worker.cwd || borrowed.workspace?.identity?.root?.dev !== borrowed.dev
+        || borrowed.workspace?.identity?.root?.ino !== borrowed.ino
+        || !["root", "common", "admin"].every(k => typeof borrowed.workspace?.identity?.[k]?.path === "string" && /^\d+$/.test(borrowed.workspace.identity[k].dev) && /^\d+$/.test(borrowed.workspace.identity[k].ino)))) errors.push(`worker borrowed node binding is invalid: ${workerId}`);
       const hasLaunchBinding = worker.launchKey !== undefined || worker.requestHash !== undefined || worker.normalizedRequest !== undefined;
       if (hasLaunchBinding && (typeof worker.launchKey !== "string" || !worker.launchKey || typeof worker.requestHash !== "string" || !worker.normalizedRequest || sha256(worker.normalizedRequest) !== worker.requestHash)) errors.push(`worker launch binding is invalid: ${workerId}`);
       if (worker.attempts !== undefined) {
@@ -361,6 +387,22 @@ export function validateWorkerSession(state) {
   }
   if (state.approvedDisposableRoots !== undefined && !Array.isArray(state.approvedDisposableRoots)) errors.push("approvedDisposableRoots must be an array");
   if (Array.isArray(state.approvedDisposableRoots) && state.approvedDisposableRoots.some((approval) => typeof approval?.approvalId !== "string" || typeof approval?.tokenHash !== "string" || typeof approval?.realPath !== "string" || approval.ownerSessionId !== approval.approvedByOwner?.sessionId)) errors.push("disposable working-root approval binding is invalid");
+  for (const approval of Array.isArray(state.approvedDisposableRoots) ? state.approvedDisposableRoots : []) {
+    if (!approval || approval.nodeLaunchHandoffs === undefined) continue;
+    const keys = new Set();
+    if (!Array.isArray(approval.nodeLaunchHandoffs) || approval.nodeLaunchHandoffs.length > 256) { errors.push("node approval handoffs must be a bounded array"); continue; }
+    for (const handoff of approval.nodeLaunchHandoffs) {
+      const owner = handoff?.owner, binding = handoff?.binding;
+      const key = JSON.stringify([handoff?.launchKey, owner?.sessionId, owner?.pid, owner?.processStartIdentity]);
+      if (!handoff || typeof handoff.nodeId !== "string" || !handoff.nodeId || typeof handoff.launchKey !== "string" || !handoff.launchKey.startsWith(`${handoff.nodeId}/`)
+        || !/^sha256:[0-9a-f]{64}$/.test(handoff.requestHash) || !Number.isSafeInteger(handoff.epoch) || handoff.epoch < 1
+        || owner?.sessionId !== approval.ownerSessionId || !Number.isSafeInteger(owner?.pid) || owner.pid < 1 || typeof owner.processStartIdentity !== "string" || !owner.processStartIdentity
+        || binding?.workerStorageId !== state.storageId || binding?.launchOwnerSessionId !== approval.ownerSessionId || typeof binding?.workerId !== "string" || !binding.workerId
+        || !Number.isSafeInteger(binding.attemptNumber) || binding.attemptNumber < 1 || typeof binding.attemptNonce !== "string" || binding.attemptNonce.length < 16
+        || !/^sha256:[0-9a-f]{64}$/.test(binding.configHash) || keys.has(key)) errors.push("node approval handoff binding is invalid");
+      keys.add(key);
+    }
+  }
   if (state.quarantinedArtifacts !== undefined && !Array.isArray(state.quarantinedArtifacts)) errors.push("quarantinedArtifacts must be an array");
   if (!Array.isArray(state.completionQueue) || state.completionQueue.some((id) => typeof id !== "string")) errors.push("completionQueue must be a string array");
   if (state.inFlightCompletionId !== null && typeof state.inFlightCompletionId !== "string") errors.push("inFlightCompletionId must be null or a string");

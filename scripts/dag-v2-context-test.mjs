@@ -25,7 +25,7 @@ async function fixture(context = () => "same-real-evaluator", change = () => {})
     for (const i of [1, 4]) data.workItems[0].lifecycle.checks[i].procedure = { kind: "producer", producerId: "evaluator" };
     change(data);
     const plan = await rt.save(data, 0);
-    let run = await rt.start({ intent: "run", sessionId: "session", selection: selectorV2(plan), authority: { scope: plan.workItems.map(n => n.id), maxConcurrency: plan.constraints.maxConcurrency, effects: ["repository_local"], expiresAt: Date.now() + 86400000 } }, 1);
+    let run = await rt.start({ intent: "run", sessionId: "session", selection: selectorV2(plan), authority: { scope: plan.workItems.map(n => n.id), maxConcurrency: plan.constraints.maxConcurrency, effects: ["repository_local"] } }, 1);
     run = await rt.acquireLease(run.runId, "session", run.revision);
     const f = { root, ...actual, store, rt, plan, run, calls, producers, runner: new CommandRunnerV2(store, actual.repository, producers), cleanup: () => rm(root, { recursive: true, force: true }) };
     for (const item of plan.workItems) {

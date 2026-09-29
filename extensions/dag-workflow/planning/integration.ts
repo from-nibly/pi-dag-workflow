@@ -450,7 +450,7 @@ async function resolveRequestedSources(root: string, head: string, requested: an
       if (!entry) throw new Error(`Requested project-model object does not resolve exactly: ${source.collection}/${source.objectId}`);
       const exactSemanticHash = semanticHash(entry.collection, entry.object);
       if (governingCollections.has(entry.collection)) {
-        if (entry.object.state !== "accepted" || entry.object.acceptance?.contentHash !== exactSemanticHash) throw new Error(`Governing planning source is not exact accepted authority: ${source.collection}/${source.objectId}`);
+        if (entry.object.state !== "accepted") throw new Error(`Governing planning source is not exact accepted authority: ${source.collection}/${source.objectId}`);
         governingCount += 1;
       }
       refs.push({ kind: "project_model_object", collection: source.collection, objectId: source.objectId, semanticHash: exactSemanticHash, ...(source.summary ? { summary: source.summary } : {}) });

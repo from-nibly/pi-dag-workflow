@@ -57,7 +57,7 @@ const GoverningObjectBindingSchema = StrictObject({
   id: IdSchema,
   effectiveState: Type.Literal("accepted"),
   semanticHash: HashSchema,
-  acceptanceContentHash: HashSchema,
+  acceptanceContentHash: Type.Optional(HashSchema),
 });
 
 const ContextRefSchema = StrictObject({

@@ -1,4 +1,5 @@
 import { Type, type Static } from "typebox";
+import { HistoricalAuthorizationFieldsV1, HistoricalLeaseFieldsV1 } from "./historical-authority.ts";
 import {
   BoundedTextSchema,
   GitOidSchema,
@@ -713,7 +714,6 @@ export interface DagRunAuthorizationBindingV1 {
   retryCeilingsHash: string;
   maxActiveNodes: number;
   validFrom: string;
-  validUntil: string | null;
 }
 export interface ProcedureExecutableMappingV1 {
   executableArtifactHash: string;
@@ -1103,7 +1103,7 @@ const DagRunAuthorizationBindingV1Schema = StrictObject({
   hash: HashSchema, planHash: HashSchema, reviewReceiptHash: HashSchema, receiptHashes: Type.Array(HashSchema),
   workItemIds: StringSet({ minItems: 1 }), stageScopes: Type.Record(IdSchema, Type.Array(PlanStageIdSchema)), repositoryIds: StringSet({ minItems: 1 }),
   effectScopeIds: StringSet(), integrationTrainIds: StringSet({ minItems: 1 }), retryCeilingsHash: HashSchema,
-  maxActiveNodes: PositiveIntegerSchema, validFrom: TimestampSchema, validUntil: Nullable(TimestampSchema),
+  maxActiveNodes: PositiveIntegerSchema, validFrom: TimestampSchema, ...HistoricalAuthorizationFieldsV1,
 });
 
 export const HashRefV1Schema = StrictObject({
@@ -1286,7 +1286,7 @@ const LeaseProjectionV1Schema = StrictObject({
   ownerEpoch: NonNegativeIntegerSchema,
   state: LeaseStateSchema,
   acquiredAt: TimestampSchema,
-  expiresAt: Nullable(TimestampSchema),
+  ...HistoricalLeaseFieldsV1,
   releasedAt: Nullable(TimestampSchema),
   releaseReason: Nullable(BoundedTextSchema),
 });
@@ -2301,7 +2301,7 @@ function validateRunSemantics(state: DagRunStateV1, context: DagRunValidationCon
     }
     if (authorization) {
       const at = utcTimestampOrderValue(effect.createdAt);
-      pushIssue(issues, `/effects/${effectId}/createdAt`, utcTimestampOrderValue(authorization.validFrom) <= at && (authorization.validUntil === null || at <= utcTimestampOrderValue(authorization.validUntil)), "effect intent must be created while its bound authorization is valid");
+      pushIssue(issues, `/effects/${effectId}/createdAt`, utcTimestampOrderValue(authorization.validFrom) <= at, "effect intent cannot predate its bound authorization");
       if (effect.subject.kind === "work_item") pushIssue(issues, `/effects/${effectId}/subject`, authorization.workItemIds.includes(effect.subject.id), "effect subject work item must be authorized");
       if (effect.subject.kind === "repository") pushIssue(issues, `/effects/${effectId}/subject`, authorization.repositoryIds.includes(effect.subject.id), "effect subject repository must be authorized");
       if (effect.subject.kind === "train") pushIssue(issues, `/effects/${effectId}/subject`, authorization.integrationTrainIds.includes(effect.subject.id), "effect subject train must be authorized");
@@ -3114,13 +3114,11 @@ function validateCatalogJoin(state: DagRunStateV1, context: DagRunValidationCont
 function validateRunAuthorizationJoin(state: DagRunStateV1, context: DagRunValidationContextV1, issues: ValidationIssue[]): void {
   const authorization = context.authorization;
   validateTimestampFields(authorization, issues, "/authorization");
+  pushIssue(issues, "/identity/authorizationSet/hash", utcTimestampOrderValue(authorization.validFrom) <= utcTimestampOrderValue(state.createdAt), "run creation cannot predate its authorization");
   pushIssue(issues, "/identity/authorizationSet/hash", authorization.hash === state.identity.authorizationSet.hash && authorization.hash === hashWithoutField(authorization as unknown as Record<string, unknown>, "hash"), "must match canonical validated authorization-set content");
   pushIssue(issues, "/identity/authorizationSet/hash", authorization.planHash === state.identity.planHash, "authorization set must bind the exact plan hash");
   pushIssue(issues, "/identity/reviewReceipt/hash", authorization.reviewReceiptHash === state.identity.reviewReceipt.hash, "authorization set must bind the exact reviewed projection receipt");
   pushIssue(issues, "/identity/authorizationReceipts", isSortedUnique([...authorization.receiptHashes]) && sameStrings([...authorization.receiptHashes], state.identity.authorizationReceipts.map(({ hash }) => hash).sort()), "must be sorted/deduplicated and match the receipts composing the authorization set");
-  pushIssue(issues, "/identity/authorizationSet/hash", authorization.validUntil === null || utcTimestampOrderValue(authorization.validUntil) >= utcTimestampOrderValue(authorization.validFrom), "authorization validity cannot end before it begins");
-  pushIssue(issues, "/identity/authorizationSet/hash", utcTimestampOrderValue(authorization.validFrom) <= utcTimestampOrderValue(state.createdAt) && (authorization.validUntil === null || utcTimestampOrderValue(state.createdAt) <= utcTimestampOrderValue(authorization.validUntil)), "current authorization must be valid when the run is created");
-  pushIssue(issues, "/identity/authorizationSet/hash", authorization.validUntil === null || utcTimestampOrderValue(state.updatedAt) <= utcTimestampOrderValue(authorization.validUntil), "current authorization must remain valid through the snapshot's latest transition");
   pushIssue(issues, "/scheduler/maxActiveNodes", Number.isSafeInteger(authorization.maxActiveNodes) && authorization.maxActiveNodes > 0 && authorization.maxActiveNodes <= context.plan.workItems.length && state.scheduler.maxActiveNodes === authorization.maxActiveNodes, "must equal the explicit positive authorized active-node limit within the plan work-item maximum");
   pushIssue(issues, "/identity/authorizationSet/hash", authorization.retryCeilingsHash === context.plan.lifecycleBinding.retryPolicyHash, "authorization retry ceilings must bind the plan retry policy");
   pushIssue(issues, "/identity/authorizationSet/hash", isSortedUnique([...authorization.workItemIds]) && isSortedUnique([...authorization.repositoryIds]) && isSortedUnique([...authorization.effectScopeIds]) && isSortedUnique([...authorization.integrationTrainIds]), "authorization sets must be sorted and deduplicated");

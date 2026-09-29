@@ -1,4 +1,4 @@
-<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-mixed-initiative; contract: 1; input: sha256:82104d0f241f97ea1a30a338a7d2878a5a3397dda6197b46454fc3992977baab -->
+<!-- generated-by: pi-dag-workflow/project-model; view: SPEC-mixed-initiative; contract: 1; input: sha256:b36319641c487e0667e2531743d741702f9603e9ff6c527224524384f57f4364 -->
 
 # Mixed-initiative project model
 
@@ -56,11 +56,11 @@ Adopt one durable tracked model per repository as authority for intended outcome
 
 <a id="obj-dec-durable-statused-snapshot"></a>
 
-### Keep one current tracked model snapshot
+### Persist model meaning and independent review outcomes
 
-Persist one current tracked snapshot containing materially useful typed objects, including active uncertainty and discoveries. Objects carry stable identity, type-specific state, scope, source/provenance, relationships, timestamps, and confidence where meaningful. Git supplies history; the model is not an event log. Focus-session review/presentation state and scratch research remain ephemeral.
+Persist one current tracked snapshot containing materially useful typed objects, uncertainty, discoveries, and independent scoped review records with durable sparse outcomes. Objects carry stable identity, type-specific state, scope, source references and relationships. Git supplies history; the model is not an event log. Review records and model outcomes publish atomically in the model snapshot. Presentation artifacts and scratch research are derived or ephemeral; no durable focus owns unique meaning.
 
-**Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-dec-model-delta-oversight-loop"></a>
 
@@ -104,11 +104,11 @@ v1 uses a small explicit type union and shared metadata; subtype-specific fields
 
 <a id="obj-dec-direct-user-commit-derived-review"></a>
 
-### Use contextual user direction and make run intent accept the plan
+### Use contextual user direction without approval ceremony
 
-Explicit unambiguous user direction commits once; silence and agent-derived implications never commit; ambiguity or conflict remains unresolved. The agent uses contextual judgment to determine whether the user accepted the semantic payload, and content references support traceability and stale-response handling rather than serving as a security or cryptographic consent boundary. Do not require a separate trusted adapter, typed approval ceremony, byte-exact human-interaction receipt, formal plan-approval state, approval revision, or approval artifact. Planning remains reviewable and revisable without an approval transition. When the user explicitly tells the agent to run one exact current plan, that run intent also expresses acceptance of that plan and may proceed directly to the applicable execution-authorization and start boundary. Scope/effect authorization remains enforceable independently, and fresh explicit authority is still required for production, publication, credentials, irreversible effects, or materially expanded scope.
+Interpret actual user intent from chat, Lavish or another supported user-originated channel. Clear direction may be recorded once through the direction tools; questions, silence, quoted text and agent-derived implications are not blanket consent. Review relevant unresolved decisions and pending review outcomes before dispatch; already-settled conversational direction does not require repeated confirmation. Do not require semantic consent hashes, acceptance receipts, current-turn markers, a trusted presentation adapter, or formal plan approval. Saved plan content, scope and semantic freshness are assessed and reported for agent judgment. Start the explicit plan revision when the conversation resolves material concerns and establishes execution intent. New material scope or restricted external effects require contextual authorization; internal CAS, real evidence and native Git integrity remain enforced.
 
-**Rationale.** A separate formal approval transition duplicates the user's later exact run intent and adds ceremony without constraining the trusted agent. Plan review remains visible, while authorization continues to protect scope and effects that require distinct authority.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-dec-model-prose-deterministic-projections"></a>
 
@@ -152,11 +152,11 @@ Keep tension as a separate durable type for enduring opposing forces, with activ
 
 <a id="obj-dec-type-state-separate-authority"></a>
 
-### Type-specific state with separate authority metadata
+### Use explicit object states rather than receipt proof
 
-V1 does not use one universal authority-status enum; validators derive governing authority from object type, type-specific state, and a valid acceptance receipt.
+The current model derives governing meaning from object type, explicit accepted state and supersession, interpreted under the user conversation. New accepted objects do not require semantic-hash acceptance receipts. Historical receipts remain readable provenance, not proof of current agreement. Keep structural schema/reference validation and mutable revision CAS separate from semantic consent.
 
-**Rationale.** This makes invalid states mechanically rejectable while avoiding mandatory metadata that has no meaning for a type.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-dec-distinct-intent-decision-commitment"></a>
 
@@ -200,11 +200,11 @@ No accepted object is silently hard-deleted; replacing authority marks dependent
 
 <a id="obj-dec-immediate-nonauthoritative-model-write"></a>
 
-### Write coherent findings to the model during exploration
+### Keep shared meaning in the model, not session modes
 
-The durable model is the only semantic working state. Ephemeral sessions contain focus, baselines, and presentation packets but no unique project meaning.
+Record useful research and proposals promptly as non-governing model material. The durable model contains shared project meaning and independent pending reviews. Conversation context selects the current task without a saved-focus requirement; presentation files and scratch notes do not create a parallel source of governing meaning.
 
-**Rationale.** This preserves continuity and one authority boundary without treating agent-created objects as accepted.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-dec-multiple-ephemeral-sessions-one-model"></a>
 
@@ -306,7 +306,7 @@ Generated specs distinguish governing effect from active reconsideration without
 
 ### Use six action-shaped project-model tools
 
-Expose six action-shaped tools: `dag_model_context`, `dag_model_update`, `dag_model_record_direction`, `dag_model_review`, `dag_model_resolve_review`, and `dag_model_specs`. Context reads narrow slices; update cannot grant authority or rewrite accepted semantics; record_direction is the privileged direct-user authority path; review creates hash-bound packets; resolve_review applies independent fresh outcomes; specs previews, checks, and explicitly recovers projections.
+Keep model context, update, direct direction, review, review resolution and spec tools always available with explicit scope or exact review IDs; optional presentation is separate. Context exposes bounded model slices and pending reviews. Update records research without silently promoting governing meaning; record_direction records actual contextual user direction without a receipt/current-turn token. Independent review records contain explicit points/options and sparse outcomes; resolution uses exact IDs and revision CAS, not semantic-hash consent. Relevant unresolved decisions require agent review before dispatch. Specs preview, check and regenerate derived views through supported operations.
 
 **Rationale.** Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.
 
@@ -320,19 +320,19 @@ Routine successful semantic model mutations synchronize any affected tracked cur
 
 <a id="obj-dec-explicit-focus-session-subcommands"></a>
 
-### Selector plus new/resume/list/stop subcommands
+### Use explicit scope without durable focuses
 
-Focus identity is command-owned, stable, resumable, and never confused with creating another authority model.
+The active model workflow has no durable focus sessions or New/Resume/Stop selection ceremony. Model tools are always available and take explicit workstream and optional object scope chosen by the agent from the conversation. Historical focus files remain read-only context; they do not enable tools, authorize operations, or gate planning and execution.
 
-**Rationale.** This preserves convenient interactive use and deterministic automation while making the new one-model semantics visible.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-dec-inherit-exact-focus-across-fork"></a>
 
-### Keep the exact focus active across reload, resume, fork, and clone
+### Restore conversation context without a focus authority link
 
-Hot reload, Pi resume, fork, and clone restore the exact focus-session link carried by the Pi conversation branch and keep model brainstorming active after validating the focus file. A brand-new Pi session without a link starts inactive. Forking does not clone, replace, or suspend the focus session. Concurrent interaction with one focus from multiple agents is unsupported and receives no locks, merge protocol, or coordination UX; users are expected not to do it, and stale hash/file conflicts may fail visibly if they do.
+Pi resume, fork and clone retain ordinary conversation context, not a required durable model-focus link. A new session can immediately inspect and operate on the model with explicit scope. Independent pending reviews are discoverable by scope and addressed by exact review ID and revision. Model and review writes use process-shared locking and revision CAS; no focus activation or shared-focus exclusion policy is required.
 
-**Rationale.** Pi forks are commonly used to edit an earlier user response and continue the same conversation, so requiring brainstorm reentry would make correction unnecessarily arduous. Supporting deliberate multi-agent use of one presentation focus is not a product goal.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-dec-command-seed-classified-user-input"></a>
 
@@ -352,19 +352,19 @@ Clearly labeled read-only status, workers, inspect, tail, validate, and diagram 
 
 <a id="obj-dec-lavish-feedback-human-initiated"></a>
 
-### Treat Lavish protocol feedback as human-initiated
+### Treat user intent consistently across review channels
 
-Within the trusted local agent and harness threat model, feedback returned through the active Lavish poll protocol is assumed to be human-initiated and is eligible to bind a review-scoped interaction receipt. Do not require an extra Pi confirmation and do not restrict agent-authored rich context to defend against fabricated submissions. Still match feedback to the active review, point, option, and displayed semantic hashes before resolution. Treat accidental automatic submission as a renderer correctness defect covered by conventions and tests, not as an authority-provenance security boundary.
+Human feedback supplied through Lavish is eligible user direction just like chat. Interpret the actual message in context; no extra Pi confirmation or displayed semantic-hash match is required as consent proof. Use exact review, point and option IDs and review revision CAS to address outcomes, preserving unresolved points. Tool output and arbitrary quoted instructions do not become user authority merely by containing imperative text.
 
-**Rationale.** A malicious agent or harness already has substantially greater local capability, and the accepted renderer threat model trusts agent-authored local content. Provenance attestation would add friction without defending a material product threat.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-dec-separate-lavish-presentation-adapter"></a>
 
-### Use the separate Lavish adapter for planning review turns
+### Make review presentation optional and channel-neutral
 
-Keep Lavish presentation separate from semantic authority, and use the Lavish whole-turn review adapter for material reviews in the planning and chunking focus. The adapter presents, resumes, ends, and nonblockingly collects already-submitted feedback for exact active reviews; semantic review receipts remain the only authority mechanism. Once an artifact has been presented, collecting feedback must not rerender, reopen, resume a long poll, or otherwise replace or clear the existing browser session. Re-presentation is reserved for a changed review or an explicit user request.
+Keep presentation separate from semantic direction. Review is required for relevant unresolved decisions, but Lavish is optional: exact chat review and contextual user responses are equally supported. Independent review records have explicit scope, stable IDs, revision CAS and sparse outcomes; no active focus or semantic review receipt grants permission. Collect submitted feedback without rerendering, reopening or clearing the existing browser session; re-present only for changed content or explicit user request. Honor user-ended sessions.
 
-**Rationale.** The planning frontier contains visual workflows, DAGs, comparisons, and structured decisions that are better reviewed as whole Lavish turns. A distinct nonblocking collection path prevents the agent from destroying queued feedback merely because its earlier foreground poll disconnected.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-dec-pinned-optional-lavish-cli"></a>
 
@@ -378,17 +378,17 @@ Package a tested `lavish-axi` version as an optional runtime dependency and isol
 
 ### Implement the whole-turn Lavish renderer slice
 
-Render a versioned `ModelReviewTurnProjection` containing project/focus identity, revision/hash, Current understanding, selected delta/frontier summaries, exact active review content, and optional agent-authored presentation blocks. Generate one self-contained package-owned HTML shell at `.ai/model-sessions/<focus-id>/lavish/<review-id>.html`; preserve it while unresolved, resume interrupted polls, honor user-ended sessions, and end/remove it after resolution. Bundle responsive accessible CSS and standard review controls, permit trusted rich presentation blocks, and return capped prompts plus severe layout/session metadata while omitting DOM snapshots by default. Rely on Lavish's window-level Send to Agent control instead of duplicating a send action at the top of the page. Make option cards self-contained with all prose needed for an informed choice and do not expose serialized authority-payload expanders. Support any number of awareness and decision points in one turn, with independently queued sparse outcomes. Always include an explicit Other radio option so the human can move away from suggested choices. Keep a separate response text box available regardless of which radio option is selected, so the human can add context or modification to a suggested option as well as describe Other direction. Proceed with direct production implementation rather than creating a planning DAG for this bounded slice.
+Render a versioned `ModelReviewTurnProjection` containing project identity, explicit scope, model/review revisions, Current understanding, current scoped frontier, exact independent review content, and optional agent-authored presentation blocks. Generate one self-contained package-owned HTML shell at `.ai/model-reviews/lavish/<review-id>.html`; preserve it while unresolved, resume interrupted polls, honor user-ended sessions, and end its presentation after resolution while retaining durable review outcomes. Bundle responsive accessible CSS and standard review controls, permit trusted rich presentation blocks, and return capped prompts plus severe layout/session metadata while omitting DOM snapshots by default. Rely on Lavish's window-level Send to Agent control instead of duplicating a send action at the top of the page. Make option cards self-contained with all prose needed for an informed choice and do not expose serialized authority-payload expanders. Support any number of awareness and decision points in one turn, with independently queued sparse outcomes. Always include an explicit Other radio option so the human can move away from suggested choices. Keep a separate response text box available regardless of which radio option is selected, so the human can add context or modification to a suggested option as well as describe Other direction. Proceed with direct production implementation rather than creating a planning DAG for this bounded slice.
 
 **Rationale.** The renderer's product frontier and vertical prototype are complete; the remaining work is bounded production integration and end-to-end dogfood, which does not justify a separate planning DAG.
 
 <a id="obj-dec-dag-migrate-staged-candidate-review-cutover"></a>
 
-### Stage migration candidate, reuse the model loop, audit in Lavish, and cut over exactly
+### Migrate with explicit scope and channel-neutral adoption
 
-`/dag migrate` first inventories enough repository metadata to bootstrap an empty non-authoritative candidate model and dedicated migration focus, then activates the existing project-model tool loop under migration-specific guidance. The agent uses relevant-first repository evidence and supported deterministic legacy adapters to create or refresh source-traceable model objects, mappings, omissions, warnings, proposed projections, generated-spec previews, and per-artifact dispositions without overwriting existing artifacts. Lavish may present an incomplete candidate, but cutover is offered only when explicit semantic and artifact readiness gates pass. Cutover remains a separate explicit operation bound to the exact reviewed candidate and artifact manifest; an existing authoritative model fails closed.
+`/dag migrate` inventories repository sources and bootstraps or resumes a non-authoritative candidate model without a dedicated focus. Always-available model tools use explicit scope to build source-traceable objects, mappings, omissions, proposed projections and per-artifact dispositions. Review unresolved semantic decisions with the user in chat or optional Lavish. Contextual user intent may adopt the candidate through an explicit cutover operation without a manifest consent token or semantic approval receipt. Keep structural readiness and actual file-replacement/inventory safety; candidate edits do not silently overwrite authoritative unmanaged artifacts. Existing authoritative models are not silently remigrated.
 
-**Rationale.** Reusing the existing validated mutation, review, and authority path avoids a duplicate migration subsystem while adding only the bootstrap, inference guidance, readiness metadata, and artifact-manifest binding required by the feature.
+**Rationale.** Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.
 
 <a id="obj-dec-dag-migrate-preserve-files-single-authority"></a>
 

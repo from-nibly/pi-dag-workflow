@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { ProjectModelDomain } from "../extensions/dag-workflow/project-model/domain.ts";
-import { classifyReleaseImpact, fullReleaseImpact, releaseBaseAndChangedPaths, RELEASE_SUITE_TIMEOUT_MS, RELEASE_AGGREGATE_BUDGET_SECONDS, RELEASE_CACHE_INPUTS, RELEASE_CACHE_POLICY, V2_REQUIRED_PACKAGE_FILES, PRODUCT_PACKAGE_SMOKE_PATH, runtimePackageSources } from "./release-impact.mjs";
+import { classifyReleaseImpact, fullReleaseImpact, releaseBaseAndChangedPaths, releaseSuiteTimeoutMs, RELEASE_SUITE_TIMEOUT_MS, RELEASE_AGGREGATE_BUDGET_SECONDS, RELEASE_CACHE_INPUTS, RELEASE_CACHE_POLICY, V2_REQUIRED_PACKAGE_FILES, PRODUCT_PACKAGE_SMOKE_PATH, runtimePackageSources } from "./release-impact.mjs";
 
 const run = promisify(execFile);
 const root = process.cwd();
@@ -41,7 +41,7 @@ const candidateHead = (await run("git", ["rev-parse", "HEAD"], { cwd: root, enco
 process.stdout.write(`${JSON.stringify({ kind: "ReleaseImpactPlanV1", version: packageJson.version, candidateHead, base, changedPathCount: changedPaths.length, changedPaths, impact, minimumOuterBudgetSeconds: RELEASE_AGGREGATE_BUDGET_SECONDS }, null, 2)}\n`);
 console.log(`Allow at least ${RELEASE_AGGREGATE_BUDGET_SECONDS}s for the aggregate gate; increase for measured serial-suite duration. Legacy dogfood/portfolio are compatibility evidence, not V2 product acceptance.`);
 
-for (const script of impact.focused) await command("npm", ["run", script], RELEASE_SUITE_TIMEOUT_MS);
+for (const script of impact.focused) await command("npm", ["run", script], releaseSuiteTimeoutMs(script));
 for (const group of impact.dogfoodGroups) await cachedCommand(`dag-dogfood-group-${group}`, "npm", ["run", "test:dag-dogfood", "--", "--group", group], RELEASE_SUITE_TIMEOUT_MS, RELEASE_CACHE_INPUTS);
 if (impact.portfolioIdentity) await cachedCommand("dag-dogfood-portfolio-identity", "npm", ["run", "test:dag-dogfood-portfolio", "--", "--portfolio-only"], RELEASE_SUITE_TIMEOUT_MS, RELEASE_CACHE_INPUTS);
 for (const template of impact.portfolioTemplates) await cachedCommand(`dag-dogfood-portfolio-template-${template}`, "npm", ["run", "test:dag-dogfood-portfolio", "--", "--template", template], RELEASE_SUITE_TIMEOUT_MS, RELEASE_CACHE_INPUTS);

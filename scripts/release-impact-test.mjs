@@ -4,7 +4,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { classifyReleaseImpact, fullReleaseImpact, releaseBaseAndChangedPaths, V2_FOCUSED_SUITES, V2_REQUIRED_PACKAGE_FILES, PRODUCT_PACKAGE_SMOKE_PATH, RELEASE_SUITE_TIMEOUT_MS, RELEASE_AGGREGATE_BUDGET_SECONDS, RELEASE_CACHE_INPUTS, RELEASE_CACHE_POLICY, runtimePackageSources } from "./release-impact.mjs";
+import { classifyReleaseImpact, fullReleaseImpact, releaseBaseAndChangedPaths, V2_FOCUSED_SUITES, V2_REQUIRED_PACKAGE_FILES, PRODUCT_PACKAGE_SMOKE_PATH, RELEASE_SUITE_TIMEOUT_MS, RELEASE_PRODUCT_TIMEOUT_MS, releaseSuiteTimeoutMs, RELEASE_AGGREGATE_BUDGET_SECONDS, RELEASE_CACHE_INPUTS, RELEASE_CACHE_POLICY, runtimePackageSources } from "./release-impact.mjs";
 
 const run = promisify(execFile);
 
@@ -71,7 +71,16 @@ for (const path of [...V2_FOCUSED_SUITES.map(script => `scripts/${script.slice(5
   assert.deepEqual(classifyReleaseImpact([path]).focused, V2_FOCUSED_SUITES, `${path} selects V2 coverage`);
 }
 assert.equal(classifyReleaseImpact(["scripts/dag-v2-git-test.mjs"]).full, true);
-assert(RELEASE_SUITE_TIMEOUT_MS >= 3_600_000);
+assert.equal(RELEASE_SUITE_TIMEOUT_MS, 3_600_000, "unrelated suite budgets remain unchanged");
+assert(RELEASE_PRODUCT_TIMEOUT_MS >= 7_200_000);
+assert.equal(releaseSuiteTimeoutMs("test:dag-v2-product"), RELEASE_PRODUCT_TIMEOUT_MS);
+for (const script of full.focused.filter(script => script !== "test:dag-v2-product")) assert.equal(releaseSuiteTimeoutMs(script), RELEASE_SUITE_TIMEOUT_MS);
+assert.equal(releaseSuiteTimeoutMs("smoke"), RELEASE_SUITE_TIMEOUT_MS, "bounded extracted-package smoke keeps its ordinary budget");
+const readinessSource = await readFile(new URL("./release-readiness.mjs", import.meta.url), "utf8");
+const smokeSource = await readFile(new URL("./smoke-test.mjs", import.meta.url), "utf8");
+assert(readinessSource.includes('for (const script of impact.focused) await command("npm", ["run", script], releaseSuiteTimeoutMs(script));'), "readiness forwards each focused suite budget to spawn");
+assert(smokeSource.includes('for (const script of V2_FOCUSED_SUITES) await execFileAsync("npm", ["run", script], { timeout: releaseSuiteTimeoutMs(script) });'), "source smoke forwards each V2 suite budget to execFile");
+assert(smokeSource.includes('timeout: RELEASE_SUITE_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024, ...options, env'), "explicit product budget overrides the default execFile budget");
 assert(RELEASE_AGGREGATE_BUDGET_SECONDS >= 28_800);
 assert.equal(RELEASE_CACHE_POLICY, "release-input-policy-v2");
 for (const path of ["extensions/dag-workflow/index.ts", "extensions/dag-workflow/runtime-v2/product.ts", "extensions/dag-workflow/planning/v2.ts", "extensions/dag-workflow/worker-runtime/manager.mjs", "scripts/dag-v2-product-test.mjs", "scripts/release-readiness.mjs"]) {

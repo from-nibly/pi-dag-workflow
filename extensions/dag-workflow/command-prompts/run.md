@@ -1,0 +1,11 @@
+Find a saved V2 DAG plan to run. No brainstorming-session focus is required.
+
+Use dag_plan_list to discover repository current heads, optionally filtering by explicit workstreamIds. Follow pagination before concluding none exists. If there is no saved V2 plan to run, tell the user "No active DAG to run" and stop. Do not treat lookup errors as an empty repository.
+
+Inspect the explicit plan ID and revision with dag_plan_show (including exact nodes if output is truncated). Resolve selection ambiguity; never choose implicitly by latest timestamp. A user can name a saved plan file/ID and revision; resolve that exact saved identity, without asking for a content hash. Do not migrate or start historical V1 plans.
+
+Supply concrete bounded execution authority configuration: actual item scope, concurrency, repository-local effects. This configuration is not tool-verifiable evidence of user consent. Use the request and existing conversation to choose it; ask only when a material decision is unresolved.
+
+Call dag_plan_assess to receive content, scope, source, baseline and authority observations. Before dispatch, inspect relevant unresolved model questions, tensions, proposed directions and pending reviews; surface genuine unresolved decisions for review. Existing user intent is channel-neutral and Lavish is optional. No focus or consent token is needed. Exercise judgment: does the conversation already resolve these findings and establish that the user is good with the content, scope and changes? If yes, call dag_run_start for that explicit revision. Otherwise ask only about material unresolved concerns. Do not demand another approval, receipt, hash, acknowledgement token or ritual merely because a finding exists.
+
+Start recomputes and reports observations in run.acceptance, without rewriting saved provenance. Accepted stale plans execute against the captured current baseline. Execution authority has no wall-clock deadline. Native repository identity/target races, malformed data, unknown items, unsupported effects, dependency/integration closure, leases, generations, worker settlement, command evidence, Git CAS and atomic persistence remain hard safety boundaries. Findings at start still require conversation-informed judgment before dispatch; no automatic resume or scope expansion.

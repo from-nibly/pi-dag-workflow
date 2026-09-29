@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { requireV2, sameV2, selectorV2, type PlanV2, type LifecycleCheckV2 } from "../planning/v2.ts";
-import type { RunV2 } from "./state.ts";
+import { executionRepositoryV2, type RunV2 } from "./state.ts";
 import type { CandidateV2, ExecutionRequestV2, ExecutionResultV2, LifecycleV2, RetryDimensionV2 } from "./lifecycle-schema.ts";
 
 export const retryLimitsV2 = { product: 3, test: 3, review: 3, hardening: 3, infrastructure: 1, replacement: 2, integration: 3 } as const;
@@ -12,7 +12,7 @@ export function frameV2(run: RunV2, plan: PlanV2, itemId: string, candidate: Can
   const candidates = [...(previous?.candidates ?? [])];
   if (candidateReady && !sameV2(candidates.at(-1) ?? null, candidate)) candidates.push(structuredClone(candidate));
   return { candidate: structuredClone(candidate), candidateReady, candidates, round: (previous?.round ?? 0) + 1, stage: 1, passed: [0], ready: false,
-    frame: { plan: selectorV2(plan), baseline: { commit: plan.repository.baselineCommit, tree: plan.repository.baselineTree }, oracle: item.lifecycle.oracle.statement,
+    frame: { plan: selectorV2(plan), baseline: { commit: executionRepositoryV2(run, plan).baselineCommit, tree: executionRepositoryV2(run, plan).baselineTree }, oracle: item.lifecycle.oracle.statement,
       risk: item.risk, checks: item.lifecycle.checks.filter(c => c.applicability.kind === "required").map(c => c.id), at: now },
     executions: previous?.executions ?? [], findings: previous?.findings ?? [] };
 }
@@ -21,7 +21,7 @@ export function executionRequestV2(run: RunV2, itemId: string, check: LifecycleC
   requireV2(l.candidateReady && l.stage < 8 && n.reservation?.workerId, "LIFECYCLE_NOT_EXECUTABLE");
   return { id: `execution-${randomUUID()}`, plan: structuredClone(run.start.selection), runId: run.runId, itemId, generation: n.generation,
     attempt: `${n.reservation.operationId}/F${l.stage}/${l.round}`, round: l.round, stage: l.stage as ExecutionRequestV2["stage"], candidate: structuredClone(l.candidate),
-    implementationWorkerId: n.reservation.workerId, check: structuredClone(check), authority: { effect: "repository_local", expiresAt: run.start.authority.expiresAt } };
+    implementationWorkerId: n.reservation.workerId, check: structuredClone(check), authority: { effect: "repository_local" } };
 }
 export function currentExecutionV2(run: RunV2, request: ExecutionRequestV2): boolean {
   const n = run.nodes[request.itemId], l = n?.lifecycle;
@@ -37,8 +37,8 @@ export function auditResultV2(request: ExecutionRequestV2, result: ExecutionResu
   requireV2(result.executor.identity === (request.check.procedure.kind === "command" ? request.check.procedure.argv[0] : request.check.procedure.producerId), "RESULT_PRODUCER_MISMATCH");
   if (result.disposition === "PASS") {
     requireV2(result.environment.profile === request.check.environment, "RESULT_ENVIRONMENT_MISMATCH");
-    requireV2(result.executor.invoked && result.startedAt < request.authority.expiresAt, "UNEXECUTED_OR_UNAUTHORIZED_RESULT");
-    requireV2(sameV2(result.workspace.candidate, request.candidate) && result.workspace.cleanBefore && result.workspace.cleanAfter && result.workspace.isolated, "RESULT_CANDIDATE_OR_CLEAN_MISMATCH");
+    requireV2(result.executor.invoked, "UNEXECUTED_OR_UNAUTHORIZED_RESULT");
+    requireV2(sameV2(result.workspace.candidate, request.candidate) && result.workspace.cleanBefore && result.workspace.cleanAfter && (request.nodeWorkspace ? !result.workspace.isolated && sameV2(result.workspace.node, request.nodeWorkspace) && request.nodeWorkspace.nodeId === `${request.runId}/${request.itemId}` : result.workspace.isolated && !result.workspace.node), "RESULT_CANDIDATE_OR_CLEAN_MISMATCH");
     requireV2(result.signal === null && (request.check.procedure.kind !== "command" || result.exitCode === 0), "RESULT_EXIT_MISMATCH");
     requireV2(!result.findings.some(f => f.severity === "blocking"), "PASS_WITH_BLOCKING_FINDING");
   }
@@ -68,7 +68,7 @@ export function rejectedContextResultV2(observed: ExecutionResultV2): ExecutionR
 export function auditLifecycleV2(run: RunV2, plan: PlanV2, itemId: string): void {
   const n = run.nodes[itemId], l = n.lifecycle!, item = plan.workItems.find(n => n.id === itemId)!;
   requireV2(sameV2(l.frame.plan, run.start.selection) && l.frame.oracle === item.lifecycle.oracle.statement && l.frame.risk === item.risk
-    && sameV2(l.frame.baseline, { commit: plan.repository.baselineCommit, tree: plan.repository.baselineTree })
+    && sameV2(l.frame.baseline, { commit: executionRepositoryV2(run, plan).baselineCommit, tree: executionRepositoryV2(run, plan).baselineTree })
     && sameV2(l.frame.checks, item.lifecycle.checks.filter(c => c.applicability.kind === "required").map(c => c.id)), "FRAME_MISMATCH");
   requireV2(!l.candidateReady || sameV2(l.candidates.at(-1), l.candidate), "CANDIDATE_HISTORY_MISMATCH");
   requireV2(l.passed.includes(0) && l.passed.every((s, i) => s === i) && l.passed.length === l.stage + (l.ready ? 1 : 0), "STAGE_SEQUENCE_MISMATCH");

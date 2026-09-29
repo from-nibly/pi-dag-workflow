@@ -241,14 +241,14 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "On resume, show the selected workstreams/focus, Current understanding, any active review turn, the unresolved question/tension frontier, material model delta since the previous-review baseline, and governing items under review. Load deeper model slices or generated specs only as needed.",
+      "body": "On resume, show relevant workstream/object scope inferred from conversation, Current understanding, applicable pending review IDs and unresolved question/tension frontier. Use actual recorded revisions and current state; do not require an old saved-focus link or invent a previous-review delta. Load deeper model slices and specs only as needed.",
       "createdAt": "2026-07-28T18:37:09.013Z",
       "id": "COM-compact-resume-orientation",
       "introducedBy": "migration",
       "legacyIds": [
         "D55-compact-resume-orientation"
       ],
-      "rationale": "Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "scope": {
         "kind": "workstreams",
@@ -258,11 +258,12 @@
         ]
       },
       "sourceRefs": [
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow",
         "legacy-brainstorm:D55-compact-resume-orientation"
       ],
       "state": "accepted",
-      "title": "Show a compact current-state orientation on resume",
-      "updatedAt": "2026-07-29T00:02:20.714Z"
+      "title": "Orient from current context and independent reviews",
+      "updatedAt": "2026-09-22T21:45:58.270Z"
     },
     {
       "acceptance": {
@@ -544,14 +545,14 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "Separate the authoritative project model, narrow model-facing tool projections/receipts, ephemeral focus and review presentation state, and generated user-facing views. Routine tool results do not return the complete model or generated documents; review is the bounded exception that returns exact hash-bound context and options.",
+      "body": "Separate the governing model with independent review records, narrow model-facing tool results, derived presentation artifacts and generated user-facing specs. Routine tools return bounded scoped context rather than the whole model. Reviews expose explicit point/option IDs and actual content for conversation-informed judgment, not semantic-hash consent payloads.",
       "createdAt": "2026-07-28T18:37:09.013Z",
       "id": "COM-four-layer-tool-output",
       "introducedBy": "migration",
       "legacyIds": [
         "D70-four-layer-tool-output"
       ],
-      "rationale": "Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "scope": {
         "kind": "workstreams",
@@ -561,11 +562,12 @@
         ]
       },
       "sourceRefs": [
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow",
         "legacy-brainstorm:D70-four-layer-tool-output"
       ],
       "state": "accepted",
-      "title": "Separate datastore, model content, tool details, and user rendering",
-      "updatedAt": "2026-07-29T00:02:20.714Z"
+      "title": "Separate shared meaning, bounded tool views and presentation",
+      "updatedAt": "2026-09-22T21:45:58.270Z"
     },
     {
       "acceptance": {
@@ -699,7 +701,7 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "Agents own research, synthesis, semantic classification, and response interpretation. Tools own model schema/invariants, atomic writes, content hashes, receipts, references, type-specific transitions, and deterministic projections. Humans own outcomes, priorities, values, focus, and acceptance or replacement of governing direction.",
+      "body": "Agents own research, synthesis, semantic classification and interpretation of contextual user direction. Tools own structural schema/reference validation, revision CAS, atomic writes, explicit state transitions and derived projections. Humans own outcomes, priorities, values and governing direction. Semantic hashes and consent receipts are not required to prove that direction; exact internal execution identities protect races rather than human intent.",
       "createdAt": "2026-07-28T18:37:09.013Z",
       "id": "COM-judgment-structure-direction-transport",
       "introducedBy": "migration",
@@ -720,7 +722,7 @@
       ],
       "state": "accepted",
       "title": "Use the judgment, structure, direction, and transport ownership matrix",
-      "updatedAt": "2026-07-29T00:02:20.715Z"
+      "updatedAt": "2026-09-22T21:46:35.457Z"
     },
     {
       "acceptance": {
@@ -855,7 +857,7 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "Tools generate and validate mechanical fields—typed IDs, timestamps, semantic hashes, receipts, derived reverse links, projection links, and explicitly requested type-specific transitions. Agents author and classify meaning, rationale, recommendations, user interpretation, and semantic relationships; tools do not infer them from prose.",
+      "body": "Tools generate mechanical typed IDs, timestamps, revision counters, reverse links and projections for explicitly requested changes. Agents author meaning, rationale, recommendations, contextual user interpretation and semantic relationships. Do not generate semantic acceptance hashes or approval receipts as a permission ceremony. Keep actual structural and filesystem/transaction integrity checks distinct from interpreting consent.",
       "createdAt": "2026-07-28T18:37:09.014Z",
       "id": "COM-mechanical-inference-only",
       "introducedBy": "migration",
@@ -877,7 +879,7 @@
       ],
       "state": "accepted",
       "title": "Infer mechanics through typed defaults and explicit references",
-      "updatedAt": "2026-07-29T00:02:20.715Z"
+      "updatedAt": "2026-09-22T21:46:35.458Z"
     },
     {
       "acceptance": {
@@ -888,24 +890,25 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "While model brainstorming is active, inject the operational behavior contract and send one compact kickoff naming the repository model, exact focus session, selected workstreams/seed, orientation, and immediate action. Dynamically activate the six model tools without duplicating the contract in verbose tool guidance.",
+      "body": "Keep model tools enabled regardless of brainstorming, planning or execution activity. Inject concise contextual guidance and use `/dag brainstorm [topic]` as a research kickoff, not a durable-mode or focus activation command. Operate with explicit scope and discover relevant pending review IDs; do not prohibit planning or execution because model guidance is present.",
       "createdAt": "2026-07-28T18:37:09.022Z",
       "id": "COM-mode-system-prompt-plus-kickoff",
       "introducedBy": "migration",
       "legacyIds": [
         "D-mode-system-prompt-plus-kickoff"
       ],
-      "rationale": "Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "scope": {
         "kind": "repository"
       },
       "sourceRefs": [
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow",
         "legacy-brainstorm:D-mode-system-prompt-plus-kickoff"
       ],
       "state": "accepted",
-      "title": "Use mode-specific system guidance plus a compact kickoff",
-      "updatedAt": "2026-07-29T00:02:20.715Z"
+      "title": "Keep model tools enabled across activities",
+      "updatedAt": "2026-09-22T21:45:58.270Z"
     },
     {
       "acceptance": {
@@ -1652,14 +1655,14 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "Brainstorming is single-agent and single-writer. Concurrent use of one focus receives no lock/merge UX, but canonical model writes use Pi's file-mutation queue and review outcomes enforce object-level semantic-hash freshness.",
+      "body": "Model operations use explicit scope and process-shared writer locking with revision CAS. Independent reviews have exact IDs and revisions; model changes and recorded outcomes publish atomically together. Concurrent interactions do not share a singleton active focus or require semantic-hash agreement as consent. Preserve actual canonical-model structural consistency and reject stale mutable writes.",
       "createdAt": "2026-07-28T18:37:09.006Z",
       "id": "COM-single-agent",
       "introducedBy": "migration",
       "legacyIds": [
         "D6-single-agent"
       ],
-      "rationale": "Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "scope": {
         "kind": "workstreams",
@@ -1668,11 +1671,12 @@
         ]
       },
       "sourceRefs": [
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow",
         "legacy-brainstorm:D6-single-agent"
       ],
       "state": "accepted",
-      "title": "Use single-agent model brainstorming",
-      "updatedAt": "2026-07-29T00:02:20.717Z"
+      "title": "Serialize model writes without a focus-level exclusion rule",
+      "updatedAt": "2026-09-22T21:45:58.270Z"
     },
     {
       "acceptance": {
@@ -1683,14 +1687,14 @@
         "interactionRef": "lavish-feedback:review-current-understanding-structure-frontier:sha256:aca10cb0cb338e4848f241cb4dc91ea2c94aebacd794a3e63ee2da34ff74f438",
         "mode": "accepted_existing"
       },
-      "body": "Keep one latest project-level Current understanding synthesis in tracked metadata. It is agent-authored, non-authoritative, carries source object IDs/hashes, and is replaced rather than accumulated as review history. Its Markdown must make the goal, relevant current state or mechanism, and governing accepted direction easy to find. Add unresolved frontier, boundaries, constraints, evidence, risks, or other sections when they materially help the user verify alignment. Headings may adapt to the subject; Current understanding describes present state rather than duplicating the separate model-delta or acknowledgement receipt.",
+      "body": "Keep one latest project-level Current understanding synthesis in tracked metadata. It is agent-authored explanation, not governing direction or acceptance proof, and refers to source object IDs without required semantic-hash equality. Make the goal, relevant current state and accepted direction easy to find; include unresolved frontier, risks and evidence when useful. Replace the synthesis rather than treating it as review history or an acknowledgement receipt.",
       "createdAt": "2026-07-28T18:37:09.014Z",
       "id": "COM-single-current-proof",
       "introducedBy": "migration",
       "legacyIds": [
         "D-single-current-proof"
       ],
-      "rationale": "A mandatory semantic core makes the synthesis auditable, while adaptive headings preserve useful judgment and avoid template noise.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "scope": {
         "kind": "workstreams",
@@ -1702,11 +1706,12 @@
       "sourceRefs": [
         "EV-current-understanding-renderer-and-delta-separation",
         "PROP-current-understanding-mandatory-core-adaptive-structure",
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow",
         "legacy-brainstorm:D-single-current-proof"
       ],
       "state": "accepted",
-      "title": "Keep one structured mutable current proof",
-      "updatedAt": "2026-08-17T22:17:42.399Z"
+      "title": "Keep one explanatory current understanding",
+      "updatedAt": "2026-09-22T21:45:58.270Z"
     },
     {
       "acceptance": {
@@ -1939,14 +1944,14 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "The agent may recommend or discuss a prototype, but creates one only after the user explicitly requests it.",
+      "body": "Ordinary low-risk disposable local experiments or prototypes within an already-requested task may proceed when useful for investigation. Ask about materially new product deliverables, costly experiments, ambiguous scope or restricted external effects rather than requiring a separate request using the word prototype. Preserve user files and keep experiment conclusions distinct from verified product behavior.",
       "createdAt": "2026-07-28T18:37:09.012Z",
       "id": "COM-user-requests-prototypes",
       "introducedBy": "migration",
       "legacyIds": [
         "D39-user-requests-prototypes"
       ],
-      "rationale": "Prototype creation is a user-directed brainstorming activity rather than an autonomous agent choice.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "scope": {
         "kind": "workstreams",
@@ -1956,11 +1961,12 @@
         ]
       },
       "sourceRefs": [
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow",
         "legacy-brainstorm:D39-user-requests-prototypes"
       ],
       "state": "accepted",
-      "title": "Create prototypes only on user request",
-      "updatedAt": "2026-07-29T00:02:20.718Z"
+      "title": "Allow scoped local experiments without separate prototype permission",
+      "updatedAt": "2026-09-22T21:45:58.270Z"
     },
     {
       "acceptance": {
@@ -2816,7 +2822,7 @@
         "interactionRef": "lavish-feedback:review-planning-transaction-and-inspection-foundation:sha256:a19158b2b404595bc19fc7f9ffa75e1cab3d015199e13cdecbfd0df4e245fc86",
         "mode": "accepted_existing"
       },
-      "body": "The default detached authorization receipt binds exact plan, review receipt, and reviewed-projection hashes and authorizes all dependency/effect/integration-closed work within the plan maximum, including F0–F8 activity, architecture-preserving repository edits, worktree/commit operations, exact verification and landing, and reviewed reversible non-production evaluation scopes within budgets and retry policy. The final `/dag plan` Lavish turn may offer exact plan approval and run authorization together, but they remain independent decisions with separate content-bound receipts; the user may approve without authorizing. Authorization binds exact scope, effects, repositories, targets, retry ceilings, validity, and max concurrency. Neither approval nor authorization starts execution; explicit `/dag run` does. Fresh authorization remains required for materially new semantics, undeclared repositories/targets, production deployment, irreversible effects, new credentials/effect scope, or budget escalation. Optional partial authorization must be mechanically closed and can only narrow the plan maximum.",
+      "body": "Historical V1 contract only; retained to interpret old artifacts, not an active V2 approval requirement. Current V2 follows DEC-direct-user-commit-derived-review and DEC-one-artifact-two-phase-dag-planning: conversation-informed judgment, explicit ID/revision selection, no approval/authorization receipt ceremony. Legacy code removal is deferred until a full validated DAG run. Historical contract: The default detached authorization receipt binds exact plan, review receipt, and reviewed-projection hashes and authorizes all dependency/effect/integration-closed work within the plan maximum, including F0–F8 activity, architecture-preserving repository edits, worktree/commit operations, exact verification and landing, and reviewed reversible non-production evaluation scopes within budgets and retry policy. The final `/dag plan` Lavish turn may offer exact plan approval and run authorization together, but they remain independent decisions with separate content-bound receipts; the user may approve without authorizing. Authorization binds exact scope, effects, repositories, targets, retry ceilings, validity, and max concurrency. Neither approval nor authorization starts execution; explicit `/dag run` does. Fresh authorization remains required for materially new semantics, undeclared repositories/targets, production deployment, irreversible effects, new credentials/effect scope, or budget escalation. Optional partial authorization must be mechanically closed and can only narrow the plan maximum.",
       "createdAt": "2026-08-01T20:53:10.452Z",
       "id": "DEC-broad-coordination-plan-authorization-v1",
       "introducedBy": "agent",
@@ -2851,7 +2857,7 @@
       ],
       "state": "accepted",
       "title": "Default to broad whole-plan coordination authorization with independent approval",
-      "updatedAt": "2026-08-13T13:39:20.455Z"
+      "updatedAt": "2026-09-22T21:45:58.270Z"
     },
     {
       "acceptance": {
@@ -3140,11 +3146,11 @@
         "interactionRef": "lavish-feedback:review-simplified-plan-show-run-release-scope:sha256:3abdefbb7b69b6299dceb954dbeee4f472dd18a73c7586c7f5f6ea651f650dcd",
         "mode": "accepted_existing"
       },
-      "body": "Historical `CanonicalDagPlanV1` artifacts remain readable and immutable. New planning records use stable IDs and monotonic revisions for lineage and occurrence identity, plus one canonical whole-plan hash when exact portable plan bytes must be reviewed, cached, or joined across stores. Do not require blanket nested entity hashes, schema hashes, self-hashed receipts, or hash chains unless an entity is independently stored, compared, cached, or reused and a concrete content-equality failure requires it. Use process-shared locks with expected integer revisions for mutable CAS; generations for stale result fencing; durable temp-write/fsync/rename/fsync for snapshots; semantic hashes for project-model objects and selected governing closure; digests for independently hydrated artifacts and stored projection bundles; native Git OIDs without wrapper hashes; and stable natural operation IDs with persisted request comparison for external-effect idempotency. Hashes provide checksums, content addressing, fingerprints, and privacy-safe equality—not authentication or proof of human intent. Introduce versioned simplified writers only where needed and never reinterpret active V1 artifacts.",
+      "body": "Historical CanonicalDagPlanV1 artifacts remain readable and unchanged. New plans use explicit stable IDs and revisions for user selection; semantic agreement is contextual, not proven by content hashes or receipt chains. Do not require user-supplied hashes, semantic model-acceptance hashes or matching generated hashes as approval proof. Retain internal digests only where they identify exact stored launch/artifact bytes or protect concrete file replacement and derived-cache consistency. Keep process-shared locks and expected integer revisions for mutable CAS, generations for stale-result fencing, durable snapshot publication, native Git OIDs and stable dispatch operation IDs for idempotency. These mechanisms protect integrity and races, not human intent.",
       "createdAt": "2026-08-01T14:55:54.722Z",
       "id": "DEC-closed-content-hashed-plan-envelope-v1",
       "introducedBy": "agent",
-      "rationale": "Every retained identity mechanism must prevent a concrete local reliability failure; redundant hash layers add migration and validation risk without creating a security boundary.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [
         {
           "kind": "addresses",
@@ -3171,11 +3177,12 @@
       "sourceRefs": [
         "DEC-separate-canonical-plan-from-operational-records",
         "EV-canonical-plan-schema-adversarial-review",
-        "PROP-closed-content-hashed-plan-envelope-v1"
+        "PROP-closed-content-hashed-plan-envelope-v1",
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow"
       ],
       "state": "accepted",
-      "title": "Use one canonical plan hash and practical identities elsewhere",
-      "updatedAt": "2026-08-14T00:36:49.951Z"
+      "title": "Separate internal identity from semantic agreement",
+      "updatedAt": "2026-09-22T21:45:58.269Z"
     },
     {
       "body": "Each integration attempt binds exact Git version/object format, isolated configuration, common-dir identity, local filesystem/fsync profile, attributes, filters, submodules, LFS, generators, object completeness, and hydration procedures. Custom or union merge drivers are prohibited in v1. Declared filters and external object procedures must be content/version bound and reconciled; undeclared, missing, nondeterministic, prompted, shallow/partial/alternate/replace-ref, or durability-unsupported states block unless an accepted materialization profile proves a closed local state. Required capability failure is never `NOT_APPLICABLE`.",
@@ -3610,11 +3617,11 @@
         "interactionRef": "lavish-feedback:review-rev-dag-migrate-bootstrap-readiness:sha256:fe995c8bf4de9807a151f72634df45d68246fc7a4d1975eb25d55af5d9839651",
         "mode": "accepted_existing"
       },
-      "body": "`/dag migrate` first inventories enough repository metadata to bootstrap an empty non-authoritative candidate model and dedicated migration focus, then activates the existing project-model tool loop under migration-specific guidance. The agent uses relevant-first repository evidence and supported deterministic legacy adapters to create or refresh source-traceable model objects, mappings, omissions, warnings, proposed projections, generated-spec previews, and per-artifact dispositions without overwriting existing artifacts. Lavish may present an incomplete candidate, but cutover is offered only when explicit semantic and artifact readiness gates pass. Cutover remains a separate explicit operation bound to the exact reviewed candidate and artifact manifest; an existing authoritative model fails closed.",
+      "body": "`/dag migrate` inventories repository sources and bootstraps or resumes a non-authoritative candidate model without a dedicated focus. Always-available model tools use explicit scope to build source-traceable objects, mappings, omissions, proposed projections and per-artifact dispositions. Review unresolved semantic decisions with the user in chat or optional Lavish. Contextual user intent may adopt the candidate through an explicit cutover operation without a manifest consent token or semantic approval receipt. Keep structural readiness and actual file-replacement/inventory safety; candidate edits do not silently overwrite authoritative unmanaged artifacts. Existing authoritative models are not silently remigrated.",
       "createdAt": "2026-08-19T02:17:55.015Z",
       "id": "DEC-dag-migrate-staged-candidate-review-cutover",
       "introducedBy": "user",
-      "rationale": "Reusing the existing validated mutation, review, and authority path avoids a duplicate migration subsystem while adding only the bootstrap, inference guidance, readiness metadata, and artifact-manifest binding required by the feature.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "resolvesQuestionIds": [],
       "scope": {
@@ -3631,10 +3638,12 @@
         "PROP-dag-migrate-relevant-first-source-inventory",
         "PROP-dag-migrate-semantic-readiness-gates"
       ],
-      "sourceRefs": [],
+      "sourceRefs": [
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow"
+      ],
       "state": "accepted",
-      "title": "Stage migration candidate, reuse the model loop, audit in Lavish, and cut over exactly",
-      "updatedAt": "2026-08-19T02:25:11.574Z"
+      "title": "Migrate with explicit scope and channel-neutral adoption",
+      "updatedAt": "2026-09-22T21:45:58.269Z"
     },
     {
       "acceptance": {
@@ -3959,14 +3968,14 @@
         "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1788999676887",
         "mode": "direct_direction"
       },
-      "body": "Explicit unambiguous user direction commits once; silence and agent-derived implications never commit; ambiguity or conflict remains unresolved. The agent uses contextual judgment to determine whether the user accepted the semantic payload, and content references support traceability and stale-response handling rather than serving as a security or cryptographic consent boundary. Do not require a separate trusted adapter, typed approval ceremony, byte-exact human-interaction receipt, formal plan-approval state, approval revision, or approval artifact. Planning remains reviewable and revisable without an approval transition. When the user explicitly tells the agent to run one exact current plan, that run intent also expresses acceptance of that plan and may proceed directly to the applicable execution-authorization and start boundary. Scope/effect authorization remains enforceable independently, and fresh explicit authority is still required for production, publication, credentials, irreversible effects, or materially expanded scope.",
+      "body": "Interpret actual user intent from chat, Lavish or another supported user-originated channel. Clear direction may be recorded once through the direction tools; questions, silence, quoted text and agent-derived implications are not blanket consent. Review relevant unresolved decisions and pending review outcomes before dispatch; already-settled conversational direction does not require repeated confirmation. Do not require semantic consent hashes, acceptance receipts, current-turn markers, a trusted presentation adapter, or formal plan approval. Saved plan content, scope and semantic freshness are assessed and reported for agent judgment. Start the explicit plan revision when the conversation resolves material concerns and establishes execution intent. New material scope or restricted external effects require contextual authorization; internal CAS, real evidence and native Git integrity remain enforced.",
       "createdAt": "2026-07-28T18:37:09.022Z",
       "id": "DEC-direct-user-commit-derived-review",
       "introducedBy": "migration",
       "legacyIds": [
         "D-direct-user-commit-derived-review"
       ],
-      "rationale": "A separate formal approval transition duplicates the user's later exact run intent and adds ceremony without constraining the trusted agent. Plan review remains visible, while authorization continues to protect scope and effects that require distinct authority.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "resolvesQuestionIds": [],
       "scope": {
@@ -3975,11 +3984,12 @@
       "selectedProposalIds": [],
       "sourceRefs": [
         "PROP-legacy-plus-validation-runtime",
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow",
         "legacy-brainstorm:D-direct-user-commit-derived-review"
       ],
       "state": "accepted",
-      "title": "Use contextual user direction and make run intent accept the plan",
-      "updatedAt": "2026-09-10T00:22:06.592Z"
+      "title": "Use contextual user direction without approval ceremony",
+      "updatedAt": "2026-09-22T21:45:58.269Z"
     },
     {
       "acceptance": {
@@ -4050,14 +4060,14 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "Persist one current tracked snapshot containing materially useful typed objects, including active uncertainty and discoveries. Objects carry stable identity, type-specific state, scope, source/provenance, relationships, timestamps, and confidence where meaningful. Git supplies history; the model is not an event log. Focus-session review/presentation state and scratch research remain ephemeral.",
+      "body": "Persist one current tracked snapshot containing materially useful typed objects, uncertainty, discoveries, and independent scoped review records with durable sparse outcomes. Objects carry stable identity, type-specific state, scope, source references and relationships. Git supplies history; the model is not an event log. Review records and model outcomes publish atomically in the model snapshot. Presentation artifacts and scratch research are derived or ephemeral; no durable focus owns unique meaning.",
       "createdAt": "2026-07-28T18:37:09.022Z",
       "id": "DEC-durable-statused-snapshot",
       "introducedBy": "migration",
       "legacyIds": [
         "D-durable-statused-snapshot"
       ],
-      "rationale": "Semantic migration rewrite replacing obsolete legacy terminology while preserving the accepted behavior.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "resolvesQuestionIds": [],
       "scope": {
@@ -4065,11 +4075,12 @@
       },
       "selectedProposalIds": [],
       "sourceRefs": [
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow",
         "legacy-brainstorm:D-durable-statused-snapshot"
       ],
       "state": "accepted",
-      "title": "Keep one current tracked model snapshot",
-      "updatedAt": "2026-07-29T00:02:20.712Z"
+      "title": "Persist model meaning and independent review outcomes",
+      "updatedAt": "2026-09-22T21:45:58.269Z"
     },
     {
       "acceptance": {
@@ -4303,7 +4314,7 @@
         "interactionRef": "pi-input:019fb646-a0bd-7d96-84b8-bbccf085e61d:1785788850019",
         "mode": "accepted_existing"
       },
-      "body": "V1 supports exactly one composition strategy: fixed-profile `merge-tree --write-tree` with the plan-bound source base supplied explicitly, followed by a deterministic one-parent `commit-tree` integration commit. Source candidate commit/tree and fixed Pi-DAG attribution are retained in immutable receipts and trailers; worker commit topology is not replayed. Git patch IDs and range diagnostics are advisory only. Any textual, rename/delete, custom-driver, semantic, or ambiguous conflict produces no accepted composed tree, fences the attempt, and routes implementation to a new candidate generation through F1 and fresh affected evidence. The conductor never edits conflict content or owns sequencer continuation.",
+      "body": "V1 supports exactly one composition strategy: fixed-profile `merge-tree --write-tree` with the plan-bound source base supplied explicitly, followed by a deterministic one-parent `commit-tree` integration commit. Source candidate commit/tree and fixed Pi-DAG attribution are retained in immutable receipts and trailers; worker commit topology is not replayed. Git patch IDs and range diagnostics are advisory only. Any textual, rename/delete, custom-driver, semantic, or ambiguous conflict produces no accepted composed tree, fences the attempt, and routes implementation to a new candidate generation through F1 and fresh affected evidence. The conductor never edits conflict content or owns sequencer continuation. For new V2 operations, ordinary-ff-v2-2 binds an accepted-prefix-v1 receipt containing the authorized baseline and exact ordered accepted integration chain bounded by the expected target. Select the latest accepted prefix proven ancestral to the candidate, otherwise the authorized baseline; verify native commit/tree and first-parent chain identities. A repair starting commit, arbitrary worker parent or automatically inferred merge base is not accepted-prefix authority. This allows sequential work already incorporating a predecessor to extend it without replaying its additions against the original run base, while independent candidates still compose against their actual incorporated prefix. Keep explicit-base merge-tree, deterministic one-parent proposals, exact combined-state checks in the node-owned workspace, restoration before target CAS, and fail-closed genuine conflicts. Historical ordinary-ff-v2-1 operations retain their original baseline-only interpretation and immutable receipts; blocked or closed operations are never silently reopened or reinterpreted. Preserve bounded native failure status, stdout and stderr so conflicts remain diagnosable.",
       "createdAt": "2026-08-03T19:17:25.330Z",
       "id": "DEC-explicit-base-merge-tree-synthetic-train-v1",
       "introducedBy": "agent",
@@ -4338,7 +4349,7 @@
       ],
       "state": "accepted",
       "title": "Use explicit-base merge-tree, synthetic first-parent commits, and no conductor conflict edits",
-      "updatedAt": "2026-08-03T20:34:02.746Z"
+      "updatedAt": "2026-09-25T21:01:39.635Z"
     },
     {
       "acceptance": {
@@ -4349,14 +4360,14 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "Focus identity is command-owned, stable, resumable, and never confused with creating another authority model.",
+      "body": "The active model workflow has no durable focus sessions or New/Resume/Stop selection ceremony. Model tools are always available and take explicit workstream and optional object scope chosen by the agent from the conversation. Historical focus files remain read-only context; they do not enable tools, authorize operations, or gate planning and execution.",
       "createdAt": "2026-07-28T18:37:09.024Z",
       "id": "DEC-explicit-focus-session-subcommands",
       "introducedBy": "migration",
       "legacyIds": [
         "D-explicit-focus-session-subcommands"
       ],
-      "rationale": "This preserves convenient interactive use and deterministic automation while making the new one-model semantics visible.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "resolvesQuestionIds": [],
       "scope": {
@@ -4364,11 +4375,12 @@
       },
       "selectedProposalIds": [],
       "sourceRefs": [
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow",
         "legacy-brainstorm:D-explicit-focus-session-subcommands"
       ],
       "state": "accepted",
-      "title": "Selector plus new/resume/list/stop subcommands",
-      "updatedAt": "2026-07-29T00:02:20.712Z"
+      "title": "Use explicit scope without durable focuses",
+      "updatedAt": "2026-09-22T21:45:58.269Z"
     },
     {
       "acceptance": {
@@ -4783,14 +4795,14 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "The durable model is the only semantic working state. Ephemeral sessions contain focus, baselines, and presentation packets but no unique project meaning.",
+      "body": "Record useful research and proposals promptly as non-governing model material. The durable model contains shared project meaning and independent pending reviews. Conversation context selects the current task without a saved-focus requirement; presentation files and scratch notes do not create a parallel source of governing meaning.",
       "createdAt": "2026-07-28T18:37:09.023Z",
       "id": "DEC-immediate-nonauthoritative-model-write",
       "introducedBy": "migration",
       "legacyIds": [
         "D-immediate-nonauthoritative-model-write"
       ],
-      "rationale": "This preserves continuity and one authority boundary without treating agent-created objects as accepted.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "resolvesQuestionIds": [],
       "scope": {
@@ -4798,11 +4810,12 @@
       },
       "selectedProposalIds": [],
       "sourceRefs": [
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow",
         "legacy-brainstorm:D-immediate-nonauthoritative-model-write"
       ],
       "state": "accepted",
-      "title": "Write coherent findings to the model during exploration",
-      "updatedAt": "2026-07-29T00:02:20.712Z"
+      "title": "Keep shared meaning in the model, not session modes",
+      "updatedAt": "2026-09-22T21:45:58.269Z"
     },
     {
       "acceptance": {
@@ -4813,14 +4826,14 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "Hot reload, Pi resume, fork, and clone restore the exact focus-session link carried by the Pi conversation branch and keep model brainstorming active after validating the focus file. A brand-new Pi session without a link starts inactive. Forking does not clone, replace, or suspend the focus session. Concurrent interaction with one focus from multiple agents is unsupported and receives no locks, merge protocol, or coordination UX; users are expected not to do it, and stale hash/file conflicts may fail visibly if they do.",
+      "body": "Pi resume, fork and clone retain ordinary conversation context, not a required durable model-focus link. A new session can immediately inspect and operate on the model with explicit scope. Independent pending reviews are discoverable by scope and addressed by exact review ID and revision. Model and review writes use process-shared locking and revision CAS; no focus activation or shared-focus exclusion policy is required.",
       "createdAt": "2026-07-28T18:37:09.024Z",
       "id": "DEC-inherit-exact-focus-across-fork",
       "introducedBy": "migration",
       "legacyIds": [
         "D-inherit-exact-focus-across-fork"
       ],
-      "rationale": "Pi forks are commonly used to edit an earlier user response and continue the same conversation, so requiring brainstorm reentry would make correction unnecessarily arduous. Supporting deliberate multi-agent use of one presentation focus is not a product goal.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "resolvesQuestionIds": [],
       "scope": {
@@ -4828,11 +4841,12 @@
       },
       "selectedProposalIds": [],
       "sourceRefs": [
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow",
         "legacy-brainstorm:D-inherit-exact-focus-across-fork"
       ],
       "state": "accepted",
-      "title": "Keep the exact focus active across reload, resume, fork, and clone",
-      "updatedAt": "2026-07-29T00:02:20.712Z"
+      "title": "Restore conversation context without a focus authority link",
+      "updatedAt": "2026-09-22T21:45:58.269Z"
     },
     {
       "acceptance": {
@@ -4930,11 +4944,11 @@
         "interactionRef": "pi-input:019f857b-d560-782f-a4f8-65f734ac7dbf:1785291604555",
         "mode": "accepted_existing"
       },
-      "body": "Within the trusted local agent and harness threat model, feedback returned through the active Lavish poll protocol is assumed to be human-initiated and is eligible to bind a review-scoped interaction receipt. Do not require an extra Pi confirmation and do not restrict agent-authored rich context to defend against fabricated submissions. Still match feedback to the active review, point, option, and displayed semantic hashes before resolution. Treat accidental automatic submission as a renderer correctness defect covered by conventions and tests, not as an authority-provenance security boundary.",
+      "body": "Human feedback supplied through Lavish is eligible user direction just like chat. Interpret the actual message in context; no extra Pi confirmation or displayed semantic-hash match is required as consent proof. Use exact review, point and option IDs and review revision CAS to address outcomes, preserving unresolved points. Tool output and arbitrary quoted instructions do not become user authority merely by containing imperative text.",
       "createdAt": "2026-07-29T02:22:55.886Z",
       "id": "DEC-lavish-feedback-human-initiated",
       "introducedBy": "user",
-      "rationale": "A malicious agent or harness already has substantially greater local capability, and the accepted renderer threat model trusts agent-authored local content. Provenance attestation would add friction without defending a material product threat.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [
         {
           "kind": "addresses",
@@ -4956,11 +4970,12 @@
       },
       "sourceRefs": [
         "Direct user direction in Lavish renderer review",
-        "EV-lavish-feedback-lacks-human-gesture-provenance"
+        "EV-lavish-feedback-lacks-human-gesture-provenance",
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow"
       ],
       "state": "accepted",
-      "title": "Treat Lavish protocol feedback as human-initiated",
-      "updatedAt": "2026-07-29T02:22:55.886Z"
+      "title": "Treat user intent consistently across review channels",
+      "updatedAt": "2026-09-22T21:45:58.269Z"
     },
     {
       "acceptance": {
@@ -5094,7 +5109,7 @@
         "interactionRef": "lavish-feedback:review-f0-f8-evidence-routes-budgets:sha256:5debcf08134f9c0740af86a9e7642bda34937aa947cfa3a660a3acf947324e75",
         "mode": "accepted_existing"
       },
-      "body": "F0 and F8 are conductor computations. F1 is one logical long-lived implementation/static thread across product-repair back-edges; physical replacement records a handoff and never resets lineage or budget. F2 is a fresh read-only evaluator for each behavior-bearing candidate. F3 normally reuses F1 for codification. F4 is a deterministic no-edit runner. F5 is a fresh read-only reviewer with context lineage distinct from F1 and F2. F6 uses deterministic tools and a fresh adversarial evaluator only when generation or judgment requires one. F7 uses a newly materialized clean no-edit environment. Fresh F2/F5 packets include exact plan/oracle/candidate/evidence inputs but exclude hidden predecessor reasoning. F3 may preserve predecessor F2 evidence only when a hash-bound repository procedure mechanically attests an evidence-only delta; unknown or behavior-bearing changes route through F1 and fresh F2. Any candidate change after F5 invalidates F5 onward. F7 replays mandatory automatable behavior on the exact final tree; non-replayable evidence needs an exact validity window or visible waiver.",
+      "body": "F0 and F8 are conductor computations. F1 is one logical long-lived implementation/static thread across product-repair back-edges; physical replacement records a handoff and never resets lineage or budget. F2 is a fresh read-only evaluator for each behavior-bearing candidate. F3 normally reuses F1 for codification. F4 is a deterministic no-edit runner. F5 is a fresh read-only reviewer with context lineage distinct from F1 and F2. F6 uses deterministic tools and a fresh adversarial evaluator only when generation or judgment requires one. F7 uses a newly materialized clean no-edit environment. Fresh F2/F5 packets include exact plan/oracle/candidate/evidence inputs but exclude hidden predecessor reasoning. F3 may preserve predecessor F2 evidence only when a hash-bound repository procedure mechanically attests an evidence-only delta; unknown or behavior-bearing changes route through F1 and fresh F2. Any candidate change after F5 invalidates F5 onward. F7 replays mandatory automatable behavior on the exact final tree; non-replayable evidence needs an exact validity window or visible waiver. Current V2 clarification: fresh independent evaluation/context means a new actual invocation and evidence identity, not a fresh filesystem worktree. Node implementation, validation and repair reuse the same node-owned worktree sequentially. Preserve ignored setup/build artifacts while enforcing exact tracked-source integrity and positive process settlement at ownership handoffs. Historical results retain their original workspace interpretation; do not rewrite prior evidence to match the new layout.",
       "createdAt": "2026-08-02T15:20:59.759Z",
       "id": "DEC-lifecycle-worker-freshness-invalidation-v1",
       "introducedBy": "agent",
@@ -5129,7 +5144,7 @@
       ],
       "state": "accepted",
       "title": "Use one F1 thread, fresh F2/F5, and conservative evidence invalidation",
-      "updatedAt": "2026-08-03T18:10:55.052Z"
+      "updatedAt": "2026-09-24T02:46:00.352Z"
     },
     {
       "body": "V1 evaluation is local-only and never uploads telemetry. One strict canonical content-addressed `RunEvaluationEnvelopeV1` is generated per terminal run or explicit right-censored checkpoint and binds the exact evaluation-profile version/hash, plan/run/source snapshot and receipt hashes, terminal/censor class, coverage, clock quality, uncompensated invariant results, outcomes, attempts, retries/back-edges, findings, integration, timing, useful parallelism, human-attention, model usage, reported cost, and instrumentation status. Every metric carries measured, zero_exposure, unsupported_policy, not_observed, partial_coverage, or censored state plus explicit numerator/denominator/missing/censored counts. A separate atomic `RunObservationAccumulatorV1` stores only currently open readiness/active/human/recovery intervals, fixed counters/sums/histograms, source revision/hash, and coverage gaps; it contains no transition list or scheduler decisions and folds closed intervals. Observation happens after authoritative commits, may drop on overload, never backpressures or affects execution, and missing data is never imputed. Sidecars delete after final-envelope validation plus seven days. At most the latest 50 bounded final envelopes are retained per project; selected conclusions may be explicitly promoted to project-model evidence before cleanup. Corrections supersede one prior envelope rather than form an event history.",
@@ -5790,11 +5805,11 @@
         "interactionRef": "lavish-feedback:review-simplified-plan-show-run-release-scope:sha256:3abdefbb7b69b6299dceb954dbeee4f472dd18a73c7586c7f5f6ea651f650dcd",
         "mode": "accepted_existing"
       },
-      "body": "`/dag plan` is one seamless focus-linked workflow: it establishes architecture and outcomes, internally decomposes them into executable work items, and saves one revisioned inspectable plan record. The record contains repository baseline, concise governing source references, outcomes, non-goals, architecture notes and risks, work items, checks, dependencies, optional concurrency constraints, and integration profile. `/dag plan` atomically writes the record and automatically previews deterministic human-readable Markdown and a static graph. `/dag show` renders exact plan, node, lineage, and live-run views without mtime-based selection. Explicit `/dag run` resolves the saved plan, validates its whole-plan identity and current baseline, derives low-level genesis/context internally, and creates or resumes one canonical run. Keep the shipped worker, scheduler, lifecycle, and Git runtime as the hidden execution substrate. Build the first vertical slice through ordinary reviewed coding and tests, then dogfood it on remaining release work. Defer mandatory compilation manifests, phase-fact forests, new receipt chains, and bootstrap-authority ceremony until field use demonstrates a concrete need.",
+      "body": "`/dag plan` establishes architecture and outcomes, decomposes executable work, and saves one inert revisioned plan using explicit workstream scope chosen from the conversation and current model. It does not require a saved focus. `/dag show` exposes exact plan, node, lineage and run views. `/dag run` discovers and inspects a specific plan ID/revision; if none exists, report No active DAG to run. Content, scope and semantic freshness findings inform agent judgment rather than a consent gate. Review relevant unresolved model decisions before dispatch, and ask only about material concerns not settled by conversation. Capture the current execution baseline separately without rewriting the saved plan. Internal state/CAS, worker generation, actual verification and native Git landing remain the execution substrate. Saving, showing or discussing never launches work; explicit run intent does. No separate plan approval receipt or user-supplied hash is required.",
       "createdAt": "2026-07-31T04:59:36.244Z",
       "id": "DEC-one-artifact-two-phase-dag-planning",
       "introducedBy": "agent",
-      "rationale": "The missing value is a usable planning and inspection workflow, not more internal authority machinery.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [
         {
           "kind": "addresses",
@@ -5822,11 +5837,12 @@
       "sourceRefs": [
         "EV-external-pi-dag-session-audit",
         "EV-local-pi-dag-session-audit",
-        "PROP-single-command-two-phase-plan-decomposition"
+        "PROP-single-command-two-phase-plan-decomposition",
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow"
       ],
       "state": "accepted",
-      "title": "Ship one focus-linked plan/show/run workflow over the existing runtime",
-      "updatedAt": "2026-08-14T00:36:49.950Z"
+      "title": "Use focus-free plan/show/run with conversational judgment",
+      "updatedAt": "2026-09-22T21:45:58.269Z"
     },
     {
       "acceptance": {
@@ -6613,7 +6629,7 @@
         "interactionRef": "lavish-feedback:review-historical-runs-successor-unblock-decisions:sha256:4ef622cdc7a435f7ee220cc3d438543d04516eb874d34af8d1ba38d77830bdc0",
         "mode": "direct_direction"
       },
-      "body": "A canonical immutable `AuthorizationSetV1` contains sorted currently valid receipt hashes and mechanically derives the effective work-item, stage, repository, effect, integration, credential, retry, and validity scope. Multiple partial receipts may union only within the immutable plan maximum and only when the resulting scope is dependency/effect/integration closed; excluded nodes remain unauthorized and cannot be admitted. Every stage attempt and external effect binds the exact authorization-set hash; later authorization never retroactively authorizes earlier work, and expiry/revocation creates a new set that fences only affected continuing effects and integration. A successor plan always creates a distinct run ID/nonce linked to the old run and never changes the old run's plan hash. An exact approved and authorized successor selector may atomically replace a terminal current-session binding while retaining the terminal historical run as immutable and addressable; an active conflicting binding still fails closed. V1 permits only exact candidate commit/tree reuse through a detached equivalence/adoption receipt; all F0–F8 lifecycle evidence reruns under the successor plan. Direct cross-plan stage-evidence adoption is deferred until dogfood demonstrates sufficient benefit to justify its equivalence and freshness complexity.",
+      "body": "Historical V1 receipt-based authorization and candidate-adoption contracts are retained only to interpret old artifacts; they are not current execution permission requirements. Runs have no execution-authority deadline or renewal requirement. Pausing or elapsed wall-clock time does not revoke permission to continue, and retained historical time metadata is never enforced. Current V2 selects an explicit saved plan revision and bounded item/effect configuration using contextual user intent; no authorization-set or consent-receipt ceremony is required. Preserve exact run and worker identities, same-attempt immutable replay, generation fencing, real verification and native Git safety. A successor plan creates a distinct run without rewriting the old plan/history. Reusing inspected work as a repair or successor base does not reuse verification PASS; applicable checks must run for the actual new candidate. Legacy code removal remains deferred until a full validated DAG run. Actual process timeouts and ownership/settlement safeguards are independent of run age.",
       "createdAt": "2026-08-03T18:34:55.189Z",
       "id": "DEC-run-authorization-successor-candidate-adoption-v1",
       "introducedBy": "agent",
@@ -6652,11 +6668,12 @@
         "DISC-v1-plan-authorization-is-whole-plan",
         "EV-dag-run-state-v1-schema-design",
         "PROP-run-authorization-successor-candidate-adoption-v1",
-        "PROP-targeted-successor-admission-relaxation"
+        "PROP-targeted-successor-admission-relaxation",
+        "User direction: remove all run expiration functionality and requirements"
       ],
       "state": "accepted",
       "title": "Compose hash-bound authorization sets and admit terminal-bound successors",
-      "updatedAt": "2026-09-09T18:31:36.698Z"
+      "updatedAt": "2026-09-23T16:29:34.876Z"
     },
     {
       "acceptance": {
@@ -6713,7 +6730,7 @@
         "interactionRef": "lavish-feedback:review-canonical-plan-schema-foundations:sha256:37e73059e1884e5c72be735bf5154057a3edc831b696fea6d47b17cd7811dd87",
         "mode": "accepted_existing"
       },
-      "body": "Every plan binds the full project-model revision/hash for audit plus a versioned selector and deterministic closure over relevant workstreams, explicit seeds, transitive governing relationships, effective authority states, and object semantic hashes. It also binds generated-spec projection input/content hashes, immutable repository commit/tree identities, schema/canonicalization/lifecycle/check profile hashes, and bounded context artifact digests. Freshness classifies `valid_exact`, `valid_revalidated`, `stale_model`, `stale_code`, `stale_schema`, `integration_drift`, or `unknown_impact`. A global model revision change may revalidate only when the selected closure and exact execution baseline are mechanically unchanged; a new or changed in-scope governing object stales the plan; unknown impact blocks. Target-branch movement is integration drift and invalidates combined-state evidence without silently retargeting execution.",
+      "body": "V2 plans retain their explicit scope and original source/baseline provenance. Before starting, report relevant governing-source changes, changed code baseline and unresolved direction for agent judgment using the current conversation. Semantic freshness, non-head content or unknown semantic impact do not alone create a mechanical permission gate; ask about material unresolved concerns. Capture the actual current execution baseline separately without rewriting saved plan history. Native target changes during execution still invalidate affected composition/evidence and require safe reconciliation; advisory source judgment does not bypass Git CAS or admit stale worker results.",
       "createdAt": "2026-07-31T13:49:04.588Z",
       "id": "DEC-selector-closure-plan-staleness",
       "introducedBy": "agent",
@@ -6748,7 +6765,7 @@
       ],
       "state": "accepted",
       "title": "Use versioned semantic selector closure and typed staleness",
-      "updatedAt": "2026-07-31T16:36:42.127Z"
+      "updatedAt": "2026-09-22T21:46:35.458Z"
     },
     {
       "acceptance": {
@@ -6789,7 +6806,7 @@
         "interactionRef": "lavish-feedback:review-canonical-plan-schema-foundations:sha256:37e73059e1884e5c72be735bf5154057a3edc831b696fea6d47b17cd7811dd87",
         "mode": "accepted_existing"
       },
-      "body": "`CanonicalDagPlanV1` is the sole immutable, content-hashed architecture/decomposition authority. A detached `PlanReviewReceipt` binds the exact plan and deterministic reviewed projection; a detached `PlanAuthorizationReceipt` binds the exact plan hash plus mechanically closed work-item, phase, effect, repository, budget, and validity scope. One atomic mutable `DagRunStateV1` references those hashes and owns readiness, phases, attempts, leases, integration, staleness, and dispositions. Immutable bounded evidence envelopes own observations; generic owned-worker results remain DAG-agnostic claims/runtime facts. The plan has lineage and per-entity hashes but never status, approval, attempts, leases, evidence bodies, worker state, or mutable capacity.",
+      "body": "Historical V1 contract only; retained to interpret old artifacts, not an active V2 approval requirement. Current V2 follows DEC-direct-user-commit-derived-review and DEC-one-artifact-two-phase-dag-planning: conversation-informed judgment, explicit ID/revision selection, no approval/authorization receipt ceremony. Legacy code removal is deferred until a full validated DAG run. Historical contract: `CanonicalDagPlanV1` is the sole immutable, content-hashed architecture/decomposition authority. A detached `PlanReviewReceipt` binds the exact plan and deterministic reviewed projection; a detached `PlanAuthorizationReceipt` binds the exact plan hash plus mechanically closed work-item, phase, effect, repository, budget, and validity scope. One atomic mutable `DagRunStateV1` references those hashes and owns readiness, phases, attempts, leases, integration, staleness, and dispositions. Immutable bounded evidence envelopes own observations; generic owned-worker results remain DAG-agnostic claims/runtime facts. The plan has lineage and per-entity hashes but never status, approval, attempts, leases, evidence bodies, worker state, or mutable capacity.",
       "createdAt": "2026-07-31T13:49:04.588Z",
       "id": "DEC-separate-canonical-plan-from-operational-records",
       "introducedBy": "agent",
@@ -6825,7 +6842,7 @@
       ],
       "state": "accepted",
       "title": "Separate the immutable canonical plan from authorization, run, evidence, and worker records",
-      "updatedAt": "2026-07-31T16:36:42.127Z"
+      "updatedAt": "2026-09-22T21:45:58.270Z"
     },
     {
       "acceptance": {
@@ -6836,11 +6853,11 @@
         "interactionRef": "pi-input:019fd85a-e927-7aab-89be-705e55f52cfa:1787846105485",
         "mode": "direct_direction"
       },
-      "body": "Keep Lavish presentation separate from semantic authority, and use the Lavish whole-turn review adapter for material reviews in the planning and chunking focus. The adapter presents, resumes, ends, and nonblockingly collects already-submitted feedback for exact active reviews; semantic review receipts remain the only authority mechanism. Once an artifact has been presented, collecting feedback must not rerender, reopen, resume a long poll, or otherwise replace or clear the existing browser session. Re-presentation is reserved for a changed review or an explicit user request.",
+      "body": "Keep presentation separate from semantic direction. Review is required for relevant unresolved decisions, but Lavish is optional: exact chat review and contextual user responses are equally supported. Independent review records have explicit scope, stable IDs, revision CAS and sparse outcomes; no active focus or semantic review receipt grants permission. Collect submitted feedback without rerendering, reopening or clearing the existing browser session; re-present only for changed content or explicit user request. Honor user-ended sessions.",
       "createdAt": "2026-07-29T02:26:16.832Z",
       "id": "DEC-separate-lavish-presentation-adapter",
       "introducedBy": "user",
-      "rationale": "The planning frontier contains visual workflows, DAGs, comparisons, and structured decisions that are better reviewed as whole Lavish turns. A distinct nonblocking collection path prevents the agent from destroying queued feedback merely because its earlier foreground poll disconnected.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [
         {
           "kind": "derived_from",
@@ -6859,11 +6876,12 @@
       "sourceRefs": [
         "Direct user direction to queue nonblocking feedback collection with tool-driven DAG cutover",
         "EV-pi-long-running-lavish-tool",
-        "PROP-separate-lavish-presentation-adapter"
+        "PROP-separate-lavish-presentation-adapter",
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow"
       ],
       "state": "accepted",
-      "title": "Use the separate Lavish adapter for planning review turns",
-      "updatedAt": "2026-08-27T15:58:30.692Z"
+      "title": "Make review presentation optional and channel-neutral",
+      "updatedAt": "2026-09-22T21:45:58.269Z"
     },
     {
       "body": "Produce and review a model-bound architecture/implementation plan first, then produce and review a separate model-bound DAG decomposition derived from the accepted plan. Both artifacts have explicit hashes, lifecycle, and staleness rules.",
@@ -7077,7 +7095,7 @@
         "interactionRef": "pi-input:019fb646-a0bd-7d96-84b8-bbccf085e61d:1785788850019",
         "mode": "direct_direction"
       },
-      "body": "Each brainstorm and DAG session runs from a Git worktree directory. The conductor/top-level agent is bound to the branch checked out by that current working directory, including `main` when the user chooses to launch there. Every DAG node executes in its own separate worktree rather than sharing the conductor worktree.",
+      "body": "The conductor is bound to the branch in its current Git worktree, including main when selected by the user. Each DAG node owns one persistent separate worktree for implementation, lifecycle validation, failed-check retry and repair. These activities are sequential within the node; independent nodes may run concurrently. Ignored dependencies and build artifacts persist. Verification requires exact committed tracked bytes, modes, index and fresh actual invocation evidence before and after checks, not a new directory. Handoff requires prior workers and command descendants to settle; durable ownership fences stale launch, cleanup and candidate observation rights without rewriting historical requests/results. Never remove the shared node directory as check cleanup. Integration prefix and final validation also use that same node worktree, never a separate validation clone. Under exclusive durable ownership, materialize the exact composed proposal containing the accepted predecessor prefix, preserve noncolliding ignored dependencies and caches, and run fresh actual checks against those combined bytes. Restore and verify the original candidate before native target CAS. Journal checkout/check/restoration and require positive process settlement on interruption; retain and report collisions, foreign locks or unknown bytes rather than resetting, cleaning or stashing them away. Historical sandbox results stay historical and are not rewritten to claim shared-worktree evidence. Workspace creation/adoption belongs to the node, not to individual worker tasks. The node stores one immutable native workspace receipt with its stable node ID, canonical directory and root/common/admin filesystem identities. New worker attempts borrow that workspace under the current exclusive attempt claim; they neither create disposable approvals nor gain cleanup authority. The existing ownership journal alone stores mutable epochs and execution claims. All lifecycle, repair and integration operations consume the node binding. Allocate lazily once before first launch, replay allocation idempotently, and retain an adopted historical directory unchanged. Already-frozen historical worker requests use isolated compatibility recovery without rewriting their approval/config/result bytes; new requests use the node-owned protocol. Eventual node cleanup is separate from attempt completion and must not erase retained user artifacts.",
       "createdAt": "2026-08-03T20:29:58.769Z",
       "id": "DEC-session-worktree-conductor-topology-v1",
       "introducedBy": "user",
@@ -7100,7 +7118,7 @@
       ],
       "state": "accepted",
       "title": "Bind each brainstorm/DAG session to its current worktree and branch",
-      "updatedAt": "2026-08-03T20:29:58.769Z"
+      "updatedAt": "2026-09-25T05:05:07.912Z"
     },
     {
       "acceptance": {
@@ -7216,7 +7234,7 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "Expose six action-shaped tools: `dag_model_context`, `dag_model_update`, `dag_model_record_direction`, `dag_model_review`, `dag_model_resolve_review`, and `dag_model_specs`. Context reads narrow slices; update cannot grant authority or rewrite accepted semantics; record_direction is the privileged direct-user authority path; review creates hash-bound packets; resolve_review applies independent fresh outcomes; specs previews, checks, and explicitly recovers projections.",
+      "body": "Keep model context, update, direct direction, review, review resolution and spec tools always available with explicit scope or exact review IDs; optional presentation is separate. Context exposes bounded model slices and pending reviews. Update records research without silently promoting governing meaning; record_direction records actual contextual user direction without a receipt/current-turn token. Independent review records contain explicit points/options and sparse outcomes; resolution uses exact IDs and revision CAS, not semantic-hash consent. Relevant unresolved decisions require agent review before dispatch. Specs preview, check and regenerate derived views through supported operations.",
       "createdAt": "2026-07-28T18:37:09.024Z",
       "id": "DEC-six-explicit-model-tools",
       "introducedBy": "migration",
@@ -7235,7 +7253,7 @@
       ],
       "state": "accepted",
       "title": "Use six action-shaped project-model tools",
-      "updatedAt": "2026-07-29T00:02:20.713Z"
+      "updatedAt": "2026-09-22T21:46:35.458Z"
     },
     {
       "acceptance": {
@@ -7990,14 +8008,14 @@
         "interactionRef": "pi-question:explicit-cutover-approval:sha256:27a871e7e29e58cc800e9e9842a10c26b2660424078648d5124e8650c3119acd",
         "mode": "migration_cutover"
       },
-      "body": "V1 does not use one universal authority-status enum; validators derive governing authority from object type, type-specific state, and a valid acceptance receipt.",
+      "body": "The current model derives governing meaning from object type, explicit accepted state and supersession, interpreted under the user conversation. New accepted objects do not require semantic-hash acceptance receipts. Historical receipts remain readable provenance, not proof of current agreement. Keep structural schema/reference validation and mutable revision CAS separate from semantic consent.",
       "createdAt": "2026-07-28T18:37:09.023Z",
       "id": "DEC-type-state-separate-authority",
       "introducedBy": "migration",
       "legacyIds": [
         "D-type-state-separate-authority"
       ],
-      "rationale": "This makes invalid states mechanically rejectable while avoiding mandatory metadata that has no meaning for a type.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [],
       "resolvesQuestionIds": [],
       "scope": {
@@ -8005,11 +8023,12 @@
       },
       "selectedProposalIds": [],
       "sourceRefs": [
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow",
         "legacy-brainstorm:D-type-state-separate-authority"
       ],
       "state": "accepted",
-      "title": "Type-specific state with separate authority metadata",
-      "updatedAt": "2026-07-29T00:02:20.714Z"
+      "title": "Use explicit object states rather than receipt proof",
+      "updatedAt": "2026-09-22T21:45:58.269Z"
     },
     {
       "acceptance": {
@@ -8144,11 +8163,11 @@
         "interactionRef": "lavish-feedback:review-canonical-plan-schema-identity-and-node-contracts:sha256:6a1f93be5fb4bbdf1c9cef31bb092d7d0e1cc060e67634e0e8908c0f558fc2b8",
         "mode": "accepted_existing"
       },
-      "body": "`modelBinding` stores the full project ID/schema/revision/model hash for audit plus an independently hashed selector and closure. Selector roots are all effective, receipt-valid, non-superseded accepted intents, concepts, scenarios, decisions, and commitments whose repository scope or workstream scope intersects selected workstreams, plus explicit accepted seeds. The closure repeatedly includes receipt-valid current governing objects connected by inbound or outbound typed relationships, regardless of workstream, until fixed point. Entries sort by collection and ID and bind effective state, semantic hash, and acceptance content hash. Explicit non-governing evidence, question, proposal, or discovery inputs are separately hash-bound `contextRefs` and do not cause unrelated new research to stale the plan. Every consumed generated spec binds projection ID, projection contract, model-input hash, and content hash. Revalidation reruns the exact selector version: new or changed in-scope/connected governing authority changes the closure, while unrelated model metadata or unselected non-governing content may produce `valid_revalidated`.",
+      "body": "Current V2 planning freezes an explicit workstream scope and source provenance without requiring a durable focus. Applicable accepted non-superseded governing objects and connected governing relationships form the source closure; accepted-state eligibility does not require an acceptance receipt. Retained model_scope_v2 selectors remain readable without reactivating their old focus. Source and baseline changes are current observations for agent judgment, not semantic consent checks. Keep internal source/artifact identities as diagnostics and integrity bookkeeping; do not treat them as proof of user agreement or silently rewrite retained plans.",
       "createdAt": "2026-08-01T14:55:54.723Z",
       "id": "DEC-versioned-governing-selector-closure-v1",
       "introducedBy": "agent",
-      "rationale": "This catches newly added or cross-workstream governing authority without making every repository-model revision or research note invalidate useful planning.",
+      "rationale": "Updated from the user’s prompt-audit feedback: focus-free option C, contextual direction, required unresolved-decision review and no semantic consent ceremony.",
       "relationships": [
         {
           "kind": "addresses",
@@ -8175,11 +8194,12 @@
       "sourceRefs": [
         "DEC-selector-closure-plan-staleness",
         "DISC-revision-alone-cannot-prove-plan-staleness",
-        "PROP-versioned-governing-selector-closure-v1"
+        "PROP-versioned-governing-selector-closure-v1",
+        "User Lavish prompt-audit feedback: option C and conversation-based model/plan workflow"
       ],
       "state": "accepted",
-      "title": "Use a versioned governing selector and fixed-point closure",
-      "updatedAt": "2026-08-01T20:51:35.918Z"
+      "title": "Compile explicit scope without focus or consent receipts",
+      "updatedAt": "2026-09-22T21:45:58.270Z"
     },
     {
       "acceptance": {
@@ -8234,7 +8254,7 @@
         "interactionRef": "pi-input:019f857b-d560-782f-a4f8-65f734ac7dbf:1785378074588",
         "mode": "direct_direction"
       },
-      "body": "Render a versioned `ModelReviewTurnProjection` containing project/focus identity, revision/hash, Current understanding, selected delta/frontier summaries, exact active review content, and optional agent-authored presentation blocks. Generate one self-contained package-owned HTML shell at `.ai/model-sessions/<focus-id>/lavish/<review-id>.html`; preserve it while unresolved, resume interrupted polls, honor user-ended sessions, and end/remove it after resolution. Bundle responsive accessible CSS and standard review controls, permit trusted rich presentation blocks, and return capped prompts plus severe layout/session metadata while omitting DOM snapshots by default. Rely on Lavish's window-level Send to Agent control instead of duplicating a send action at the top of the page. Make option cards self-contained with all prose needed for an informed choice and do not expose serialized authority-payload expanders. Support any number of awareness and decision points in one turn, with independently queued sparse outcomes. Always include an explicit Other radio option so the human can move away from suggested choices. Keep a separate response text box available regardless of which radio option is selected, so the human can add context or modification to a suggested option as well as describe Other direction. Proceed with direct production implementation rather than creating a planning DAG for this bounded slice.",
+      "body": "Render a versioned `ModelReviewTurnProjection` containing project identity, explicit scope, model/review revisions, Current understanding, current scoped frontier, exact independent review content, and optional agent-authored presentation blocks. Generate one self-contained package-owned HTML shell at `.ai/model-reviews/lavish/<review-id>.html`; preserve it while unresolved, resume interrupted polls, honor user-ended sessions, and end its presentation after resolution while retaining durable review outcomes. Bundle responsive accessible CSS and standard review controls, permit trusted rich presentation blocks, and return capped prompts plus severe layout/session metadata while omitting DOM snapshots by default. Rely on Lavish's window-level Send to Agent control instead of duplicating a send action at the top of the page. Make option cards self-contained with all prose needed for an informed choice and do not expose serialized authority-payload expanders. Support any number of awareness and decision points in one turn, with independently queued sparse outcomes. Always include an explicit Other radio option so the human can move away from suggested choices. Keep a separate response text box available regardless of which radio option is selected, so the human can add context or modification to a suggested option as well as describe Other direction. Proceed with direct production implementation rather than creating a planning DAG for this bounded slice.",
       "createdAt": "2026-07-29T02:26:16.833Z",
       "id": "DEC-whole-turn-lavish-renderer-slice",
       "introducedBy": "user",
@@ -8276,7 +8296,7 @@
       ],
       "state": "accepted",
       "title": "Implement the whole-turn Lavish renderer slice",
-      "updatedAt": "2026-07-30T02:23:00.100Z"
+      "updatedAt": "2026-09-22T21:45:58.270Z"
     },
     {
       "acceptance": {
@@ -15839,9 +15859,9 @@
         }
       ]
     },
-    "revision": 267,
+    "revision": 274,
     "title": "Pi DAG Workflow",
-    "updatedAt": "2026-09-10T00:22:06.593Z"
+    "updatedAt": "2026-09-25T21:01:39.704Z"
   },
   "proposals": [
     {

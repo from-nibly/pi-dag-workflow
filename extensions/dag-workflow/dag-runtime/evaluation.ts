@@ -1458,7 +1458,7 @@ function validateEvaluationTimestampFields(value: unknown, issues: ValidationIss
   if (!value || typeof value !== "object") return;
   for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
     const childPath = `${path}/${key}`;
-    if ((key.endsWith("At") || key === "validFrom" || key === "validUntil" || key === "expiresAt") && item !== null) {
+    if ((key.endsWith("At") || key === "validFrom" || key === "validUntil") && item !== null) {
       pushIssue(issues, childPath, typeof item === "string" && parseRfc3339UtcNanosecondsV1(item) !== null, "must be a real UTC RFC 3339 civil timestamp with 0 or 1-9 fractional digits");
     } else validateEvaluationTimestampFields(item, issues, childPath);
   }

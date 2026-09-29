@@ -154,7 +154,7 @@ export type ModelObject =
 export interface CurrentUnderstanding {
   body: string;
   generatedAt: string;
-  sourceObjects: Array<{ id: string; semanticHash: string }>;
+  sourceObjects: Array<{ id: string; semanticHash?: string }>; // Historical digest is read-compatible, not consent.
 }
 
 export interface SpecProjectionSection {
@@ -195,7 +195,7 @@ export interface MigrationArtifactRecord {
 
 export interface MigrationMetadata {
   schemaVersion: 1;
-  focusId: string;
+  focusId?: string; // Historical routing only.
   phase: "inventory" | "draft" | "ready";
   sources: MigrationSourceRecord[];
   artifacts: MigrationArtifactRecord[];
@@ -212,6 +212,7 @@ export interface ProjectMetadata {
   updatedAt: string;
   currentUnderstanding?: CurrentUnderstanding;
   migration?: MigrationMetadata;
+  reviews?: ModelReview[];
   projections: { specs: SpecProjectionView[] };
 }
 
@@ -256,7 +257,7 @@ export interface ReviewOption {
   label: string;
   description: string;
   objectId?: string;
-  semanticHash: string;
+  semanticHash?: string; // Legacy review cache identity only.
   recommended?: boolean;
   rationale?: string;
   direction?: ReviewDirection;
@@ -269,7 +270,7 @@ export interface ReviewPoint {
   context: string;
   purpose: "awareness" | "decision";
   question?: string;
-  objectRefs: Array<{ id: string; semanticHash: string }>;
+  objectRefs: Array<{ id: string; semanticHash?: string }>;
   options: ReviewOption[];
   rejectDirection?: ReviewDirection;
   rejectDirectionValuePatch?: Record<string, unknown> | null;
@@ -277,12 +278,26 @@ export interface ReviewPoint {
   deferDirectionValuePatch?: Record<string, unknown> | null;
 }
 
-export interface FocusReview {
+export interface ModelReviewContent {
   id: string;
   title: string;
   createdAt: string;
   points: ReviewPoint[];
   presentedAt?: string;
+}
+
+export interface ModelOperationScope {
+  workstreamIds: string[];
+  objectIds?: string[];
+}
+
+/** Independent review records share the model's atomic commit, never a selected singleton. */
+export interface ModelReview extends ModelReviewContent {
+  revision: number;
+  scope: ModelOperationScope;
+  modelRevision: number;
+  status: "pending" | "resolved";
+  outcomes: Array<{ pointId: string; action: "accept" | "reject" | "modify" | "defer"; optionId?: string; direction?: ReviewDirection; recordedAt: string }>;
 }
 
 export interface FocusSession {
@@ -295,5 +310,5 @@ export interface FocusSession {
   updatedAt: string;
   status: "active" | "suspended";
   previousReview?: PreviousReviewSnapshot;
-  activeReview?: FocusReview;
+  activeReview?: ModelReviewContent;
 }

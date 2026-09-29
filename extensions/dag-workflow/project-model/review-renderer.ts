@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { assertTurnProjection, type ModelReviewTurnProjection, type PresentationBlock } from "./review-turn.ts";
 import type { ReviewPoint } from "./types.ts";
 
-export const RENDERER_CONTRACT_VERSION = 1;
+export const RENDERER_CONTRACT_VERSION = 2;
 
 export function renderReviewTurn(projection: ModelReviewTurnProjection): string {
   assertTurnProjection(projection);
@@ -11,8 +11,7 @@ export function renderReviewTurn(projection: ModelReviewTurnProjection): string 
   const after = blocksAt(projection, "after-review");
   const reviewPoints = projection.review.points.map((point) => renderPoint(projection, point)).join("\n");
   const frontier = (projection.frontier ?? []).map(renderFrontier).join("\n");
-  const consequences = (projection.delta?.consequences ?? []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
-  const config = safeJson({ reviewId: projection.review.id, reviewHash: projection.review.semanticHash });
+  const config = safeJson({ reviewId: projection.review.id, revision: projection.review.revision, artifactDigest: projection.review.artifactDigest });
 
   return `<!doctype html>
 <html lang="en" data-lavish-live-reload-root>
@@ -31,7 +30,7 @@ export function renderReviewTurn(projection: ModelReviewTurnProjection): string 
     <div>
       <span class="eyebrow">${escapeHtml(projection.project.title)} · revision ${projection.project.revision}</span>
       <h1>${escapeHtml(projection.review.title)}</h1>
-      <p>${escapeHtml(projection.focus.title)} · <code>${escapeHtml(projection.review.id)}</code></p>
+      <p>${escapeHtml(projection.review.title)} · <code>${escapeHtml(projection.review.id)}</code></p>
     </div>
     <div class="top-actions"><span class="status-chip">Active review</span></div>
   </header>
@@ -39,14 +38,14 @@ export function renderReviewTurn(projection: ModelReviewTurnProjection): string 
     <aside aria-label="Turn navigation">
       <nav>
         <a href="#understanding">Current understanding</a>
-        <a href="#delta">Model delta</a>
+        <a href="#review-context">Review context</a>
         <a href="#frontier">Frontier</a>
         <a href="#review">Review</a>
       </nav>
       <dl class="identity">
-        <dt>Model</dt><dd class="hash">${escapeHtml(projection.project.modelHash)}</dd>
-        <dt>Focus</dt><dd>${escapeHtml(projection.focus.id)}</dd>
-        <dt>Projection</dt><dd>${escapeHtml(digest)}</dd>
+        <dt>Model snapshot digest (internal)</dt><dd class="hash">${escapeHtml(projection.project.modelHash)}</dd>
+        <dt>Workstreams</dt><dd>${escapeHtml(projection.scope.workstreamIds.join(", ") || "Repository")}</dd>
+        <dt>Presentation cache digest (internal)</dt><dd>${escapeHtml(digest)}</dd>
       </dl>
     </aside>
     <main>
@@ -54,15 +53,10 @@ export function renderReviewTurn(projection: ModelReviewTurnProjection): string 
         <span class="section-label">Current understanding · non-authoritative synthesis</span>
         <div class="understanding-body markdown-body">${formatMarkdown(projection.currentUnderstanding.body)}</div>
       </section>
-      <section id="delta" aria-labelledby="delta-heading">
-        <div class="section-heading"><div><span class="section-label">Since the previous review</span><h2 id="delta-heading">Model delta</h2></div></div>
-        <div class="stats">
-          <article><strong>${number(projection.delta?.added)}</strong><span>Added</span></article>
-          <article><strong>${number(projection.delta?.changed)}</strong><span>Changed</span></article>
-          <article><strong>${number(projection.delta?.stillUnresolved)}</strong><span>Still unresolved</span></article>
-        </div>
-        ${projection.delta?.possibleMisunderstanding ? `<div class="callout warning"><strong>Possible misunderstanding</strong><p>${escapeHtml(projection.delta.possibleMisunderstanding)}</p></div>` : ""}
-        ${consequences ? `<div class="card compact"><h3>Consequences</h3><ul>${consequences}</ul></div>` : ""}
+      <section id="review-context" aria-labelledby="context-heading">
+        <div class="section-heading"><h2 id="context-heading">Review context</h2></div>
+        <p>Created at model revision ${number(projection.context.createdAtModelRevision)}; current model revision ${number(projection.project.revision)}.</p>
+        <p>${number(projection.context.pendingPointCount)} points remain pending. Inspect current context before resolving; revision and cache identifiers do not imply user agreement.</p>
       </section>
       <section id="frontier" aria-labelledby="frontier-heading">
         <div class="section-heading"><div><span class="section-label">Selected unresolved objects</span><h2 id="frontier-heading">Frontier</h2></div></div>
@@ -71,12 +65,12 @@ export function renderReviewTurn(projection: ModelReviewTurnProjection): string 
       </section>
       ${before}
       <section id="review" aria-labelledby="review-heading">
-        <div class="section-heading"><div><span class="section-label">Hash-bound oversight turn</span><h2 id="review-heading">Review</h2></div><span class="hash-badge">${escapeHtml(projection.review.semanticHash)}</span></div>
+        <div class="section-heading"><div><span class="section-label">Independent review</span><h2 id="review-heading">Review</h2></div><span class="hash-badge">Revision ${projection.review.revision}</span></div>
         <div class="review-stack">${reviewPoints}</div>
       </section>
       ${after}
       <footer>
-        <p>This artifact is disposable presentation state. The project model and explicit resolution receipts own semantics.</p>
+        <p>This artifact is disposable presentation state. The project model and context-informed explicit direction own semantics.</p>
         <button type="button" class="button" data-lavish-action id="send-feedback-bottom">Send queued feedback</button>
       </footer>
     </main>
@@ -88,17 +82,16 @@ export function renderReviewTurn(projection: ModelReviewTurnProjection): string 
 
 function renderPoint(projection: ModelReviewTurnProjection, point: ReviewPoint) {
   const blocks = blocksAt(projection, `point:${point.id}`);
-  const pointHash = semanticDigest(point);
   if (point.purpose === "awareness") {
     return `<article class="review-card awareness" id="point-${attr(point.id)}">
       <div class="point-head"><span class="purpose">For awareness</span><code>${escapeHtml(point.id)}</code></div>
       <h3>${escapeHtml(point.title)}</h3><div class="point-context markdown-body">${formatPointContext(point.context)}</div>${blocks}
-      <button type="button" class="button secondary acknowledge" data-lavish-action data-point-id="${attr(point.id)}" data-point-hash="${attr(pointHash)}">Queue acknowledgement</button>
+      <button type="button" class="button secondary acknowledge" data-lavish-action data-point-id="${attr(point.id)}">Queue acknowledgement</button>
       <p class="form-status" aria-live="polite"></p>
     </article>`;
   }
   const options = point.options.map((option) => `<div class="option">
-    <label class="option-choice"><input type="radio" name="choice-${attr(point.id)}" value="${attr(option.id)}" data-option-hash="${attr(option.semanticHash)}">
+    <label class="option-choice"><input type="radio" name="choice-${attr(point.id)}" value="${attr(option.id)}" >
     <span><span class="option-title">${escapeHtml(option.label)}${option.recommended ? '<span class="recommended">Recommended</span>' : ""}</span>
     <span class="option-description">${escapeHtml(option.description)}</span>
     ${option.rationale ? `<span class="option-rationale"><strong>Why choose this:</strong> ${escapeHtml(option.rationale)}</span>` : ""}</span></label>
@@ -108,7 +101,7 @@ function renderPoint(projection: ModelReviewTurnProjection, point: ReviewPoint) 
     <div class="point-head"><span class="purpose">Decision needed</span><code>${escapeHtml(point.id)}</code></div>
     <h3>${escapeHtml(point.title)}</h3><div class="point-context markdown-body">${formatPointContext(point.context)}</div>${blocks}
     <p class="question">${escapeHtml(point.question)}</p>
-    <form class="decision-form" data-lavish-question="${attr(point.id)}" data-point-id="${attr(point.id)}" data-point-hash="${attr(pointHash)}">
+    <form class="decision-form" data-lavish-question="${attr(point.id)}" data-point-id="${attr(point.id)}">
       <fieldset><legend class="sr-only">${escapeHtml(point.question)}</legend>${options}${other}</fieldset>
       <label class="response-copy"><span>Optional context or modification</span><textarea name="responseText" rows="3" placeholder="Add context to a suggested option, or describe what should happen instead when choosing Other"></textarea></label>
       <div class="form-actions"><button type="submit" class="button primary">Queue this answer</button></div>
@@ -137,7 +130,7 @@ function renderBlock(block: PresentationBlock) {
   return "";
 }
 
-function semanticDigest(value: unknown) { return `sha256:${createHash("sha256").update(JSON.stringify(value) ?? "null").digest("hex")}`; }
+
 
 function formatPointContext(value: unknown) {
   const headings: Record<string, string> = {
@@ -237,14 +230,14 @@ const SHELL_JS = String.raw`
     if (optionId === "__other__" && !responseText) { setStatus(form, "Describe the alternate direction.", true); return; }
     const optionLabel = selected.closest(".option").querySelector(".option-title").childNodes[0].textContent.trim();
     const action = optionId === "__other__" ? "modify" : "accept";
-    const data = { reviewId: review.reviewId, reviewHash: review.reviewHash, pointId, pointHash: form.dataset.pointHash, action, ...(action === "accept" ? { optionId, optionHash: selected.dataset.optionHash } : {}), ...(responseText ? { responseText } : {}) };
+    const data = { reviewId: review.reviewId, reviewRevision: review.revision, artifactDigest: review.artifactDigest, pointId, action, ...(action === "accept" ? { optionId } : {}), ...(responseText ? { responseText } : {}) };
     const prompt = action === "accept" ? "Review response for " + review.reviewId + "/" + pointId + ": select " + optionId + (responseText ? ". Additional context: " + responseText : "") : "Alternate direction for " + review.reviewId + "/" + pointId + ": " + responseText;
     queue(prompt, data, form, action === "accept" ? "Select " + optionLabel : "Other direction");
   }));
   document.querySelectorAll(".acknowledge").forEach((button) => button.addEventListener("click", () => {
     const card = button.closest(".review-card");
     const pointId = button.dataset.pointId;
-    queue("Awareness acknowledged for " + review.reviewId + "/" + pointId, { reviewId: review.reviewId, reviewHash: review.reviewHash, pointId, pointHash: button.dataset.pointHash, action: "awareness" }, card, "Awareness acknowledged");
+    queue("Awareness acknowledged for " + review.reviewId + "/" + pointId, { reviewId: review.reviewId, reviewRevision: review.revision, artifactDigest: review.artifactDigest, pointId, action: "awareness" }, card, "Awareness acknowledged");
   }));
   function send() {
     const api = lavish();

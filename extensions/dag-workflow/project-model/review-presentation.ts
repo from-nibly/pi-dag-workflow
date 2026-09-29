@@ -5,13 +5,12 @@ import { withFileLock } from "./persistence.ts";
 import { renderReviewTurn } from "./review-renderer.ts";
 import { assertTurnProjection, reviewArtifactPaths, type ModelReviewTurnProjection } from "./review-turn.ts";
 
-export type PresentationStatus = "rendered" | "open" | "feedback" | "interrupted" | "user_ended" | "ended";
+export type PresentationStatus = "ending" | "rendered" | "open" | "feedback" | "interrupted" | "user_ended" | "ended";
 export interface ReviewPresentationMetadata {
   schemaVersion: 1;
-  focusId: string;
   reviewId: string;
   artifactPath: string;
-  reviewHash: string;
+  artifactDigest: string;
   status: PresentationStatus;
   userEnded: boolean;
   updatedAt: string;
@@ -32,7 +31,7 @@ export class ReviewPresentationManager {
     this.clock = input.clock ?? (() => new Date().toISOString());
   }
 
-  paths(projection: ModelReviewTurnProjection) { return reviewArtifactPaths(this.root, projection.focus.id, projection.review.id); }
+  paths(projection: ModelReviewTurnProjection) { return reviewArtifactPaths(this.root, projection.review.id); }
 
   async render(projection: ModelReviewTurnProjection) {
     assertTurnProjection(projection);
@@ -41,10 +40,9 @@ export class ReviewPresentationManager {
     await atomicWrite(paths.html, html);
     const metadata = await this.writeMetadata(paths, {
       schemaVersion: 1,
-      focusId: projection.focus.id,
       reviewId: projection.review.id,
       artifactPath: paths.html,
-      reviewHash: projection.review.semanticHash,
+      artifactDigest: projection.review.artifactDigest,
       status: "rendered",
       userEnded: false,
       updatedAt: this.clock(),
@@ -58,7 +56,7 @@ export class ReviewPresentationManager {
     return this.#exclusive(paths, async () => {
       const existing = await this.readMetadata(paths);
       if (existing?.userEnded) throw new Error("Lavish session was ended by the user; use resume with explicit reopen");
-      if (existing?.reviewHash === projection.review.semanticHash) throw new Error("This exact Lavish review is already presented; use collect for submitted feedback or resume only to continue waiting");
+      if (existing?.artifactDigest === projection.review.artifactDigest) throw new Error("This exact Lavish review is already presented; use collect for submitted feedback or resume only to continue waiting");
       if (existing && (existing.status !== "ended" || !existing.feedbackDrainedAt)) throw new Error("The prior Lavish review may still contain uncollected feedback; successfully end and drain it before presenting a changed review");
       const rendered = await this.render(projection);
       input.onUpdate?.({ phase: "rendered", artifactPath: rendered.paths.html });
@@ -76,7 +74,7 @@ export class ReviewPresentationManager {
     return this.#exclusive(paths, async () => {
       let metadata = await this.readMetadata(paths);
       const missing = !metadata;
-      if (metadata && metadata.reviewHash !== projection.review.semanticHash) throw new Error("The Lavish artifact belongs to a different review revision; collect and end it before presenting the changed review");
+      if (metadata && metadata.artifactDigest !== projection.review.artifactDigest) throw new Error("The Lavish artifact belongs to a different review revision; collect and end it before presenting the changed review");
       if (missing) metadata = (await this.render(projection)).metadata;
       if (!metadata) throw new Error("Presentation metadata could not be initialized");
       if (metadata.userEnded && !input.reopen) throw new Error("Lavish session was ended by the user; explicit reopen is required");
@@ -141,8 +139,8 @@ export class ReviewPresentationManager {
     });
   }
 
-  async cleanup(focusId: string, reviewId: string) {
-    const paths = reviewArtifactPaths(this.root, focusId, reviewId);
+  async cleanup(reviewId: string) {
+    const paths = reviewArtifactPaths(this.root, reviewId);
     return this.#exclusive(paths, async () => {
       const metadata = await this.readMetadata(paths);
       if (metadata && (!metadata.feedbackDrainedAt || !["ended", "user_ended"].includes(metadata.status))) throw new Error("Cannot remove a Lavish artifact before its exact session is ended and final feedback is drained");

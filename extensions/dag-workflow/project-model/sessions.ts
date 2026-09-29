@@ -1,12 +1,12 @@
 import { realpathSync } from "node:fs";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
-import { nowIso, slugify } from "./model.ts";
-import { durableReplaceJson, withFileLock } from "./persistence.ts";
+import { slugify } from "./model.ts";
 import { DEFAULT_FOCUS_SESSION_DIR, type FocusSession, type ReviewDirection } from "./types.ts";
 
 type RevisionedFocusSession = FocusSession & { revision: number };
 
+/** Read-only access to retained historical focus records. Active operations never route through them. */
 export class FocusSessionStore {
   readonly root: string;
   readonly dir: string;
@@ -37,60 +37,11 @@ export class FocusSessionStore {
     return sessions.sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
   }
 
-  async create(input: { id?: string; title: string; seed?: string; workstreamIds?: string[] }): Promise<FocusSession> {
-    if (!input.title?.trim()) throw new Error("Focus title is required");
-    const id = normalizeFocusId(input.id ?? input.title);
-    const path = this.path(id);
-    await assertNoSymlinkPath(this.root, path);
-    return withFileLock(path, async () => {
-      if (await this.loadOptional(id)) throw new Error(`Focus session already exists: ${id}`);
-      const createdAt = nowIso();
-      const session = normalizeFocusSession({
-        schemaVersion: 1,
-        revision: 0,
-        id,
-        title: input.title.trim(),
-        ...(input.seed?.trim() ? { seed: input.seed.trim() } : {}),
-        workstreamIds: [...new Set(input.workstreamIds ?? [])].sort(),
-        createdAt,
-        updatedAt: createdAt,
-        status: "active",
-      } as RevisionedFocusSession);
-      return this.writeUnlocked(path, session, -1, null);
-    });
-  }
-
   async load(id: string): Promise<FocusSession> {
     await assertNoSymlinkPath(this.root, this.path(id));
     const session = await this.loadOptional(id);
     if (!session) throw new Error(`Focus session not found: ${normalizeFocusId(id)}`);
     return session;
-  }
-
-  async write(input: FocusSession, expectedRevision = storedFocusRevision(input) ?? -1): Promise<FocusSession> {
-    const suppliedRevision = (input as RevisionedFocusSession).revision;
-    if (suppliedRevision !== undefined && (!Number.isSafeInteger(suppliedRevision) || suppliedRevision < 0)) throw new Error("Focus session revision must be a non-negative safe integer");
-    assertExpectedFocusRevision(expectedRevision);
-    const session = normalizeFocusSession({ ...structuredClone(input), updatedAt: nowIso() } as FocusSession);
-    validateFocusSession(session);
-    const path = this.path(session.id);
-    await assertNoSymlinkPath(this.root, path);
-    return withFileLock(path, async () => {
-      const current = await this.loadOptional(session.id);
-      return this.writeUnlocked(path, session, expectedRevision, current ? focusRevision(current) : null);
-    });
-  }
-
-  async mutate(id: string, mutator: (session: FocusSession) => void | Promise<void>): Promise<FocusSession> {
-    const path = this.path(id);
-    await assertNoSymlinkPath(this.root, path);
-    return withFileLock(path, async () => {
-      const session = await this.loadOptional(id);
-      if (!session) throw new Error(`Focus session not found: ${normalizeFocusId(id)}`);
-      const expectedRevision = focusRevision(session);
-      await mutator(session);
-      return this.writeUnlocked(path, normalizeFocusSession(session), expectedRevision, expectedRevision);
-    });
   }
 
   private async loadOptional(id: string): Promise<RevisionedFocusSession | null> {
@@ -105,14 +56,6 @@ export class FocusSessionStore {
     return normalizeFocusSession(parsed);
   }
 
-  private async writeUnlocked(path: string, input: RevisionedFocusSession, expectedRevision: number, currentRevision: number | null): Promise<RevisionedFocusSession> {
-    const actualRevision = currentRevision ?? -1;
-    if (actualRevision !== expectedRevision) throw new Error(`Focus session revision conflict: expected ${expectedRevision}, found ${actualRevision}`);
-    const session = normalizeFocusSession({ ...structuredClone(input), revision: expectedRevision + 1, updatedAt: nowIso() } as RevisionedFocusSession);
-    validateFocusSession(session);
-    await durableReplaceJson(path, session, { enableTestCrashPoints: true });
-    return session;
-  }
 }
 
 export function normalizeFocusId(value: string): string {
@@ -208,16 +151,6 @@ function normalizeFocusSession(input: FocusSession): RevisionedFocusSession {
 function storedFocusRevision(session: FocusSession): number | undefined {
   const revision = (session as RevisionedFocusSession).revision;
   return Number.isSafeInteger(revision) && revision >= 0 ? revision : undefined;
-}
-
-function focusRevision(session: FocusSession): number {
-  const revision = storedFocusRevision(session);
-  if (revision === undefined) throw new Error("Focus session requires an expected integer revision");
-  return revision;
-}
-
-function assertExpectedFocusRevision(revision: number): void {
-  if (!Number.isSafeInteger(revision) || revision < -1) throw new Error("Expected focus session revision must be an integer of at least -1");
 }
 
 function isWithin(root: string, target: string): boolean {
