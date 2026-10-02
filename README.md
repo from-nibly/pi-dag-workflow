@@ -27,7 +27,7 @@ Tracked Markdown under `spec/` is a deterministic readable projection of accepte
 ## Install
 
 ```nu
-pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.5.0
+pi install git:git@github.com:from-nibly/pi-dag-workflow@v0.6.0
 ```
 
 ## Project-model migration
@@ -147,7 +147,7 @@ work after an external generation fence, and generic retry cannot create another
 attempt under the same operation. The V2 host also disables scan-time launch and
 generic retry of legacy-owned reservations; reopening an old session is not V1
 execution continuation. Recovery dispatch goes through the V2 writer;
-replacement uses a fresh bounded generation/key. After dispatch, end the
+replacement uses a fresh exact generation/key. After dispatch, end the
 turn when remaining work depends on completion; the durable completion follow-up
 resumes it. Do not poll or use generic subagent launch for DAG work.
 
@@ -166,6 +166,9 @@ checks in the same node worktree, guarded target CAS, and old/new/third-target r
 provide exact recovery operations; missing extinction or ambiguous Git/workspace
 settlement remains blocked. Cancellation fences first, then signals workers and
 waits for actual settlement. Retry budgets and failure evidence survive reload.
+Worker replacement is explicit and has no replacement retry budget. Its retained
+count/archive is history only; settlement, generation fences, and unresolved native
+operation guards still apply. Other lifecycle/integration retry ceilings remain.
 Worker repair uses a new keyed generation based on the inspected prior candidate,
 with frozen actual failure observations; all affected checks must run again.
 Implementation, node lifecycle checks, and clean committed repairs reuse one
@@ -183,6 +186,43 @@ new product attempts use the node root. Generic worker/storage retention limits
 can require operator maintenance.
 The passive TUI widget shows stable current state and remounts for a successor;
 headless modes never mount it. It has no fabricated V1 hash fields.
+
+## Verification command timeout
+
+Set `verificationCommandTimeoutMs` in the existing DAG config, for example in
+`<repository>/.ai/dag.config.json`:
+
+```json
+{
+  "verificationCommandTimeoutMs": 14400000
+}
+```
+
+This four-hour limit applies **to each verification argv**, both lifecycle
+`dag_run_checks` (including F7) and native integration prefix/final checks.
+The default is `3600000` (one hour). Values must be integer milliseconds from
+`1` through `2147483647`; zero, null, strings and unbounded values are rejected.
+Precedence is package default → `~/.pi/agent/extensions/dag-workflow/config.json`
+→ repository `.ai/dag.config.json` (library inline config overrides last).
+Invalid timeout values in any layer fail rather than silently falling back.
+
+The product rereads config at the beginning of each checks/integrate call, before
+execution. New lifecycle requests freeze that call's value; native integration
+freezes it at operation intent for every prefix/final request, including recovery.
+Results retain the exact request's `commandTimeoutMs`. Changed config therefore
+applies to **future new checks/retries of existing authorized runs**, not in-flight
+requests, exact replay or already-created native operations. Legacy absent fields
+mean one hour without rewriting stored JSON or hashes. No saved plan/store edit
+or authority renewal is needed. Installing new extension code still requires the
+normal package/HM deployment; use a fresh Pi process after updating the installed
+version, rather than relying on old module caches or source-checkout overlays.
+Config-only changes need no process restart once this version is loaded.
+
+This does not introduce a whole-run/authority expiry or change worker budgets,
+native Git checkout/landing time limits, retry ceilings or TERM/KILL grace.
+Timeout initiates cancellation; descendant extinction and clean workspace/native
+CAS proofs are still required before settlement. Library producer callbacks are
+not subprocesses and retain their own settlement contract.
 
 ## Model tools
 
@@ -337,7 +377,7 @@ npm run release:full               # uncached full dogfood/portfolio certificati
 node scripts/migrate-brainstorm-to-project-model.mjs --force
 ```
 
-`release:ready` compares `HEAD` with the latest prior semantic release tag (or `--base <ref>` / `PI_RELEASE_BASE`), classifies every changed path through a fail-closed impact map, and runs only affected focused suites, dogfood groups, portfolio templates, and recovery drills. It then runs one package-mode smoke pass against the extracted npm artifact to verify contents, entrypoint loading, release-impact policy, and direct package helpers without repeating the focused process/Git matrices. Unknown paths and broad canonical primitives escalate to the full gate. Successful expensive gates are reused only through hash-validated local receipts under `$XDG_CACHE_HOME/pi-dag-workflow/release-evidence-v1` (or `~/.cache/...`) bound to the exact relevant Git tree, command, executable hashes, Node/Git toolchain, kernel/platform, locale, and timezone; use `--no-cache` to bypass them. Broad smoke runs once against the extracted npm artifact. `release:full` remains the periodic uncached certification path. Allow at least 28,800 seconds for the outer full-release command. The full V2 product suite has a 7,200-second nested budget in both release readiness and source smoke; other suite budgets remain 3,600 seconds.
+`release:ready` compares `HEAD` with the latest prior semantic release tag (or `--base <ref>` / `PI_RELEASE_BASE`), classifies every changed path through a fail-closed impact map, and runs only affected focused suites, dogfood groups, portfolio templates, and recovery drills. It then runs one package-mode smoke pass against the extracted npm artifact to verify contents, entrypoint loading, release-impact policy, and direct package helpers without repeating the focused process/Git matrices. Unknown paths and broad canonical primitives escalate to the full gate. Successful expensive gates are reused only through hash-validated local receipts under `$XDG_CACHE_HOME/pi-dag-workflow/release-evidence-v1` (or `~/.cache/...`) bound to the exact relevant Git tree, command, executable hashes, Node/Git toolchain, kernel/platform, locale, and timezone; use `--no-cache` to bypass them. Broad smoke runs once against the extracted npm artifact. `release:full` remains the periodic uncached certification path. Allow at least 28,800 seconds for the outer full-release command. The full V2 product suite has a 14,400-second nested budget in both release readiness and source smoke; other suite budgets remain 3,600 seconds.
 
 `dag-v2-product-test.mjs` is registered V2 end-to-end coverage. The older V1
 planning/runtime/dogfood/evaluation suites remain compatibility coverage, not

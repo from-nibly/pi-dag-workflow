@@ -27,7 +27,7 @@ export const IntegrationV2Schema = StrictObject({ operationId: TextV2, runId: Id
 export const NodeWorkspaceBindingV2Schema = StrictObject({ nodeId: TextV2, cwd: TextV2, identity: WorkspaceIdentityV2Schema });
 export type NodeWorkspaceBindingV2 = Static<typeof NodeWorkspaceBindingV2Schema>;
 const node = StrictObject({ workspace: Type.Optional(NodeWorkspaceBindingV2Schema), generation: CountV2, status: Type.Union([Type.Literal("excluded"), Type.Literal("pending"), Type.Literal("active"), Type.Literal("complete"), Type.Literal("cancelled")]),
-  direction: Type.Optional(WorkerDirectionV2Schema), archivedReservations: Type.Optional(Type.Array(ReservationV2Schema, { maxItems: 2 })),
+  direction: Type.Optional(WorkerDirectionV2Schema), archivedReservations: Type.Optional(Type.Array(ReservationV2Schema)),
   reservation: Type.Optional(ReservationV2Schema), integration: Type.Optional(IntegrationV2Schema), lifecycle: Type.Optional(LifecycleV2Schema), retries: Type.Optional(Type.Array(RetryV2Schema)), retryHistory: Type.Optional(Type.Array(StrictObject({ dimension: RetryDimensionV2Schema, fingerprint: TextV2, tree: Type.Optional(CandidateV2Schema.properties.tree) }))) });
 export const AcceptanceV2Schema = StrictObject({ observedAt: nonnegative, repository: RepositoryV2Schema,
   source: Type.Optional(PlanV2Schema.properties.source), findings: Type.Array(TextV2, { maxItems: 512 }) });
@@ -132,10 +132,11 @@ export function auditSnapshotV2(value: unknown): SnapshotV2 {
           && (!archived.completion || archived.binding), "ARCHIVED_WORKER_BINDING_MISMATCH");
       }
       if (state.integration) requireV2(state.status === "complete" && state.integration.operationId === `${id}/${n.id}/${state.generation}/integration`, "INTEGRATION_ID_MISMATCH");
-      for (const [dimension, limit] of Object.entries(retryLimitsV2)) {
+      for (const dimension of [...Object.keys(retryLimitsV2), "replacement"]) {
         const retries = (state.retries ?? []).filter(r => r.dimension === dimension);
         const count = retries.reduce((sum, r) => sum + r.count, 0);
-        requireV2(count <= limit && count === (state.retryHistory ?? []).filter(r => r.dimension === dimension).length
+        requireV2(Number.isSafeInteger(count) && (dimension === "replacement" || count <= retryLimitsV2[dimension as keyof typeof retryLimitsV2])
+          && count === (state.retryHistory ?? []).filter(r => r.dimension === dimension).length
           && retries.every(r => r.failures.length === r.count && r.trees.length <= r.count), "RETRY_LEDGER_MISMATCH");
       }
       if (state.lifecycle) auditLifecycleV2(r, p, n.id);

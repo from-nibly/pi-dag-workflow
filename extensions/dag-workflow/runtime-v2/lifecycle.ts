@@ -3,7 +3,7 @@ import { requireV2, sameV2, selectorV2, type PlanV2, type LifecycleCheckV2 } fro
 import { executionRepositoryV2, type RunV2 } from "./state.ts";
 import type { CandidateV2, ExecutionRequestV2, ExecutionResultV2, LifecycleV2, RetryDimensionV2 } from "./lifecycle-schema.ts";
 
-export const retryLimitsV2 = { product: 3, test: 3, review: 3, hardening: 3, infrastructure: 1, replacement: 2, integration: 3 } as const;
+export const retryLimitsV2 = { product: 3, test: 3, review: 3, hardening: 3, infrastructure: 1, integration: 3 } as const;
 export function stageChecksV2(plan: PlanV2, itemId: string, stage: number): LifecycleCheckV2[] {
   return plan.workItems.find(n => n.id === itemId)!.lifecycle.checks.filter(c => c.applicability.kind === "required" && (stage === 7 || c.stage === stage));
 }
@@ -104,14 +104,14 @@ export function assertReadyV2(run: RunV2, plan: PlanV2, itemId: string, candidat
 }
 /** Counters survive candidates, physical worker replacement and stage back-edges.
  * Fingerprints use procedure/failure identity, never check display names. */
-export function consumeRetryV2(run: RunV2, itemId: string, dimension: RetryDimensionV2, stage: number, procedure: string, fingerprint: string): void {
+export function consumeRetryV2(run: RunV2, itemId: string, dimension: Exclude<RetryDimensionV2, "replacement">, stage: number, procedure: string, fingerprint: string): void {
   const n = run.nodes[itemId], tree = n.lifecycle?.candidate.tree;
   const counters = n.retries ??= [], history = n.retryHistory ??= [];
   // A conservative item/dimension ceiling also prevents renamed procedures or
   // changing fingerprints from manufacturing unlimited fresh retry buckets.
   requireV2(counters.filter(r => r.dimension === dimension).reduce((sum, r) => sum + r.count, 0) < retryLimitsV2[dimension], `RETRY_EXHAUSTED: ${dimension}`);
   const previous = history.filter(r => r.dimension === dimension);
-  if (dimension !== "replacement" && tree) {
+  if (tree) {
     requireV2(!(previous.length >= 2 && previous.slice(-2).every(r => r.tree === tree)), "NO_PROGRESS: two consecutive retries without a new tree");
     requireV2(!(previous.some(r => r.tree === tree) && previous.at(-1)?.tree !== tree), "NO_PROGRESS: recurring candidate tree");
     requireV2(!(previous.length >= 2 && previous.at(-2)?.fingerprint === fingerprint && previous.at(-1)?.fingerprint !== fingerprint), "NO_PROGRESS: failure oscillation");
@@ -119,13 +119,21 @@ export function consumeRetryV2(run: RunV2, itemId: string, dimension: RetryDimen
   let retry = counters.find(r => r.dimension === dimension && r.stage === stage && r.procedure === procedure && r.fingerprint === fingerprint);
   if (!retry) { retry = { dimension, stage, procedure, fingerprint, count: 0, trees: [], failures: [] }; counters.push(retry); }
   requireV2(retry.count < retryLimitsV2[dimension], `RETRY_EXHAUSTED: ${dimension} ${fingerprint}`);
-  if (tree && dimension !== "replacement") {
+  if (tree) {
     requireV2(!(retry.trees.length >= 2 && retry.trees.slice(-2).every(t => t === tree)), "NO_PROGRESS: two retries on the same tree");
     requireV2(!(retry.trees.includes(tree) && retry.trees.at(-1) !== tree), "NO_PROGRESS: recurring candidate tree");
     requireV2(new Set(retry.trees).size < 2, "NO_PROGRESS: fingerprint survived two repair trees");
     retry.trees.push(tree);
   }
   retry.count++; retry.failures.push(fingerprint); history.push({ dimension, fingerprint, ...(tree ? { tree } : {}) });
+}
+/** Keep the historical ledger representation for observation, never admission. */
+export function recordReplacementV2(run: RunV2, itemId: string): void {
+  const node = run.nodes[itemId], counters = node.retries ??= [], tree = node.lifecycle?.candidate.tree;
+  let counter = counters.find(r => r.dimension === "replacement" && r.stage === 0 && r.procedure === "worker" && r.fingerprint === "replacement");
+  if (!counter) { counter = { dimension: "replacement", stage: 0, procedure: "worker", fingerprint: "replacement", count: 0, trees: [], failures: [] }; counters.push(counter); }
+  counter.count++; counter.failures.push("replacement");
+  (node.retryHistory ??= []).push({ dimension: "replacement", fingerprint: "replacement", ...(tree ? { tree } : {}) });
 }
 export function invalidateLifecycleV2(run: RunV2, itemId: string, reason: string): void {
   const l = run.nodes[itemId].lifecycle;

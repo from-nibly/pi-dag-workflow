@@ -1,4 +1,6 @@
 import { resolve, join } from "node:path";
+import { loadWorkflowConfig } from "../config.ts";
+import { verificationCommandTimeoutMs } from "../command-timeout.ts";
 import { lstat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { canonicalHash, parseStrictJson } from "../dag-runtime/common.ts";
@@ -157,6 +159,7 @@ export class ProductV2 {
     }, request, currentDirection);
   }
   async checks(runId: string, itemId: string, generation: number, stageAttemptId: string, signal?: AbortSignal) {
+    const commandTimeoutMs = verificationCommandTimeoutMs((await loadWorkflowConfig(this.root)).verificationCommandTimeoutMs);
     let { run, plan } = await this.bound(runId); const node = this.node(run, itemId, generation), lifecycle = node.lifecycle;
     requireV2(lifecycle && node.reservation && stageAttemptId === `${node.reservation.operationId}/F${lifecycle.stage}/${lifecycle.round}`, "STALE_STAGE_ATTEMPT");
     await this.repository(plan, run);
@@ -167,7 +170,7 @@ export class ProductV2 {
     this.aborts.set(runId, controller); signal?.addEventListener("abort", abort, { once: true }); if (signal?.aborted) abort();
     try {
       for (const check of stageChecksV2(plan, itemId, stage)) {
-        run = await this.runtime.prepareCheck(await this.mutation(runId), itemId, generation, check.id, { stage, round }, nodeWorkspace);
+        run = await this.runtime.prepareCheck(await this.mutation(runId), itemId, generation, check.id, { stage, round }, nodeWorkspace, commandTimeoutMs);
         const execution = run.nodes[itemId].lifecycle!.executions.find(e => e.request.stage === stage && e.request.check.id === check.id && e.status !== "quarantined" && currentExecutionV2(run, e.request))!;
         await this.runner.ensure(execution.request, controller.signal);
         await this.runtime.recordResult(await this.mutation(runId), itemId, execution.request.id, this.runner);
@@ -176,6 +179,7 @@ export class ProductV2 {
     } finally { signal?.removeEventListener("abort", abort); this.aborts.delete(runId); }
   }
   async integrate(runId: string, itemId: string, generation: number, candidate: CandidateV2, signal?: AbortSignal) {
+    const commandTimeoutMs = verificationCommandTimeoutMs((await loadWorkflowConfig(this.root)).verificationCommandTimeoutMs);
     const { run, plan } = await this.bound(runId); const node = this.node(run, itemId, generation);
     await this.repository(plan);
     requireV2(node.lifecycle?.candidateReady && sameV2(node.lifecycle.candidate, candidate), "STALE_CANDIDATE");
@@ -188,7 +192,7 @@ export class ProductV2 {
     this.aborts.set(runId, controller);
     try {
       const workspace = prior ? undefined : await this.nodeWorkspace(node.reservation!, node);
-      return await this.git.integrate(await this.mutation(runId), itemId, generation, candidate, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal, workspace);
+      return await this.git.integrate(await this.mutation(runId), itemId, generation, candidate, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal, workspace, commandTimeoutMs);
     }
     finally { this.aborts.delete(runId); }
   }
@@ -237,13 +241,13 @@ export class ProductV2 {
         else if (!node.lifecycle?.candidateReady) {
           const terminal = node.reservation.binding ? await this.workers.terminal(node.reservation.binding) : null;
           if (terminal && terminal.terminalStatus === "succeeded" && !node.reservation.intakeRejection) actions.push({ tool: "dag_record_completion", ...selectors, completionId: terminal.completionId });
-          else if (terminal && (node.retries ?? []).filter(r => r.dimension === "replacement").reduce((sum, r) => sum + r.count, 0) < 2) actions.push({ tool: "dag_replace_worker", ...selectors, completionId: terminal.completionId });
+          else if (terminal) actions.push({ tool: "dag_replace_worker", ...selectors, completionId: terminal.completionId });
         } else if (node.lifecycle.ready) {
           const op = run.gitOperations?.find(o => o.operationId === `${node.reservation.operationId}/integration`);
           const unresolved = op?.checks.find(request => snapshot.executions?.[request.id] && !snapshot.executions[request.id].result);
           if (unresolved) actions.push({ tool: "dag_recover_execution", runId: run.runId, itemId, executionId: unresolved.id });
           else if (op?.phase === "closed") {
-            if (node.reservation.completion && (node.retries ?? []).filter(r => r.dimension === "replacement").reduce((sum, r) => sum + r.count, 0) < 2) actions.push({ tool: "dag_replace_worker", ...selectors, completionId: node.reservation.completion.completionId });
+            if (node.reservation.completion) actions.push({ tool: "dag_replace_worker", ...selectors, completionId: node.reservation.completion.completionId });
           } else if (op && (op.phase === "blocked" || op.workspace && (op.workspace.closing || ["original", "switching", "restoring", "restored"].includes(op.workspace.phase)) && !op.landing || op.checks.some(request => snapshot.executions?.[request.id]?.result && snapshot.executions[request.id].result!.disposition !== "PASS"))) actions.push({ tool: "dag_close_git_operation", runId: run.runId, operationId: op.operationId });
           else actions.push({ tool: "dag_integrate", ...selectors, candidate: node.lifecycle.candidate });
         }
@@ -264,7 +268,7 @@ export class ProductV2 {
       for (const [itemId, node] of Object.entries(run.nodes)) if (node.status === "active" && node.reservation?.binding) {
         const terminal = await this.workers.terminal(node.reservation.binding);
         if (terminal && !node.reservation.completion) actions.push({ tool: "dag_record_completion", runId: run.runId, itemId, generation: node.generation, completionId: terminal.completionId });
-        else if (terminal && (terminal.terminalStatus !== "succeeded" || node.reservation.intakeRejection) && (node.retries ?? []).filter(r => r.dimension === "replacement").reduce((sum, r) => sum + r.count, 0) < 2) actions.push({ tool: "dag_replace_worker", runId: run.runId, itemId, generation: node.generation, completionId: terminal.completionId });
+        else if (terminal && (terminal.terminalStatus !== "succeeded" || node.reservation.intakeRejection)) actions.push({ tool: "dag_replace_worker", runId: run.runId, itemId, generation: node.generation, completionId: terminal.completionId });
       }
     } else if (run.status === "cancelling") actions.push({ tool: "dag_cancel", runId: run.runId }, { tool: "dag_finalize", runId: run.runId });
     const selected = itemId ? actions.filter(a => !a.itemId || a.itemId === itemId) : actions;

@@ -2,6 +2,9 @@ import { Type, type Static } from "typebox";
 import { StrictObject, GitOidSchema } from "../dag-runtime/common.ts";
 import { CountV2, IdV2, TextV2, PlanSelectorV2Schema, LifecycleCheckV2Schema, StageV2Schema } from "../planning/v2.ts";
 
+import { MAX_VERIFICATION_COMMAND_TIMEOUT_MS } from "../command-timeout.ts";
+
+export const CommandTimeoutMsV2Schema = Type.Integer({ minimum: 1, maximum: MAX_VERIFICATION_COMMAND_TIMEOUT_MS });
 const nat = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
 const output = Type.String({ maxLength: 16384 });
 export const CandidateV2Schema = StrictObject({ commit: GitOidSchema, tree: GitOidSchema });
@@ -16,6 +19,7 @@ export type NodeWorkspaceV2 = Static<typeof NodeWorkspaceV2Schema>;
 export const ExecutionRequestV2Schema = StrictObject({ id: IdV2, plan: PlanSelectorV2Schema, runId: IdV2, itemId: IdV2,
   generation: CountV2, attempt: TextV2, round: CountV2, stage: StageV2Schema, candidate: CandidateV2Schema,
   implementationWorkerId: TextV2, check: LifecycleCheckV2Schema, nodeWorkspace: Type.Optional(NodeWorkspaceV2Schema),
+  commandTimeoutMs: Type.Optional(CommandTimeoutMsV2Schema),
   authority: StrictObject({ effect: Type.Literal("repository_local") }),
 });
 export const ExecutionResultV2Schema = StrictObject({ request: ExecutionRequestV2Schema,
@@ -34,6 +38,7 @@ export const ExecutionV2Schema = StrictObject({ request: ExecutionRequestV2Schem
   result: Type.Optional(ExecutionResultV2Schema), quarantineReason: Type.Optional(TextV2),
   contextRejection: Type.Optional(StrictObject({ reason: Type.Literal("EVALUATOR_CONTEXT_REUSED"), observed: ExecutionResultV2Schema })),
 });
+// `replacement` is retained for lossless observational history, not a retry budget.
 export const RetryDimensionV2Schema = Type.Union((["product", "test", "review", "hardening", "infrastructure", "replacement", "integration"] as const).map(x => Type.Literal(x)));
 export const RetryV2Schema = StrictObject({ dimension: RetryDimensionV2Schema, stage: nat, procedure: TextV2, fingerprint: TextV2,
   count: nat, trees: Type.Array(GitOidSchema), failures: Type.Array(TextV2) });

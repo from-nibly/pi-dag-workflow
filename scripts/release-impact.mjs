@@ -15,7 +15,7 @@ export const V2_FOCUSED_SUITES = [
   "test:dag-v2-git-attributes", "test:dag-v2-git-hooks", "test:dag-v2-workspace", "test:dag-v2-product",
 ];
 export const RELEASE_SUITE_TIMEOUT_MS = 3_600_000;
-export const RELEASE_PRODUCT_TIMEOUT_MS = 7_200_000;
+export const RELEASE_PRODUCT_TIMEOUT_MS = 14_400_000;
 export function releaseSuiteTimeoutMs(script) {
   return script === "test:dag-v2-product" ? RELEASE_PRODUCT_TIMEOUT_MS : RELEASE_SUITE_TIMEOUT_MS;
 }

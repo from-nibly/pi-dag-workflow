@@ -65,6 +65,7 @@ export function auditGitV2(s: SnapshotV2, run: RunV2, plan: PlanV2): void {
           && r.check.environment === "node-local" && r.check.applicability.kind === "required" && r.check.replay === "idempotent"
           && r.runId === run.runId && r.itemId === op.itemId && r.generation === op.generation
           && r.attempt === op.operationId && sameV2(r.plan, run.start.selection) && sameV2(r.candidate, op.proposal)
+          && r.commandTimeoutMs === op.commandTimeoutMs
           && sameV2(r.nodeWorkspace ?? null, op.workspace?.node ?? null)
           && r.check.procedure.kind === "command" && sameV2(r.check.procedure.argv, commands[index].argv), "GIT_CHECK_REQUEST_MISMATCH");
         checks.add(r.id);

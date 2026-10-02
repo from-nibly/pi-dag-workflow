@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawn } from "node:child_process";
+import childProcess, { spawn } from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { mkdir } from "node:fs/promises";
+import { loadWorkflowConfig, mergeConfig } from "../extensions/dag-workflow/config.ts";
+import { verificationCommandTimeoutMs } from "../extensions/dag-workflow/command-timeout.ts";
+import { canonicalHash } from "../extensions/dag-workflow/dag-runtime/common.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { RuntimeV2, StoreV2, CommandRunnerV2, createPlanV2, selectorV2, auditSnapshotV2, stageChecksV2 } from "../extensions/dag-workflow/runtime-v2/index.ts";
@@ -38,6 +43,87 @@ const failCommand = check => { check.procedure = { kind: "command", argv: [proce
 const observation = (detail, kind = "test_evidence_gap", materiality = "local") => ({ disposition: "FAIL", observation: detail, findings: [{ id: "finding", kind, severity: "blocking", materiality, subject: "record", fingerprint: "record-gap", detail }] });
 const reader = result => ({ ensure: async () => {}, read: async () => result });
 
+test("verification timeout config validates every layer and rereads existing files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dag-timeout-config-")), home = process.env.HOME;
+  try {
+    process.env.HOME = root;
+    const project = join(root, "project"), userDir = join(root, ".pi/agent/extensions/dag-workflow");
+    await mkdir(join(project, ".ai"), { recursive: true }); await mkdir(userDir, { recursive: true });
+    assert.equal((await loadWorkflowConfig(project)).verificationCommandTimeoutMs, 3600000);
+    await writeFile(join(userDir, "config.json"), JSON.stringify({ verificationCommandTimeoutMs: 7200000 }));
+    assert.equal((await loadWorkflowConfig(project)).verificationCommandTimeoutMs, 7200000);
+    const config = join(project, ".ai/dag.config.json");
+    await writeFile(config, JSON.stringify({ verificationCommandTimeoutMs: 14400000 }));
+    assert.equal((await loadWorkflowConfig(project)).verificationCommandTimeoutMs, 14400000);
+    assert.equal((await loadWorkflowConfig(project, { verificationCommandTimeoutMs: 1 })).verificationCommandTimeoutMs, 1);
+    for (const value of [0, -1, 1.5, null, "3600000", true, Infinity, NaN, 2147483648]) {
+      assert.throws(() => verificationCommandTimeoutMs(value), /INVALID_VERIFICATION_COMMAND_TIMEOUT/);
+      assert.throws(() => mergeConfig({ verificationCommandTimeoutMs: value }, { verificationCommandTimeoutMs: 1 }), /INVALID_VERIFICATION_COMMAND_TIMEOUT/);
+      await writeFile(config, JSON.stringify({ verificationCommandTimeoutMs: value }));
+      await assert.rejects(loadWorkflowConfig(project, { verificationCommandTimeoutMs: 1 }), /INVALID_VERIFICATION_COMMAND_TIMEOUT/);
+    }
+    assert.equal(verificationCommandTimeoutMs(2147483647), 2147483647);
+    await writeFile(config, JSON.stringify({ verificationCommandTimeoutMs: 1234 }));
+    assert.equal((await loadWorkflowConfig(project)).verificationCommandTimeoutMs, 1234);
+  } finally { if (home === undefined) delete process.env.HOME; else process.env.HOME = home; await rm(root, { recursive: true, force: true }); }
+});
+
+for (const timeout of [undefined, 14400000, 800]) test(`verification timeout ${timeout ?? "default"} reaches actual subprocess and exact evidence`, async () => {
+  const f = await fixture(l => { l.checks[0].procedure.argv = [process.execPath, "-e", timeout === 800 ? "setInterval(()=>{},1000)" : "console.log('long budget completed without waiting')"]; });
+  const original = childProcess.spawn, observed = [];
+  try {
+    await frame(f);
+    const before = await readFile(f.store.statePath, "utf8");
+    for (const value of [0, -1, null, "800", 1.5, Infinity, 2147483648]) {
+      await assert.rejects(f.rt.prepareCheck(m(f.run), "item", 1, "static", undefined, undefined, value), /INVALID_VERIFICATION_COMMAND_TIMEOUT/);
+      assert.equal(await readFile(f.store.statePath, "utf8"), before);
+    }
+    f.run = await f.rt.prepareCheck(m(f.run), "item", 1, "static", undefined, undefined, timeout);
+    const request = f.run.nodes.item.lifecycle.executions.at(-1).request;
+    assert.equal(request.commandTimeoutMs, timeout ?? 3600000);
+    const stored = await readFile(f.store.statePath, "utf8");
+    for (const value of [0, null, "800", 1.5, 2147483648]) {
+      await assert.rejects(f.store.transaction(async (s, publish) => { s.runs[f.run.runId].nodes.item.lifecycle.executions.at(-1).request.commandTimeoutMs = value; await publish(); }), /INVALID_V2/);
+      assert.equal(await readFile(f.store.statePath, "utf8"), stored);
+    }
+    const replay = await f.rt.prepareCheck(m(f.run), "item", 1, "static", undefined, undefined, 9);
+    assert.equal(canonicalHash(replay.nodes.item.lifecycle.executions.at(-1).request), canonicalHash(request));
+    childProcess.spawn = (command, args, ...rest) => {
+      if (command === "python3" && args.some(arg => String(arg).endsWith("command-supervisor.py"))) observed.push(JSON.parse(args.at(-1)).timeoutMs);
+      return original(command, args, ...rest);
+    }; syncBuiltinESMExports();
+    await f.runner.ensure(request);
+    assert.deepEqual(observed, [timeout ?? 3600000]);
+    const result = await f.runner.read(request);
+    assert.equal(canonicalHash(result.request), canonicalHash(request)); assert(result.executor.invoked); assert(result.workspace.cleanAfter);
+    assert.equal(result.disposition, timeout === 800 ? "FAIL" : "PASS");
+    assert.match(result.diagnostic, new RegExp(`timeoutMs=${timeout ?? 3600000}`));
+    if (timeout === 800) { assert(result.durationMs >= 500 && result.durationMs < 15000); assert.match(result.stderr, /deadline expired/i); }
+    else assert.match(result.stdout, /long budget completed/);
+    await new CommandRunnerV2(new StoreV2(f.root), f.repository).ensure(request);
+    assert.equal(observed.length, 1, "settled replay never respawns");
+  } finally { childProcess.spawn = original; syncBuiltinESMExports(); await f.cleanup(); }
+});
+
+test("verification timeout absent legacy request stays hash-identical through fresh-process execution and recovery", async () => {
+  const f = await fixture(); try {
+    await frame(f); await prepare(f, "static");
+    // Model a pre-option stored intent without normalizing it on read.
+    await f.store.transaction(async (s, publish) => { delete s.runs[f.run.runId].nodes.item.lifecycle.executions.at(-1).request.commandTimeoutMs; await publish(); });
+    f.run = (await f.store.read()).runs[f.run.runId]; const request = f.run.nodes.item.lifecycle.executions.at(-1).request;
+    const hash = canonicalHash(request), bytes = await readFile(f.store.statePath, "utf8");
+    assert.equal(Object.hasOwn(request, "commandTimeoutMs"), false);
+    await new StoreV2(f.root).read(); assert.equal(await readFile(f.store.statePath, "utf8"), bytes);
+    const url = pathToFileURL(resolve("extensions/dag-workflow/runtime-v2/index.ts")).href;
+    const child = spawn(process.execPath, ["--input-type=module", "-e", `import {CommandRunnerV2,StoreV2} from ${JSON.stringify(url)}; await new CommandRunnerV2(new StoreV2(process.argv[1]),process.argv[2]).ensure(JSON.parse(process.argv[3]));`, f.root, f.repository, JSON.stringify(request)], { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = ""; child.stderr.on("data", b => stderr += b); assert.equal(await new Promise(r => child.on("exit", r)), 0, stderr);
+    const result = await f.runner.read(request); assert.equal(result.disposition, "PASS");
+    assert.equal(canonicalHash(result.request), hash); assert.equal(Object.hasOwn(result.request, "commandTimeoutMs"), false);
+    assert.match(result.diagnostic, /timeoutMs=3600000/);
+    await f.runner.ensure(request); assert.equal(canonicalHash((await f.runner.read(request)).request), hash);
+  } finally { await f.cleanup(); }
+});
+
 test("closed applicability and oracle schema cannot skip checkpoints or add attestation fields", async () => {
   const candidate = { commit: "1".repeat(40), tree: "2".repeat(40) };
   for (const mutate of [p => p.workItems[0].lifecycle.checks.pop(), p => p.workItems[0].lifecycle.checks[1].applicability = { kind: "not_applicable", reason: "tool absent", evidence: ["not executed"] }, p => p.workItems[0].lifecycle.oracle.checkIds = ["unknown"], p => p.workItems[0].lifecycle.checks[0].attestation = "PASS", p => p.workItems[0].lifecycle.checks[0].replay = "non_repeatable"]) {
@@ -68,7 +154,7 @@ test("missing, wrong-plan, attempt, generation and candidate results never advan
     await frame(f); const req = await prepare(f, "static");
     await assert.rejects(f.rt.recordResult(m(f.run), "item", req.id, f.runner), /NOT_DURABLE/);
     await f.runner.ensure(req); const result = await f.runner.read(req), before = await readFile(f.store.statePath, "utf8");
-    for (const mutate of [r => r.request.plan.revision++, r => r.request.runId = "other", r => r.request.itemId = "other", r => r.request.attempt += "x", r => r.request.generation++, r => r.request.candidate.tree = "9".repeat(40), r => r.executor.invoked = false, r => r.exitCode = 4]) {
+    for (const mutate of [r => r.request.plan.revision++, r => r.request.commandTimeoutMs++, r => r.request.runId = "other", r => r.request.itemId = "other", r => r.request.attempt += "x", r => r.request.generation++, r => r.request.candidate.tree = "9".repeat(40), r => r.executor.invoked = false, r => r.exitCode = 4]) {
       const wrong = structuredClone(result); mutate(wrong);
       await assert.rejects(f.rt.recordResult(m(f.run), "item", req.id, reader(wrong)), /MISMATCH|UNEXECUTED/);
       assert.equal(await readFile(f.store.statePath, "utf8"), before);
@@ -215,8 +301,12 @@ test("per-dimension retries and no-progress stop; replacements cannot reset coun
     f.run = await f.rt.replace(m(f.run), "item", 1, async () => {});
     assert.deepEqual(structuredClone(f.run.nodes.item.retries.filter(r => r.dimension !== "replacement")), counts);
     f.run = await f.rt.replace(m(f.run), "item", 2, async () => {});
-    await assert.rejects(f.rt.replace(m(f.run), "item", 3, async () => {}), /RETRY_EXHAUSTED: replacement/);
-    await assert.rejects(f.rt.prepareCheck(m(f.run), "item", 3, "static"), /LIFECYCLE_NOT_EXECUTABLE/);
+    f.run = await f.rt.replace(m(f.run), "item", 3, async () => {});
+    f.run = await f.rt.replace(m(f.run), "item", 4, async () => {});
+    assert.equal(f.run.nodes.item.retries.find(r => r.dimension === "replacement").count, 4);
+    assert.deepEqual(structuredClone(f.run.nodes.item.retries.filter(r => r.dimension !== "replacement")), counts);
+    assert.match(f.run.nodes.item.lifecycle.stop, /NO_PROGRESS|RETRY_EXHAUSTED/);
+    await assert.rejects(f.rt.prepareCheck(m(f.run), "item", 5, "static"), /LIFECYCLE_NOT_EXECUTABLE/);
   } finally { await f.cleanup(); }
 });
 test("infrastructure retry has its own one-retry ceiling", async () => {
@@ -274,10 +364,13 @@ test("process death after result rename reconciles exact durable outcome without
     f.run = await f.rt.recordResult(m(f.run), "item", req.id, f.runner); assert.equal(f.run.nodes.item.lifecycle.executions[0].result.disposition, "PASS");
   } finally { if (req) await retainedCleanup(f, req); await f.cleanup(); }
 });
-test("extinction receipt survives crash after candidate cleanup before lifecycle publication", async () => {
+test("verification timeout and extinction receipt survive crash after candidate cleanup before lifecycle publication", async () => {
   const f = await fixture(); let req;
   try {
-    await frame(f); req = await prepare(f, "static");
+    await frame(f);
+    f.run = await f.rt.prepareCheck(m(f.run), "item", 1, "static", undefined, undefined, 14400000);
+    req = f.run.nodes.item.lifecycle.executions.at(-1).request;
+    const hash = canonicalHash(req);
     const url = new URL("../extensions/dag-workflow/runtime-v2/index.ts", import.meta.url).href;
     const code = `import {CommandRunnerV2,StoreV2} from ${JSON.stringify(url)};
       const runner=new CommandRunnerV2(new StoreV2(process.argv[1]),process.argv[2]);
@@ -297,6 +390,7 @@ test("extinction receipt survives crash after candidate cleanup before lifecycle
     await f.runner.reconcileInterrupted(req, async () => {});
     const result = await f.runner.read(req);
     assert.equal(result.disposition, "BLOCKED"); assert.equal(result.exitCode, 0); assert.equal(result.executor.invoked, true);
+    assert.equal(result.request.commandTimeoutMs, 14400000); assert.equal(canonicalHash(result.request), hash);
   } finally { if (req) await retainedCleanup(f, req); await f.cleanup(); }
 });
 test("a real behavioral oracle fails on an invalid committed candidate despite static success", async () => {
@@ -689,6 +783,8 @@ test("missing Python capability fails closed before argv launch", async () => {
   } finally { process.env.PATH = previous; await rm(root, { recursive: true, force: true }); }
 });
 
+const selected = process.argv[2] === "--test-name" ? tests.filter(([name]) => name.includes(process.argv[3])) : tests;
+assert(selected.length > 0, "no matching lifecycle test");
 let failed = 0;
-for (const [name, fn] of tests) { const at = performance.now(); try { await fn(); console.log(`PASS ${name} (${((performance.now() - at) / 1000).toFixed(2)}s)`); } catch (error) { failed++; console.error(`FAIL ${name}`, error); } }
-console.log(`${tests.length - failed}/${tests.length} passed`); process.exitCode = failed ? 1 : 0;
+for (const [name, fn] of selected) { const at = performance.now(); try { await fn(); console.log(`PASS ${name} (${((performance.now() - at) / 1000).toFixed(2)}s)`); } catch (error) { failed++; console.error(`FAIL ${name}`, error); } }
+console.log(`${selected.length - failed}/${selected.length} passed`); process.exitCode = failed ? 1 : 0;

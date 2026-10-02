@@ -1,7 +1,7 @@
 import { Type, type Static } from "typebox";
 import { StrictObject } from "../dag-runtime/common.ts";
 import { TextV2, CountV2 } from "../planning/v2.ts";
-import { CandidateV2Schema, ExecutionRequestV2Schema, NodeWorkspaceV2Schema } from "./lifecycle-schema.ts";
+import { CandidateV2Schema, ExecutionRequestV2Schema, NodeWorkspaceV2Schema, CommandTimeoutMsV2Schema } from "./lifecycle-schema.ts";
 
 const identity = StrictObject({ path: TextV2, dev: Type.String({ pattern: "^[0-9]+$" }), ino: Type.String({ pattern: "^[0-9]+$" }) });
 export const GitBindingV2Schema = StrictObject({ root: identity, common: identity, admin: identity,
@@ -13,6 +13,7 @@ export const GitOperationV2Schema = StrictObject({ operationId: TextV2, itemId: 
     accepted: Type.Array(StrictObject({ operationId: TextV2, proposal: CandidateV2Schema })) })),
   phase: Type.Union((["intent", "composed", "validated", "landing", "landed", "accepted", "blocked", "closed"] as const).map(x => Type.Literal(x))),
   proposal: Type.Optional(CandidateV2Schema), checks: Type.Array(ExecutionRequestV2Schema),
+  commandTimeoutMs: Type.Optional(CommandTimeoutMsV2Schema),
   workspace: Type.Optional(StrictObject({ node: NodeWorkspaceV2Schema, binding: GitBindingV2Schema, closing: Type.Optional(Type.Boolean()),
     phase: Type.Union((["original", "switching", "composed", "restoring", "restored"] as const).map(x => Type.Literal(x))),
     transition: Type.Optional(StrictObject({ directory: TextV2, target: CandidateV2Schema,

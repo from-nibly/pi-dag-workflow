@@ -420,6 +420,61 @@ test("native target races during acceptance stay hard and publish no run", async
     assert.deepEqual(await tree(join(f.root, ".ai/dag-workflow-v2")), before);
   } finally { await f.cleanup(); }
 });
+test("verification timeout config controls future authorized checks and native integration without plan edits", async () => {
+  const f = await fixture("verification-timeout");
+  const config = join(f.root, ".ai/dag.config.json"), marker = join(f.root, ".ai/timeout-started");
+  const configure = value => writeFile(config, JSON.stringify({ verificationCommandTimeoutMs: value }));
+  try {
+    const input = planInput("verification-timeout", ["a"]);
+    input.workItems[0].lifecycle.checks[0].procedure.argv = [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(marker)},'started');setTimeout(()=>console.log('observed exact bytes'),8000)`];
+    const plan = await f.call("dag_plan_save", input), planBytes = canonicalStringify(plan);
+    let run = await f.call("dag_run_start", { selection: selectorV2(plan), authority: authority(["a"]) });
+    const startBytes = canonicalStringify(run.start);
+    await f.call("dag_start_work", { runId: run.runId, itemId: "a", generation: 1 });
+    const terminal = await waitTerminal(f, run.runId, "a");
+    await f.call("dag_record_completion", { runId: run.runId, itemId: "a", generation: 1, completionId: terminal.completionId });
+    const nextCheck = async () => {
+      const { tool, ...params } = (await f.call("dag_next_action", {})).actions.find(a => a.tool === "dag_run_checks");
+      return { tool, params };
+    };
+    let action = await nextCheck();
+    for (const invalid of [0, null, "7200000", 1.5, 2147483648]) {
+      await configure(invalid); const bytes = await readFile(f.service().runtime.store.statePath, "utf8");
+      await assert.rejects(f.call(action.tool, action.params), /INVALID_VERIFICATION_COMMAND_TIMEOUT/);
+      assert.equal(await readFile(f.service().runtime.store.statePath, "utf8"), bytes, "invalid config cannot adopt workspace, lease or prepare a request");
+    }
+    await configure(5000);
+    await assert.rejects(f.call(action.tool, action.params), /CHECK_NOT_PASSED/);
+    run = (await f.service().read()).run;
+    const failed = run.nodes.a.lifecycle.executions.at(-1); assert.equal(failed.result.disposition, "FAIL", failed.result.diagnostic);
+    assert.equal(failed.request.commandTimeoutMs, 5000); assert(failed.result.executor.invoked);
+    const failedBytes = JSON.stringify(failed);
+    const retry = (await f.call("dag_next_action", {})).actions.find(a => a.tool === "dag_retry");
+    const { tool: retryTool, ...retryParams } = retry; await f.call(retryTool, retryParams);
+    await configure(30000); await rm(marker, { force: true }); action = await nextCheck();
+    const executing = f.call(action.tool, action.params);
+    // Wait only on this test-owned subprocess's positive start marker.
+    for (let i = 0; ; i++) { try { await readFile(marker); break; } catch (e) { if (e.code !== "ENOENT" || i > 500) throw e; await delay(20); } }
+    await configure(1); run = await executing;
+    const passed = run.nodes.a.lifecycle.executions.at(-1);
+    assert.equal(passed.request.commandTimeoutMs, 30000); assert.equal(passed.result.disposition, "PASS");
+    assert.equal(passed.result.request.commandTimeoutMs, 30000);
+    assert.equal(JSON.stringify(run.nodes.a.lifecycle.executions.find(e => e.request.id === failed.request.id).result), JSON.stringify(JSON.parse(failedBytes).result));
+    await configure(14400000);
+    for (let stage = 2; stage <= 8; stage++) { action = await nextCheck(); run = await f.call(action.tool, action.params); }
+    assert(run.nodes.a.lifecycle.executions.filter(e => e.status === "observed" && e.request.stage >= 2).every(e => e.request.commandTimeoutMs === 14400000));
+    const { tool, ...params } = (await f.call("dag_next_action", {})).actions.find(a => a.tool === "dag_integrate");
+    await configure(null); const bytes = await readFile(f.service().runtime.store.statePath, "utf8");
+    await assert.rejects(f.call(tool, params), /INVALID_VERIFICATION_COMMAND_TIMEOUT/);
+    assert.equal(await readFile(f.service().runtime.store.statePath, "utf8"), bytes);
+    await configure(14400000); run = await f.call(tool, params); assert.equal(run.status, "complete");
+    const snapshot = await f.service().runtime.store.read();
+    assert(run.gitOperations[0].checks.every(c => c.commandTimeoutMs === 14400000 && snapshot.executions[c.id].result.request.commandTimeoutMs === 14400000));
+    assert.equal(canonicalStringify(run.start), startBytes); assert.equal(canonicalStringify(await f.service().runtime.show(selectorV2(plan))), planBytes);
+    await f.reload(); assert.equal((await f.service().read()).run.status, "complete");
+  } finally { await f.cleanup(); }
+});
+
 test("new public inputs and generated plan/run/check frames have no authority deadline", async () => {
   const f = await fixture("no-deadline"); try {
     const plan = await f.call("dag_plan_save", planInput("no-deadline", ["a"]));
@@ -1598,21 +1653,44 @@ test("node handoff refuses a live worker and an interrupted pre-adoption cleanup
     assert.equal((await manager.store.load()).worktreeCleanupIntents[0].state, "intended");
   } finally { await f.cleanup(); }
 });
-test("registered Git validation recovery uses real extinct command evidence, closes only a clean prefix and freezes retry context", async () => {
+test("registered Git validation recovery permits explicit generation four after native closure with full fresh checks", async () => {
   const f = await fixture("git-command-owner"); try {
     const plan = await f.call("dag_plan_save", planInput("git-command-owner", ["a"])), run = await f.call("dag_run_start", { selection: selectorV2(plan), authority: authority(["a"]) });
-    const ready = await finish(f, run.runId, "a", 1, false), candidate = ready.nodes.a.lifecycle.candidate;
+    for (let generation = 1; generation <= 2; generation++) {
+      await f.call("dag_start_work", { runId: run.runId, itemId: "a", generation });
+      const terminal = await waitTerminal(f, run.runId, "a");
+      await f.call("dag_record_completion", { runId: run.runId, itemId: "a", generation, completionId: terminal.completionId });
+      await f.call("dag_replace_worker", { runId: run.runId, itemId: "a", generation, completionId: terminal.completionId });
+    }
+    const atCap = await readFile(f.service().runtime.store.statePath, "utf8");
+    await f.reload(); assert.equal(await readFile(f.service().runtime.store.statePath, "utf8"), atCap);
+    const ready = await finish(f, run.runId, "a", 3, false), candidate = ready.nodes.a.lifecycle.candidate;
+    const workspace = canonicalStringify(ready.nodes.a.workspace), oldArchives = ready.nodes.a.archivedReservations.map(canonicalStringify);
+    assert.equal(ready.nodes.a.retries.find(r => r.dimension === "replacement").count, 2);
     f.service().git.options.failpoint = async point => { if (point === "composed") throw Error("pause at real composed validation intent"); };
-    await assert.rejects(f.call("dag_integrate", { runId: run.runId, itemId: "a", generation: 1, candidate }), /real composed/);
-    const op = (await f.service().read()).run.gitOperations[0]; assert.equal(op.phase, "composed");
+    await assert.rejects(f.call("dag_integrate", { runId: run.runId, itemId: "a", generation: 3, candidate }), /real composed/);
+    const pending = (await f.service().read()).run, op = pending.gitOperations[0]; assert.equal(op.phase, "composed");
+    const replaceParams = { runId: run.runId, itemId: "a", generation: 3, completionId: pending.nodes.a.reservation.completion.completionId };
+    await assert.rejects(f.call("dag_replace_worker", replaceParams), /NODE_WORKSPACE_EXECUTION_BUSY|UNRESOLVED_GIT_OPERATION/);
     loseCommandResultPublication(f.root, op.checks[0]);
     let action = (await f.call("dag_next_action", {})).actions.find(a => a.tool === "dag_recover_execution"); assert.equal(action.executionId, op.checks[0].id);
     let { tool, ...params } = action; const observed = await f.call(tool, params); assert.equal(observed.execution.disposition, "BLOCKED"); assert.equal(observed.execution.exitCode, 0);
     action = (await f.call("dag_next_action", {})).actions.find(a => a.tool === "dag_close_git_operation"); ({ tool, ...params } = action); const closed = await f.call(tool, params);
     assert.equal(closed.gitOperations[0].phase, "closed"); assert.equal(closed.nodes.a.retries.find(r => r.dimension === "integration").count, 1);
     action = (await f.call("dag_next_action", {})).actions.find(a => a.tool === "dag_replace_worker"); ({ tool, ...params } = action); const replaced = await f.call(tool, params);
-    assert.equal(replaced.nodes.a.generation, 2); const request = JSON.parse(replaced.nodes.a.reservation.request); assert.equal(request.baseCommit, candidate.commit); assert.match(request.task, /Executor died without a durable lifecycle result/);
-    assert.equal(f.git("rev-parse", "HEAD"), plan.repository.baselineCommit); assert.equal((await f.handles.workerManager.store.load()).launchRecords.length, 1, "replacement is inert until explicit guarded dispatch");
+    assert.equal(replaced.nodes.a.generation, 4); const request = JSON.parse(replaced.nodes.a.reservation.request); assert.equal(request.baseCommit, candidate.commit); assert.match(request.task, /Executor died without a durable lifecycle result/);
+    assert.equal(replaced.nodes.a.retries.find(r => r.dimension === "replacement").count, 3);
+    assert.equal(canonicalStringify(replaced.nodes.a.workspace), workspace);
+    assert.deepEqual(replaced.nodes.a.archivedReservations.slice(0, 2).map(canonicalStringify), oldArchives);
+    assert.equal(f.git("rev-parse", "HEAD"), plan.repository.baselineCommit); assert.equal((await f.handles.workerManager.store.load()).launchRecords.length, 3, "replacement is inert until explicit guarded dispatch");
+    const oldResults = replaced.nodes.a.lifecycle.executions.map(e => canonicalStringify(e.result));
+    const closedOperation = canonicalStringify(replaced.gitOperations[0]);
+    await f.reload(); const completed = await finish(f, run.runId, "a", 4);
+    assert.equal(completed.status, "complete"); assert.equal(canonicalStringify(completed.nodes.a.workspace), workspace);
+    assert.equal(canonicalStringify(completed.gitOperations[0]), closedOperation);
+    assert.deepEqual(completed.nodes.a.lifecycle.executions.slice(0, oldResults.length).map(e => canonicalStringify(e.result)), oldResults);
+    assert.equal(completed.nodes.a.lifecycle.executions.filter(e => e.status === "observed" && e.request.generation === 4).length, 13);
+    assert.equal(completed.nodes.a.retries.find(r => r.dimension === "integration").count, 1);
   } finally { await f.cleanup(); }
 });
 test("historical expired V2 reservations and evidence survive reload, direction, replacement and native landing", async () => {
@@ -1785,7 +1863,7 @@ try {
 }finally{await f.cleanup();}
 
 });
-test("registered recovery identity mismatch blocks replacement without snapshot or budget mutation", async () => {
+test("registered recovery identity mismatch blocks replacement without snapshot or history mutation", async () => {
   const f = await fixture("review-request-identity");
   const manager = f.handles.workerManager, original = manager.inspectBindingReadOnly.bind(manager);
   try {
@@ -1801,7 +1879,7 @@ test("registered recovery identity mismatch blocks replacement without snapshot 
       return { ...exact, worker: { ...exact.worker, normalizedRequest: { ...exact.worker.normalizedRequest, boundConfigRequestHash: canonicalHash("different request") } } };
     };
     await assert.rejects(f.call("dag_replace_worker", { ...selectors, completionId: terminal.completionId }), /IMMUTABLE_WORKER_REQUEST_MISMATCH/);
-    assert.equal(await readFile(join(f.root, ".ai/dag-workflow-v2/state.json"), "utf8"), before, "no generation, archive, revision, or replacement budget mutation");
+    assert.equal(await readFile(join(f.root, ".ai/dag-workflow-v2/state.json"), "utf8"), before, "no generation, archive, revision, or replacement history mutation");
     manager.inspectBindingReadOnly = original;
     const next = await f.call("dag_replace_worker", { ...selectors, completionId: terminal.completionId });
     assert.equal(next.nodes.a.generation, 2);
@@ -1885,21 +1963,39 @@ test("current pending direction and reserved replay are separate snapshots", asy
     assert.equal(current.nodes.a.archivedReservations[0].request, frozen);
   } finally { await f.cleanup(); }
 });
-test("failed implementation replacement is bounded, uses fresh keyed generation and rejects old completion", async () => {
+test("explicit failed worker replacement has no budget, retains history and one node root across reloads", async () => {
   const f = await fixture("replacement"); try {
     const plan = await f.call("dag_plan_save", planInput("replacement", ["broken"])), run = await f.call("dag_run_start", { selection: selectorV2(plan), authority: authority(["broken"]) });
-    let oldCompletion;
-    for (let generation = 1; generation <= 3; generation++) {
+    let oldCompletion, workspace; const history = [], artifacts = [];
+    for (let generation = 1; generation <= 5; generation++) {
       await f.call("dag_start_work", { runId: run.runId, itemId: "broken", generation }); const terminal = await waitTerminal(f, run.runId, "broken");
       assert.equal(terminal.terminalStatus, "needs_attention");
       if (oldCompletion) await assert.rejects(f.call("dag_record_completion", { runId: run.runId, itemId: "broken", generation: generation - 1, completionId: oldCompletion }), /STALE_GENERATION/);
+      await f.call("dag_record_completion", { runId: run.runId, itemId: "broken", generation, completionId: terminal.completionId });
+      const node = (await f.service().read()).run.nodes.broken;
+      workspace ??= canonicalStringify(node.workspace); assert.equal(canonicalStringify(node.workspace), workspace);
+      history.push(canonicalStringify(node.reservation));
+      const exact = await f.handles.workerManager.inspectBindingReadOnly(node.reservation.binding);
+      const path = join(f.root, exact.attempt.configPath); artifacts.push({ path, bytes: await readFile(path, "utf8") });
       const params = { runId: run.runId, itemId: "broken", generation, completionId: terminal.completionId };
-      if (generation < 3) { const replaced = await f.call("dag_replace_worker", params); assert.equal(replaced.nodes.broken.generation, generation + 1); }
-      else await assert.rejects(f.call("dag_replace_worker", params), /RETRY_EXHAUSTED/);
+      const before = await readFile(f.service().runtime.store.statePath, "utf8");
+      await assert.rejects(f.call("dag_replace_worker", { ...params, completionId: "foreign-completion" }), /EXACT_WORKER_COMPLETION_REQUIRED/);
+      assert.equal(await readFile(f.service().runtime.store.statePath, "utf8"), before);
+      if (generation === 4) await f.call("dag_pause", { runId: run.runId });
+      assert((await f.call("dag_next_action", {})).actions.some(a => a.tool === "dag_replace_worker" && a.generation === generation), "frontier never exhausts replacement count");
+      const replaced = await f.call("dag_replace_worker", params); assert.equal(replaced.nodes.broken.generation, generation + 1);
+      assert.equal(replaced.nodes.broken.retries.find(r => r.dimension === "replacement").count, generation);
+      assert.deepEqual(replaced.nodes.broken.archivedReservations.map(canonicalStringify), history);
+      await assert.rejects(f.call("dag_replace_worker", params), /STALE_GENERATION/);
+      const statePath = f.service().runtime.store.statePath, saved = await readFile(statePath, "utf8");
+      await f.reload(); await f.service().read(); assert.equal(await readFile(statePath, "utf8"), saved, "reload never rewrites replacement history");
+      if (generation === 4) await f.call("dag_resume", { runId: run.runId });
       oldCompletion = terminal.completionId;
     }
-    const state = await f.handles.workerManager.store.load(); assert.equal(state.launchRecords.length, 3); assert(Object.values(state.workers).every(w => w.currentAttempt === 1));
-    assert.equal((await f.service().read()).run.nodes.broken.lifecycle.candidateReady, false);
+    for (const artifact of artifacts) assert.equal(await readFile(artifact.path, "utf8"), artifact.bytes);
+    const state = await f.handles.workerManager.store.load(); assert.equal(state.launchRecords.length, 5); assert(Object.values(state.workers).every(w => w.currentAttempt === 1));
+    const node = (await f.service().read()).run.nodes.broken;
+    assert.equal(node.generation, 6); assert.equal(node.lifecycle.candidateReady, false); assert.equal(canonicalStringify(node.workspace), workspace);
     assert.equal(f.git("rev-parse", "HEAD"), plan.repository.baselineCommit);
   } finally { await f.cleanup(); }
 });

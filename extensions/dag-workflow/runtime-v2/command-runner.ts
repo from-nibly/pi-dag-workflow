@@ -1,4 +1,5 @@
 import { spawn, execFileSync } from "node:child_process";
+import { verificationCommandTimeoutMs } from "../command-timeout.ts";
 import { withWorkspaceOwnership, inspectWorkspaceRoot } from "../worker-runtime/workspace-ownership.mjs";
 import { lstatSync, realpathSync, readFileSync, readlinkSync } from "node:fs";
 import { mkdtemp, rm, readFile, open, rename } from "node:fs/promises";
@@ -270,7 +271,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
       const procedure = request.check.procedure;
       if (procedure.kind === "command") {
         const observed = await this.invoke(request, cwd, () => runArgvV2(procedure.argv, cwd!, signal, {
-          timeoutMs: 3_600_000,
+          timeoutMs: verificationCommandTimeoutMs(request.commandTimeoutMs),
           protocolDirectory: root!, inheritedLockFd: this.inheritedLockFd, disableGitHooks: this.gitOptions.length > 0,
           launch: async (identity, launch) => {
             // The gated session leader cannot invoke argv before this journal is
@@ -300,7 +301,7 @@ export class CommandRunnerV2 implements ResultsV2, CandidateInspectorV2 {
         result.disposition = !observed.invoked ? "BLOCKED" : observed.exitCode === 0 && !observed.signal && !observed.interrupted ? "PASS" : "FAIL";
         if (!observed.invoked) result.findings = [{ id: "command-unavailable", kind: "infrastructure_failure", severity: "blocking", materiality: "local", subject: request.check.id, fingerprint: `command-unavailable:${procedure.argv[0]}`, detail: observed.stderr || "Command was not spawned" }];
         const argv = JSON.stringify(procedure.argv);
-        result.diagnostic = `argv=${argv.slice(0, 8000)}${argv.length > 8000 ? "… (full argv retained in request)" : ""} exit=${observed.exitCode} signal=${observed.signal ?? "none"}`;
+        result.diagnostic = `argv=${argv.slice(0, 8000)}${argv.length > 8000 ? "… (full argv retained in request)" : ""} exit=${observed.exitCode} signal=${observed.signal ?? "none"} timeoutMs=${verificationCommandTimeoutMs(request.commandTimeoutMs)}`;
         if (result.disposition !== "PASS") result.diagnostic += `; ${observed.stderr.slice(-4000) || observed.stdout.slice(-4000)}`;
       } else {
         const producer = this.producers.get(procedure.producerId);

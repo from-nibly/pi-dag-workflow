@@ -1,6 +1,8 @@
 import type { DagWorkflowConfig } from "./types.ts";
+import { DEFAULT_VERIFICATION_COMMAND_TIMEOUT_MS } from "./command-timeout.ts";
 
 export const PACKAGE_DEFAULT_CONFIG: DagWorkflowConfig = {
+  verificationCommandTimeoutMs: DEFAULT_VERIFICATION_COMMAND_TIMEOUT_MS,
   defaults: {
     flow: "default",
     stashDirtyParent: true,

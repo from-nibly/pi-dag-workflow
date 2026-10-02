@@ -71,8 +71,10 @@ rewrites them. Historical time bounds do not block dispatch, recovery, checks or
 landing. Public inputs and newly generated authority/check frames have no time
 bound. Existing reservations still replay exactly; fresh worker direction and
 replacement remain explicit, and paused runs still require explicit resume.
-Commands and native landing retain independent one-hour per-invocation timeouts
-for hung processes, plus cancellation, owner loss and descendant settlement.
+Verification argv use the finite `verificationCommandTimeoutMs` DAG configuration
+(default one hour); native Git checkout/landing operations retain their separate
+one-hour limits. Cancellation, owner loss and descendant settlement are unchanged.
+See [configuration and replay semantics](../../../README.md#verification-command-timeout).
 
 The shipped product profile accepts actual `node-local` argv checks, not arbitrary
 producer IDs. F2/F5 command processes perform declared deterministic oracle and
@@ -92,7 +94,7 @@ Planned cancellation is recorded as non-execution, never
 PASS; replacement uses a fresh generation/key. V2 retains exact
 storage/session/worker/attempt/nonce/config identity and ingested completion.
 Candidate inspection checks owned worktree identity, raw clean detached native
-commit/tree and base ancestry. Bounded replacement freezes the inspected prior
+commit/tree and base ancestry. Explicit replacement freezes the inspected prior
 candidate and actual failure observations into the next generation's immutable
 repair request. Old evidence is retained/quarantined and affected checks run again.
 Each product node owns one durable `workspace` binding: stable `runId/itemId`, cwd,
@@ -157,8 +159,8 @@ completion and candidate selectors. `dag_recover_dispatch` only binds an already
 attempted exact manager attempt after acknowledgement loss; it never launches.
 A `dispatching` reservation with no manager attempt (for example, a prelaunch
 approval error) instead resumes via `dag_start_work` with the **same generation**
-while active. Resume a paused run first. Neither route consumes replacement
-budget, changes the frozen request, or allocates a replacement root.
+while active. Resume a paused run first. Neither route creates a replacement
+generation, changes the frozen request, or allocates a replacement root.
 
 Historical frozen requests without `workspaceProtocol` retain their original
 launch/config semantics; they are not reinterpreted as borrowed requests. Only
@@ -277,8 +279,8 @@ stored inputs rather than granting consent.
   actual lifecycle commands before fast-forward and persisted successor reload;
   it does not claim N04 transactional Git certification.
 - `replace` retains the sticky lane, requires all lifecycle executions reconciled
-  and the prior worker verified settled, consumes the replacement retry dimension,
-  and invalidates lifecycle evidence before exposing a new generation. It never
+  and the prior worker verified settled, records replacement history without any
+  replacement budget, and invalidates lifecycle evidence before exposing a new generation. It never
   resets repair counters, finding dispositions, retained results or a retry stop.
 - `pause`, `needs_replan`, and explicit disposition-based resume stop dispatch.
   Pausing a `needs_replan` run cannot bypass its required disposition.
@@ -318,8 +320,12 @@ without these required plan fields fail closed; they are not silently migrated.
    committed candidate; this service does not edit code on the worker's behalf.
 2. `prepareCheck` persists an exact natural stage/check slot and execution request:
    whole-plan selector, run/item, worker reservation, generation, stage attempt,
-   round, candidate commit/tree, procedure, environment and local effect scope.
-   Exact prepare replay returns the same request, never a new invocation.
+   round, candidate commit/tree, procedure, environment, local effect scope and
+   `commandTimeoutMs`. `prepareCheck` accepts the timeout as its last optional
+   argument, validates it before mutation, and defaults new requests to 3,600,000 ms.
+   Exact prepare replay returns the same request, never a new invocation or timeout.
+   Legacy absent timeout fields are interpreted as one hour only at invocation;
+   loading and hashing preserve their original representation.
 3. Outside the runtime transaction, `ResultsV2.ensure(request, signal?)` invokes
    the actual command/producer. `recordResult(..., executionId, results)` hydrates
    its durable result, checks the complete request, and records it once. There is
@@ -342,8 +348,15 @@ without these required plan fields fail closed; they are not silently migrated.
    explicit immutable disposition. Plan-affecting findings atomically hold the
    whole run in `needs_replan`; resume requires disposition, not just a pause toggle.
 
-Retry ceilings are product/test/review/hardening/integration 3, infrastructure 1,
-replacement 2. Detailed keys retain stage/procedure/fingerprint, with a conservative
+Retry ceilings are product/test/review/hardening/integration 3 and infrastructure 1.
+Worker replacement is not a retry-budget category: any explicit replacement that
+passes settlement/generation/native-operation guards may create the next generation.
+The historical `replacement` ledger entries remain losslessly readable and continue
+as counts/history only, not remaining attempts or admission limits. Old count 2 at
+generation 3 needs no reset, migration, new run or replan to replace after supported
+native closure. Archives have no two-entry cap; exact old requests/results stay intact.
+Existing structural integer validation and generic storage retention still apply.
+Detailed retry keys retain stage/procedure/fingerprint, with a conservative
 per-item/dimension ceiling as well, so renaming a check or cycling fingerprints
 cannot reset budgets. Same-tree retries, recurring trees, persistent fingerprints
 across repair trees and failure oscillation stop earlier. A stop is durable and
@@ -446,7 +459,12 @@ tool.
 ## Native Git integration (N04)
 
 The registered product calls `new GitDriverV2(runtime, boundRoot).integrate(mutation, itemId,
-generation, candidate, signal?, nodeWorkspace?)`. Product passes the exact settled
+generation, candidate, signal?, nodeWorkspace?, commandTimeoutMs?)`. The last
+argument defaults to 3,600,000 ms for new operations and is frozen at intent;
+replay uses the stored operation value (legacy absence remains absent). Native
+request audit checks exact timeout equality with that operation. Product rereads
+the existing DAG config per call, not from a cached session/immutable plan.
+Product passes the exact settled
 worker workspace for every new operation. This is a concrete adapter, not a verification
 callback placeholder. It persists native root/common/admin path/dev/ino bindings
 and operation requests in the V2 snapshot, composes with explicit-base
@@ -472,7 +490,7 @@ and automatic merge-base selection are never authority.
 Historical **ordinary-ff-v2-1** requests retain their explicit execution-baseline
 semantics, original proposal identity and receipt-free representation. They are not
 upgraded on read/replay. Blocked and closed operations cannot be reopened: supported
-closure, bounded generation replacement and fresh readiness produce a new operation.
+closure, explicit generation replacement and fresh readiness produce a new operation.
 Native command failures retain bounded stdout/stderr, status, signal and argv;
 merge-tree exit 1 reports conflict stages/paths even with empty stderr. Its emitted
 conflict tree is never a proposal.
@@ -497,7 +515,7 @@ and block. Resolve reported user collisions/drift without editing the store, the
 repeat closure. A missing extinction receipt remains unresolved.
 
 Historical operations without a node journal keep their original requests/results
-and supported closure route. Close a failed historical operation, then use bounded
+and supported closure route. Close a failed historical operation, then use explicit
 worker replacement and fresh F1–F8 evidence; the new integration uses the retained
 node root. Never rewrite old failed results to claim a same-directory PASS.
 

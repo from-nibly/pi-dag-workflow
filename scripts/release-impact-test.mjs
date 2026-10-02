@@ -72,7 +72,7 @@ for (const path of [...V2_FOCUSED_SUITES.map(script => `scripts/${script.slice(5
 }
 assert.equal(classifyReleaseImpact(["scripts/dag-v2-git-test.mjs"]).full, true);
 assert.equal(RELEASE_SUITE_TIMEOUT_MS, 3_600_000, "unrelated suite budgets remain unchanged");
-assert(RELEASE_PRODUCT_TIMEOUT_MS >= 7_200_000);
+assert.equal(RELEASE_PRODUCT_TIMEOUT_MS, 14_400_000, "full product certification has a four-hour nested budget");
 assert.equal(releaseSuiteTimeoutMs("test:dag-v2-product"), RELEASE_PRODUCT_TIMEOUT_MS);
 for (const script of full.focused.filter(script => script !== "test:dag-v2-product")) assert.equal(releaseSuiteTimeoutMs(script), RELEASE_SUITE_TIMEOUT_MS);
 assert.equal(releaseSuiteTimeoutMs("smoke"), RELEASE_SUITE_TIMEOUT_MS, "bounded extracted-package smoke keeps its ordinary budget");

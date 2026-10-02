@@ -154,12 +154,12 @@ test("conflict and required unsupported attributes fail closed without target mo
     await assert.rejects(eligibleGitV2(f.op.binding, [bad]), /attributes/);
   } finally { await f.cleanup(); }
 });
-async function runtimeFixture({ nodes = 1, finalFail = false, prefixDelay = 0, prefixScript = () => "" } = {}) {
+async function runtimeFixture({ nodes = 1, finalFail = false, prefixDelay = 0, finalDelay = 0, prefixScript = () => "" } = {}) {
   const f = await fixture(); const storeRoot = join(f.dir, "store"); await mkdir(storeRoot);
   const store = new StoreV2(storeRoot), fresh = { current: async p => ({ repository: p.repository, source: p.source }) }, runtime = new RuntimeV2(store, fresh);
   const workItem = (id, dependsOn) => ({ id, title: id, objective: id, outcomeIds: ["result"], context: [], checks: ["actual verification"], dependsOn, risk: "low", riskNotes: [], resources: {}, gates: [], lifecycle: fixtureLifecycleV2() });
   const counter = join(f.dir, "validation-count");
-  const command = (phase, fail = false) => ({ id: phase, argv: [process.execPath, "-e", `${phase === "prefix" ? prefixScript(f) : ""}require('node:fs').appendFileSync(${JSON.stringify(counter)},${JSON.stringify(phase + "\n")}); console.log(require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'})); setTimeout(()=>process.exit(${fail ? 7 : 0}),${phase === "prefix" ? prefixDelay : 0})`] });
+  const command = (phase, fail = false) => ({ id: phase, argv: [process.execPath, "-e", `${phase === "prefix" ? prefixScript(f) : ""}require('node:fs').appendFileSync(${JSON.stringify(counter)},${JSON.stringify(phase + "\n")}); console.log(require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'})); setTimeout(()=>process.exit(${fail ? 7 : 0}),${phase === "prefix" ? prefixDelay : finalDelay})`] });
   const plan = await runtime.save({ planId: "git", title: "native integration", repository: { repositoryId: "native", baselineCommit: f.old.commit, baselineTree: f.old.tree, targetBranch: "refs/heads/main" },
     source: { governingClosure: `sha256:${"a".repeat(64)}`, refs: [fixtureSourceV2], scopeSummary: "repository local" }, architecture: { outcomes: [{ id: "result", description: "actual integration" }], nonGoals: ["publication"], notes: [], risks: [] },
     workItems: nodes === 2 ? [workItem("a", []), workItem("b", ["a"])] : [workItem("a", [])], constraints: { maxConcurrency: 1, resources: {}, mutexGroups: [], gates: [] },
@@ -184,6 +184,64 @@ async function nodeRuntimeFixture(options) {
     binding, launchKey: null, execution: null, handoffs: [{ binding, completion: { completionId: "fixture", terminalStatus: "succeeded" }, at: new Date().toISOString() }] }));
   return { ...f, node };
 }
+for (const phase of ["prefix", "final"]) test(`verification timeout terminates native ${phase} subprocess without landing`, async () => {
+  const f = await nodeRuntimeFixture({ [phase + "Delay"]: 30000 });
+  const original = childProcess.spawn, observed = [];
+  try {
+    const before = await readFile(f.store.statePath, "utf8");
+    await assert.rejects(new GitDriverV2(f.runtime, f.root).integrate(mutationV2(f.run), "a", 1, f.candidate, undefined, f.node, 0), /INVALID_VERIFICATION_COMMAND_TIMEOUT/);
+    assert.equal(await readFile(f.store.statePath, "utf8"), before);
+    childProcess.spawn = (command, args, ...rest) => {
+      if (command === "python3" && args.some(a => String(a).endsWith("command-supervisor.py"))) {
+        const request = JSON.parse(args.at(-1)); observed.push({ argv: request.argv, timeoutMs: request.timeoutMs });
+      }
+      return original(command, args, ...rest);
+    }; syncBuiltinESMExports();
+    await assert.rejects(new GitDriverV2(f.runtime, f.root).integrate(mutationV2(f.run), "a", 1, f.candidate, undefined, f.node, 5000), /GIT_CHECK_NONPASS/);
+    const snapshot = await f.store.read(), run = snapshot.runs[f.run.runId], op = run.gitOperations[0];
+    assert.equal(op.commandTimeoutMs, 5000); assert(op.checks.every(c => c.commandTimeoutMs === 5000));
+    const result = snapshot.executions[op.checks[phase === "prefix" ? 0 : 1].id].result;
+    assert.equal(result.disposition, "FAIL", result.diagnostic); assert(result.executor.invoked); assert(result.workspace.cleanAfter);
+    assert.equal(result.request.commandTimeoutMs, 5000); assert.match(result.diagnostic, /timeoutMs=5000/);
+    assert.match(result.stderr, /deadline expired/); assert(result.durationMs < 15000);
+    assert(observed.filter(o => o.argv[0] === process.execPath).every(o => o.timeoutMs === 5000));
+    assert(observed.some(o => o.argv[0] === process.execPath));
+    assert(observed.filter(o => o.argv[0] === "git").every(o => o.timeoutMs === 3600000), "native checkout timeout is unrelated");
+    assert.equal(f.git("rev-parse", "HEAD"), f.old.commit);
+    const count = await readFile(f.counter, "utf8");
+    await assert.rejects(new GitDriverV2(f.reload(), f.root).integrate(mutationV2(run), "a", 1, f.candidate, undefined, f.node, 14400000), /GIT_CHECK_NONPASS/);
+    assert.equal(await readFile(f.counter, "utf8"), count, "new config never reruns a failed exact request");
+    const current = (await f.store.read()).runs[f.run.runId];
+    await new GitDriverV2(f.reload(), f.root).closeOperation(mutationV2(current), op.operationId);
+  } finally { childProcess.spawn = original; syncBuiltinESMExports(); await f.cleanup(); }
+});
+
+for (const legacy of [false, true]) test(`verification timeout native intent survives actual owner death (${legacy ? "legacy absence" : "custom long budget"})`, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "native-timeout-recovery-")), info = join(directory, "info.json"); let data;
+  try {
+    const child = spawn(process.execPath, [resolve(import.meta.filename), "--timeout-crash-owner", String(legacy), info], { stdio: ["ignore", "pipe", "pipe"] });
+    let output = ""; child.stdout.on("data", b => output += b); child.stderr.on("data", b => output += b);
+    const exit = await new Promise(r => child.on("exit", (code, signal) => r({ code, signal })));
+    assert.equal(exit.signal, "SIGKILL", output); data = JSON.parse(await readFile(info, "utf8"));
+    const store = new StoreV2(data.storeRoot), runtime = new RuntimeV2(store, { current: async p => ({ repository: p.repository, source: p.source }) });
+    const bytes = await readFile(store.statePath, "utf8"); let run = (await store.read()).runs[data.runId];
+    assert.equal(await readFile(store.statePath, "utf8"), bytes);
+    const frozen = run.gitOperations[0].commandTimeoutMs;
+    assert.equal(frozen, legacy ? undefined : 14400000); assert.equal(run.gitOperations[0].checks.length, 0);
+    run = await runtime.acquireLease(run.runId, "session", run.revision);
+    run = await new GitDriverV2(runtime, data.root).integrate(mutationV2(run), "a", 1, data.candidate, undefined, undefined, 1);
+    assert.equal(run.status, "complete"); const snapshot = await store.read(), op = run.gitOperations[0];
+    for (const check of op.checks) {
+      assert.equal(check.commandTimeoutMs, frozen); const result = snapshot.executions[check.id].result;
+      assert.equal(result.disposition, "PASS"); assert.deepEqual(result.request, check);
+      assert.match(result.diagnostic, new RegExp(`timeoutMs=${frozen ?? 3600000}`));
+    }
+    const before = await readFile(store.statePath, "utf8");
+    await assert.rejects(store.transaction(async (s, publish) => { s.runs[run.runId].gitOperations[0].commandTimeoutMs = 2; await publish(); }), /GIT_CHECK_REQUEST_MISMATCH/);
+    assert.equal(await readFile(store.statePath, "utf8"), before);
+  } finally { if (data) await rm(data.dir, { recursive: true, force: true }); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("same-node configured hooks stay disabled during checkout, checks, restoration and landing", async () => {
   const f = await nodeRuntimeFixture(); try {
     const marker = installConfiguredHooks(f);
@@ -741,6 +799,16 @@ for (const point of ["landing-intent", "git-exited"]) test(`real owner SIGKILL a
     const refs = nativeGitV2(data.root, "reflog", "show", "--format=%H", "main").split("\n"); assert.equal(refs.filter(oid => oid === run.nodes.a.integration.target.commit).length, 1);
   } finally { if (data) await rm(data.dir, { recursive: true, force: true }); await rm(directory, { recursive: true, force: true }); }
 });
+if (process.argv[2] === "--timeout-crash-owner") {
+  const f = await runtimeFixture();
+  await writeFile(process.argv[4], JSON.stringify({ dir: f.dir, root: f.root, storeRoot: f.storeRoot, candidate: f.candidate, runId: f.run.runId }));
+  await new GitDriverV2(f.runtime, f.root, { failpoint: async point => {
+    if (point !== "intent") return;
+    if (process.argv[3] === "true") await f.store.transaction(async (s, publish) => { delete s.runs[f.run.runId].gitOperations[0].commandTimeoutMs; await publish(); });
+    process.kill(process.pid, "SIGKILL");
+  } }).integrate(mutationV2(f.run), "a", 1, f.candidate, undefined, undefined, 14400000);
+  throw Error("timeout crash failpoint not reached");
+}
 if (process.argv[2] === "--crash-node-owner") {
   const f = await nodeRuntimeFixture();
   await writeFile(process.argv[4], JSON.stringify({ dir: f.dir, root: f.root, storeRoot: f.storeRoot, candidate: f.candidate, old: f.old, node: f.node, runId: f.run.runId }));

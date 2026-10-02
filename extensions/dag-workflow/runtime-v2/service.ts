@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { verificationCommandTimeoutMs } from "../command-timeout.ts";
 import { createPlanV2, parsePlanV2, PlanInputV2Schema, PlanSelectorV2Schema, requireV2, sameV2, validateShapeV2, type PlanInputV2, type PlanSelectorV2, type PlanV2 } from "../planning/v2.ts";
 import { AuthorityV2Schema, WorkerDirectionV2Schema, type WorkerDirectionV2, admissibleV2, assertScopeV2, executionRepositoryV2, type AcceptanceV2, type AuthorityV2, IntegrationV2Schema, StartV2Schema, runPlanV2, type IntegrationV2, type LeaseV2, type ReservationV2, type RunV2, type SnapshotV2, type StartV2, type WorkerBindingV2, type NodeWorkspaceBindingV2 } from "./state.ts";
 import { processIdentityV2, StoreV2 } from "./store.ts";
 import { CandidateV2Schema, ExecutionResultV2Schema, type CandidateV2, type RetryDimensionV2 } from "./lifecycle-schema.ts";
-import { assertReadyV2, assertStageV2, auditResultV2, consumeRetryV2, contextReusedV2, rejectedContextResultV2, currentExecutionV2, executionRequestV2, frameV2, invalidateLifecycleV2, stageChecksV2 } from "./lifecycle.ts";
+import { assertReadyV2, assertStageV2, auditResultV2, consumeRetryV2, recordReplacementV2, contextReusedV2, rejectedContextResultV2, currentExecutionV2, executionRequestV2, frameV2, invalidateLifecycleV2, stageChecksV2 } from "./lifecycle.ts";
 import type { CandidateInspectorV2, ResultsV2 } from "./command-runner.ts";
 import { unresolvedGitV2 } from "./git-state.ts";
 import { historicalResultViewV2 } from "./historical-authority.ts";
@@ -256,7 +257,8 @@ export class RuntimeV2 {
     });
   }
   /** Generation replacement only after the worker adapter proves the old natural
-   * operation settled, within retained retry limits and evidence invalidation. */
+   * operation settled. Explicit replacement records history and invalidates evidence;
+   * it has no budget and never resets independent lifecycle retry limits. */
   async replace(m: MutationV2, itemId: string, generation: number, settled: (reservation: Readonly<ReservationV2>) => Promise<void>, request?: string, direction?: WorkerDirectionV2): Promise<RunV2> {
     if (direction) validateShapeV2(WorkerDirectionV2Schema, direction);
     if (request !== undefined) requireV2(typeof request === "string" && request.length > 0 && request.length <= 65536, "INVALID_WORKER_REQUEST");
@@ -267,7 +269,7 @@ export class RuntimeV2 {
       requireV2(!unresolvedGitV2(run, itemId), "UNRESOLVED_GIT_OPERATION");
       requireV2(!node.lifecycle?.executions.some(e => !e.result), "EXECUTION_RECONCILIATION_REQUIRED");
       await settled(structuredClone(node.reservation));
-      consumeRetryV2(run, itemId, "replacement", 0, "worker", "replacement");
+      recordReplacementV2(run, itemId);
       invalidateLifecycleV2(run, itemId, "worker replacement");
       if (node.lifecycle) node.lifecycle.candidateReady = false;
       (node.archivedReservations ??= []).push(structuredClone(node.reservation));
@@ -330,7 +332,8 @@ export class RuntimeV2 {
       return true;
     });
   }
-  async prepareCheck(m: MutationV2, itemId: string, generation: number, checkId: string, expectedAttempt?: { stage: number; round: number }, nodeWorkspace?: import("./lifecycle-schema.ts").NodeWorkspaceV2): Promise<RunV2> {
+  async prepareCheck(m: MutationV2, itemId: string, generation: number, checkId: string, expectedAttempt?: { stage: number; round: number }, nodeWorkspace?: import("./lifecycle-schema.ts").NodeWorkspaceV2, commandTimeoutMs?: number): Promise<RunV2> {
+    const timeoutMs = verificationCommandTimeoutMs(commandTimeoutMs);
     return this.change(m, async (run, plan) => {
       this.dispatchGuard(run, plan); const node = this.node(run, itemId, generation), l = node.lifecycle;
       requireV2(node.status === "active" && l?.candidateReady && !l.stop, "LIFECYCLE_NOT_EXECUTABLE");
@@ -339,7 +342,7 @@ export class RuntimeV2 {
       const check = stageChecksV2(plan, itemId, l.stage).find(c => c.id === checkId);
       requireV2(check, "CHECK_NOT_APPLICABLE_TO_STAGE");
       if (l.executions.some(e => e.request.stage === l.stage && e.request.check.id === checkId && e.status !== "quarantined" && currentExecutionV2(run, e.request))) return false;
-      l.executions.push({ request: { ...executionRequestV2(run, itemId, check), ...(nodeWorkspace ? { nodeWorkspace } : {}) }, status: "intent" }); return true;
+      l.executions.push({ request: { ...executionRequestV2(run, itemId, check), commandTimeoutMs: timeoutMs, ...(nodeWorkspace ? { nodeWorkspace } : {}) }, status: "intent" }); return true;
     });
   }
   /** Hydrate only a durable execution result from a trusted executor. There is no

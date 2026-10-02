@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { DagFile, DagStep, DagWorkflowConfig } from "./types.ts";
 import { PACKAGE_DEFAULT_CONFIG } from "./defaults.ts";
+import { verificationCommandTimeoutMs } from "./command-timeout.ts";
 
 export function expandHome(path: string): string {
   return path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
@@ -36,7 +37,9 @@ function mergeStepArray(base: DagWorkflowConfig["steps"] = [], patch: DagWorkflo
 }
 
 export function mergeConfig(base: DagWorkflowConfig, patch: DagWorkflowConfig | undefined): DagWorkflowConfig {
+  verificationCommandTimeoutMs(base.verificationCommandTimeoutMs);
   if (!patch) return base;
+  verificationCommandTimeoutMs(patch.verificationCommandTimeoutMs);
   return {
     ...base,
     ...patch,

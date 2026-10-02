@@ -76,6 +76,7 @@ export interface DagFile {
 }
 
 export interface DagWorkflowConfig {
+  verificationCommandTimeoutMs?: number;
   defaults?: Partial<DagFile["defaults"]>;
   steps?: Array<Partial<DagStep> & { id: string }>;
   merge?: Partial<DagStep> & { id?: string };

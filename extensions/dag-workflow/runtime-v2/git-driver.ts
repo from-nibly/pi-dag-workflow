@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { verificationCommandTimeoutMs } from "../command-timeout.ts";
 import { mkdtemp, open, readFile, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -65,9 +66,11 @@ export class GitDriverV2 implements IntegrationsV2 {
       check: { id: `integration-${c.phase}`, stage: 7, expectation: `Combined ${c.phase} command ${c.id}`, sourceRefs: [plan.source.refs[0].ref],
         applicability: { kind: "required" }, procedure: { kind: "command", argv: c.argv }, environment: "node-local", replay: "idempotent" },
       authority: { effect: "repository_local" }, ...(op.workspace ? { nodeWorkspace: op.workspace.node } : {}),
+      ...(op.commandTimeoutMs === undefined ? {} : { commandTimeoutMs: op.commandTimeoutMs }),
     }));
   }
-  async integrate(m: MutationV2, itemId: string, generation: number, candidate: CandidateV2, signal?: AbortSignal, nodeWorkspace?: NodeWorkspaceV2): Promise<RunV2> {
+  async integrate(m: MutationV2, itemId: string, generation: number, candidate: CandidateV2, signal?: AbortSignal, nodeWorkspace?: NodeWorkspaceV2, commandTimeoutMs?: number): Promise<RunV2> {
+    const timeoutMs = verificationCommandTimeoutMs(commandTimeoutMs);
     const initial = await this.store.read(), run = initial.runs[m.runId];
     requireV2(run && run.revision === m.expectedRevision, "STALE_REVISION");
     requireV2(sameV2(run.lease, m.lease) && m.lease.pid === process.pid && m.lease.processStart === await processIdentityV2(), "STALE_LEASE");
@@ -98,7 +101,7 @@ export class GitDriverV2 implements IntegrationsV2 {
         requireV2(!productRequest || nodeWorkspace, "PRODUCT_INTEGRATION_NODE_WORKSPACE_REQUIRED");
         const operation: GitOperationV2 = { operationId, itemId, generation, reservation: node.reservation.operationId, lease: m.lease,
           candidate, sourceBase, expected, targetRef: executionRepositoryV2(r, plan).targetBranch,
-          binding, profile: "ordinary-ff-v2-2", composition, phase: "intent", checks: [], dispatches: 0,
+          binding, profile: "ordinary-ff-v2-2", composition, phase: "intent", checks: [], dispatches: 0, commandTimeoutMs: timeoutMs,
           ...(nodeWorkspace ? { workspace: { node: nodeWorkspace, binding: await bindGitV2(nodeWorkspace.cwd), phase: "original" as const } } : {}) };
         // Publish the common-dir lane claim first: a crash between these stores
         // must block other writers, never leave a durable unclaimed operation.
